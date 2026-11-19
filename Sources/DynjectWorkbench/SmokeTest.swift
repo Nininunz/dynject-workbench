@@ -152,6 +152,8 @@ struct SmokeTest {
         snapshot("plist-invalid")
         model.revertPlist()
 
+        await tweakScenario(finder: finder)
+
         model.section = .dylibs
         _ = check("association shown", await wait { await AXSelf.exists("screen-dylibs") }
                   && model.associations.contains { $0.plistPath == plistPath }
@@ -162,6 +164,42 @@ struct SmokeTest {
         _ = await wait { await AXSelf.exists("screen-daemon") }
         await settle()
         snapshot("daemon")
+    }
+
+    /// PreferenceLoader-style settings: global switch, per-app override, apply command, revert.
+    func tweakScenario(finder: InstalledApp) async {
+        let id = "com.example.windowtweak"
+        let marker = (model.env.supportDirectory.deletingLastPathComponent().path as NSString).appendingPathComponent("applied")
+        let file = FileTweakBackend(path: model.env.tweakPrefsFile)
+        func payload() -> [String: Any]? { file.payload(for: id) }
+        func global(_ k: String) -> Any? { (payload()?["values"] as? [String: Any])?[k] }
+        func perApp(_ b: String, _ k: String) -> Any? { ((payload()?["perApp"] as? [String: Any])?[b] as? [String: Any])?[k] }
+
+        guard check("tweak manifest loaded", model.tweaks.map(\.id) == [id] && !model.tweakIssues.contains { $0.severity == .error },
+                    model.tweakIssues.map(\.message).joined(separator: " | ")) else { return }
+        model.section = .tweaks
+        model.selectedTweakID = id
+        _ = check("tweak form", await wait { await AXSelf.exists("tweak-form-\(id)") }, "")
+        await settle()
+        snapshot("tweaks")
+        _ = check("press tweak switch", await pressWhenReady("tweak-item-enabled"), "AXPress on the Enabled switch")
+        _ = check("tweak value saved", await wait { global("enabled") as? Bool == false }, "values.enabled = false")
+        _ = check("apply command ran", await wait { FileManager.default.fileExists(atPath: marker) }, marker)
+        _ = check("change notification", (model.tweakBackend as? FileTweakBackend)?.posted.contains("dynject.tweak.\(id).changed") == true, "")
+        _ = check("defaults published", (payload()?["defaults"] as? [String: Any])?["radius"] as? Int == 8, "")
+
+        model.section = .injection
+        model.searchText = ""
+        model.selectedAppID = finder.id
+        _ = check("per-app panel", await wait { await AXSelf.exists("tweak-perapp-\(id)") }, "shown in Finder's detail pane")
+        _ = check("press override", await pressWhenReady("tweak-override-\(id)-radius"), "")
+        _ = check("override saved", await wait { perApp("com.apple.finder", "radius") as? Int == 8 }, "perApp[com.apple.finder].radius = 8")
+        await settle()
+        snapshot("tweak-perapp-finder")
+
+        model.section = .tweaks
+        _ = check("press revert", await pressWhenReady("tweak-revert"), "")
+        _ = check("session reverted", await wait { payload() == nil }, "no payload existed before this session")
     }
 
     // MARK: Helpers

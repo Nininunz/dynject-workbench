@@ -112,6 +112,12 @@ struct AppDetailView: View {
                     .padding(6)
                 }
 
+                ForEach(model.tweaks.filter { !$0.perAppItems.isEmpty }) { m in
+                    if let settings = model.tweakSettings[m.id] {
+                        PerAppTweakPanel(model: model, settings: settings, app: app)
+                    }
+                }
+
                 if let eval {
                     GroupBox("dynjectd filters (all must pass before any dylib is considered)") {
                         VStack(alignment: .leading, spacing: 6) {

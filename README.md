@@ -7,6 +7,8 @@ A native macOS app for managing the installed [Dynject](#how-dynject-decides) in
 - Edit the whole `dynjectd.conf` as raw text, with diagnostics based on dynjectd's own parser.
 - Edit any property list as XML. It is validated, backed up, and saved in its original on-disk format.
 - Restart `dynjectd` safely: exactly one daemon, never duplicates.
+- Give tweaks a settings page (similar to iOS's PreferenceLoader): a tweak ships a small manifest, and Workbench
+  draws its settings, with per-app overrides. See [Tweak settings](#tweak-settings).
 
 It manages the existing engine at `/opt/dynject`. It is not an injector, not a theme UI, and not a binary/hex editor.
 
@@ -23,13 +25,14 @@ Version 0.1. Tested against fixtures, and the privileged write and restart paths
 | Plist editor (XML/binary, backup, format-preserving) | Done. |
 | Privileged helper (atomic install, single-daemon restart) | Done. Tested with stubs, then live as root. |
 | UI smoke test | Done. Drives the built app through accessibility against fixtures. |
+| Tweak settings (manifest, settings UI, per-app overrides, SDK header) | Done. Tested on fixtures; no real tweak uses it yet. |
 
 ## Getting started
 
 Requires macOS 14+ and Xcode / Swift 6 command-line tools.
 
 ```sh
-swift test                    # 60 unit tests (parser, editor, helper script, writer, plists)
+swift test                    # 73 unit tests (parser, editor, helper script, writer, plists, tweaks)
 ./scripts/build-app.sh        # → build/Dynject Workbench.app (release, ad-hoc signed)
 ./scripts/ui-smoke-test.sh    # UI smoke test against config fixtures
 open "build/Dynject Workbench.app"
@@ -133,11 +136,26 @@ that shows the diff and which installed apps change.
 - Preference files are cached by `cfprefsd`, and the owning app may overwrite your edit. The editor warns when
   the app is running. Quit it before saving.
 
+## Tweak settings
+
+A tweak opts in by shipping `<name>.workbench.plist` (a manifest) and reading its settings with the one-file SDK
+[`DynjectTweak.h`](TweakSDK/include/DynjectTweak.h). Workbench lists it under **Tweaks**, draws native controls
+(switch, slider, number, color, choice, text, app list), and adds a "<Tweak> for <App>" panel with per-app
+overrides to each app's detail pane. Changes save instantly (snapshot first, **Revert Session** to undo).
+Workbench then posts `dynject.tweak.<id>.changed` and runs the tweak's optional apply command. Settings live under one
+key, `dynject.tweak.<id>`, in the global preferences domain, so tweaks can read them from inside sandboxed apps.
+
+Full format and SDK: [docs/tweak-format.md](docs/tweak-format.md). Example manifest:
+[Examples/ExampleTweak.workbench.plist](Examples/ExampleTweak.workbench.plist).
+
 ## Repository layout
 
 ```
 Sources/DynjectCore/       Parser, evaluator, editor, log/ps/lsof/launchctl readers, writer, helper script, plists
 Sources/DynjectWorkbench/  SwiftUI app and the smoke-test runner (SmokeTest.swift)
+Sources/DynjectLiveTrial/  Live privileged trial runner (run only with approval)
+TweakSDK/                  Header-only SDK for tweak authors (DynjectTweak.h)
+Examples/, docs/           Example tweak manifest; tweak format spec
 Tests/DynjectCoreTests/    Unit tests and fixtures (live.conf is a byte copy of the live config)
 Resources/Info.plist       App bundle metadata
 scripts/                   build-app.sh, ui-smoke-test.sh

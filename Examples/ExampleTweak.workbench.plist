@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Example Dynject Workbench tweak manifest. Copy to
+     ~/Library/Application Support/Dynject Workbench/Tweaks/ and edit. Spec: docs/tweak-format.md -->
+<plist version="1.0">
+<dict>
+	<key>formatVersion</key>
+	<integer>1</integer>
+	<key>identifier</key>
+	<string>com.example.windowtweak</string>
+	<key>name</key>
+	<string>Window Tweak</string>
+	<key>summary</key>
+	<string>Example tweak showing every setting type.</string>
+	<key>version</key>
+	<string>0.1</string>
+	<key>author</key>
+	<string>Example</string>
+	<key>dylib</key>
+	<string>/opt/dynject/lib/tweaks/libWindowTweak.dylib</string>
+	<key>takesEffect</key>
+	<string>live</string>
+	<key>sections</key>
+	<array>
+		<dict>
+			<key>title</key>
+			<string>General</string>
+			<key>items</key>
+			<array>
+				<dict>
+					<key>type</key><string>switch</string>
+					<key>key</key><string>enabled</string>
+					<key>title</key><string>Enabled</string>
+					<key>default</key><true/>
+					<key>perApp</key><true/>
+				</dict>
+				<dict>
+					<key>type</key><string>choice</string>
+					<key>key</key><string>style</string>
+					<key>title</key><string>Style</string>
+					<key>options</key>
+					<array>
+						<dict><key>value</key><string>flat</string><key>title</key><string>Flat</string></dict>
+						<dict><key>value</key><string>outlined</string><key>title</key><string>Outlined</string></dict>
+						<dict><key>value</key><string>glass</string><key>title</key><string>Glass</string></dict>
+					</array>
+					<key>default</key><string>flat</string>
+					<key>perApp</key><true/>
+					<key>enabledIf</key><string>enabled</string>
+				</dict>
+			</array>
+		</dict>
+		<dict>
+			<key>title</key>
+			<string>Appearance</string>
+			<key>footer</key>
+			<string>Colors accept #RRGGBB or #RRGGBBAA.</string>
+			<key>items</key>
+			<array>
+				<dict>
+					<key>type</key><string>slider</string>
+					<key>key</key><string>radius</string>
+					<key>title</key><string>Corner radius</string>
+					<key>min</key><real>0</real>
+					<key>max</key><real>24</real>
+					<key>step</key><real>1</real>
+					<key>integer</key><true/>
+					<key>default</key><integer>8</integer>
+					<key>perApp</key><true/>
+					<key>enabledIf</key><string>enabled</string>
+				</dict>
+				<dict>
+					<key>type</key><string>color</string>
+					<key>key</key><string>accent</string>
+					<key>title</key><string>Accent</string>
+					<key>allowAuto</key><true/>
+					<key>default</key><string>auto</string>
+					<key>perApp</key><true/>
+				</dict>
+				<dict>
+					<key>type</key><string>number</string>
+					<key>key</key><string>borderWidth</string>
+					<key>title</key><string>Border width</string>
+					<key>min</key><real>0</real>
+					<key>max</key><real>8</real>
+					<key>default</key><real>1</real>
+				</dict>
+				<dict>
+					<key>type</key><string>text</string>
+					<key>key</key><string>titleSuffix</string>
+					<key>title</key><string>Window title suffix</string>
+					<key>placeholder</key><string>e.g. ★</string>
+				</dict>
+			</array>
+		</dict>
+		<dict>
+			<key>title</key>
+			<string>Apps</string>
+			<key>items</key>
+			<array>
+				<dict>
+					<key>type</key><string>appList</string>
+					<key>key</key><string>exclude</string>
+					<key>title</key><string>Never style these apps</string>
+				</dict>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

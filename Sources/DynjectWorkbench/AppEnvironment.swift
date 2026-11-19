@@ -14,8 +14,13 @@ struct AppEnvironment {
     var appRoots: [String]
     var supportDirectory: URL
     var smokeTestReportDirectory: String?
+    /// Folders searched for tweak manifests (`-DWTweaksDir` replaces the defaults).
+    var tweakDirectories: [String]
 
     var fixtureMode: Bool { configPath != Self.liveConfigPath }
+
+    /// Fixture mode keeps tweak settings in a plist in the support folder instead of the global domain.
+    var tweakPrefsFile: String { supportDirectory.appendingPathComponent("tweak-prefs.plist").path }
 
     /// Reads `-DWConfigPath`, `-DWLogPath`, `-DWAppRoots` (colon-separated), `-DWSupportDir`,
     /// and `-DWSmokeTest <report-dir>` from the launch arguments.
@@ -27,13 +32,18 @@ struct AppEnvironment {
         let support = value("-DWSupportDir").map { URL(fileURLWithPath: $0, isDirectory: true) }
             ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("Dynject Workbench", isDirectory: true)
+        let configPath = value("-DWConfigPath") ?? liveConfigPath
+        let tweakDirs = value("-DWTweaksDir").map { [$0] }
+            ?? (configPath == liveConfigPath ? TweakManifestLoader.defaultDirectories(supportDirectory: support)
+                                             : [support.appendingPathComponent("Tweaks").path])
         return AppEnvironment(
-            configPath: value("-DWConfigPath") ?? liveConfigPath,
+            configPath: configPath,
             logPath: value("-DWLogPath") ?? liveLogPath,
             errorLogPath: value("-DWErrorLogPath") ?? liveErrorLogPath,
             appRoots: value("-DWAppRoots")?.split(separator: ":").map(String.init) ?? AppDiscovery.defaultRoots,
             supportDirectory: support,
-            smokeTestReportDirectory: value("-DWSmokeTest")
+            smokeTestReportDirectory: value("-DWSmokeTest"),
+            tweakDirectories: tweakDirs
         )
     }
 }

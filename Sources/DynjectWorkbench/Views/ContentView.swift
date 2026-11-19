@@ -21,6 +21,7 @@ struct ContentView: View {
                 Group {
                     switch model.section {
                     case .injection: InjectionView(model: model)
+                    case .tweaks: TweaksView(model: model)
                     case .dylibs: DylibsView(model: model)
                     case .config: ConfigView(model: model)
                     case .plists: PlistView(model: model)

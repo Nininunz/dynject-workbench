@@ -168,17 +168,10 @@ struct DylibCard: View {
 
     var body: some View {
         let injectedInto = model.apps.filter { model.workingEvals[$0.id]?.isInjected(dylib.path) ?? false }
-        let exists = FileManager.default.fileExists(atPath: dylib.path)
         let plists = model.associations.filter { $0.dylibPath == dylib.path }
         GroupBox {
             VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text(dylib.path.lastPathComponent).font(.headline)
-                    Chip(text: dylib.defaultAllow ? "default allow" : "default deny", color: dylib.defaultAllow ? .orange : .blue)
-                    if !exists { Chip(text: "file missing", color: .red) }
-                    Spacer()
-                    Text("line \(dylib.line + 1)").font(.caption).foregroundStyle(.secondary)
-                }
+                header
                 Text(dylib.path).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 if dylib.overrides.isEmpty {
                     Text("No overrides.").font(.callout).foregroundStyle(.secondary)
@@ -218,6 +211,19 @@ struct DylibCard: View {
             .padding(6)
         }
         .axContainer("dylib-card-\(dylib.path.lastPathComponent)")
+    }
+
+    var header: some View {
+        HStack {
+            Text(dylib.path.lastPathComponent).font(.headline)
+            Chip(text: dylib.defaultAllow ? "default allow" : "default deny", color: dylib.defaultAllow ? .orange : .blue)
+            if !FileManager.default.fileExists(atPath: dylib.path) { Chip(text: "file missing", color: .red) }
+            Spacer()
+            if let t = model.tweaks(forDylib: dylib.path).first {
+                Button("\(t.name) Settings…") { model.selectedTweakID = t.id; model.section = .tweaks }
+            }
+            Text("line \(dylib.line + 1)").font(.caption).foregroundStyle(.secondary)
+        }
     }
 
     func associate() {

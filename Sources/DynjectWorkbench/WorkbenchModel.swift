@@ -3,12 +3,13 @@ import DynjectCore
 import Observation
 
 enum SidebarSection: String, CaseIterable, Identifiable {
-    case injection, dylibs, config, plists, daemon
+    case injection, tweaks, dylibs, config, plists, daemon
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .injection: return "Apps & Injection"
+        case .tweaks: return "Tweaks"
         case .dylibs: return "Dylibs"
         case .config: return "Raw Config"
         case .plists: return "Plist Editor"
@@ -19,6 +20,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .injection: return "square.stack.3d.down.right"
+        case .tweaks: return "puzzlepiece.extension"
         case .dylibs: return "shippingbox"
         case .config: return "doc.plaintext"
         case .plists: return "list.bullet.indent"
@@ -113,8 +115,19 @@ final class WorkbenchModel {
     private(set) var plistLoadError: String?
     private(set) var lastPlistBackup: URL?
 
+    // MARK: Tweaks
+    let tweakBackend: TweakPrefsBackend
+    private(set) var tweaks: [TweakManifest] = []
+    private(set) var tweakIssues: [ManifestIssue] = []
+    private(set) var tweakSettings: [String: TweakSettings] = [:]
+    private(set) var tweakApplyStatus: [String: String] = [:]
+    var selectedTweakID: String?
+    @ObservationIgnored private var tweakPersistTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var tweakSnapshotsSaved: Set<String> = []
+
     init(env: AppEnvironment) {
         self.env = env
+        tweakBackend = env.fixtureMode ? FileTweakBackend(path: env.tweakPrefsFile) : CFPreferencesTweakBackend()
         backups = BackupStore(root: env.supportDirectory.appendingPathComponent("Backups", isDirectory: true))
         associationStore = AssociationStore(url: env.supportDirectory.appendingPathComponent("associations.json"))
         if env.fixtureMode {
@@ -127,6 +140,7 @@ final class WorkbenchModel {
         }
         associations = associationStore.load()
         reloadConfig()
+        loadTweaks()
     }
 
     // MARK: Loading
@@ -417,6 +431,85 @@ final class WorkbenchModel {
             relaunchNeeded.removeAll { $0.app.id == app.id }
             refreshRuntime()
         }
+    }
+
+    // MARK: Tweaks
+
+    func loadTweaks() {
+        let (manifests, issues) = TweakManifestLoader.load(directories: env.tweakDirectories)
+        tweaks = manifests
+        tweakIssues = issues
+        var settings: [String: TweakSettings] = [:]
+        for m in manifests { settings[m.id] = tweakSettings[m.id].flatMap { $0.manifest.sourcePath == m.sourcePath ? $0 : nil }
+            ?? TweakSettings(manifest: m, backend: tweakBackend) }
+        tweakSettings = settings
+        if selectedTweakID == nil || !manifests.contains(where: { $0.id == selectedTweakID }) {
+            selectedTweakID = manifests.first?.id
+        }
+    }
+
+    var tweaksFolder: String { env.tweakDirectories.first ?? env.supportDirectory.appendingPathComponent("Tweaks").path }
+
+    func tweaks(forDylib dylib: String) -> [TweakManifest] { tweaks.filter { $0.dylib == dylib } }
+
+    /// Running apps that currently have this tweak's dylib loaded (confirmed with lsof).
+    func appsWithTweakLoaded(_ m: TweakManifest) -> [InstalledApp] {
+        apps.filter { loaded[$0.id]?.contains(m.dylib) ?? false }
+    }
+
+    /// Called after every settings change: publish ~0.3 s after the last change (sliders, typing).
+    func tweakDidChange(_ id: String) {
+        tweakPersistTasks[id]?.cancel()
+        tweakPersistTasks[id] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            self?.persistTweak(id)
+        }
+    }
+
+    func persistTweak(_ id: String) {
+        guard let s = tweakSettings[id] else { return }
+        // Keep the pre-session state on disk too, the first time this session changes the tweak.
+        if !tweakSnapshotsSaved.contains(id), case let .some(.some(snap)) = s.sessionSnapshot {
+            if let data = try? PropertyListSerialization.data(fromPropertyList: snap, format: .xml, options: 0) {
+                _ = try? backups.backup(data, originalPath: "tweak-\(id).plist", category: "tweaks")
+            }
+            tweakSnapshotsSaved.insert(id)
+        }
+        do {
+            try s.persist()
+        } catch {
+            tweakApplyStatus[id] = "Save failed: \(error.localizedDescription)"
+            return
+        }
+        guard let cmd = s.manifest.applyCommand else {
+            tweakApplyStatus[id] = "Saved \(Date().formatted(date: .omitted, time: .standard))"
+            return
+        }
+        tweakApplyStatus[id] = "Saved; running apply command…"
+        Task.detached {
+            let r = ApplyCommandRunner.run(cmd)
+            await MainActor.run {
+                self.tweakApplyStatus[id] = r.ok ? "Saved and applied \(Date().formatted(date: .omitted, time: .standard))"
+                                                 : "Saved, but the apply command failed: \(r.message)"
+            }
+        }
+    }
+
+    func revertTweak(_ id: String) {
+        guard let s = tweakSettings[id] else { return }
+        tweakPersistTasks[id]?.cancel()
+        do {
+            try s.revertSession()
+            tweakApplyStatus[id] = "Reverted to how it was when this session started"
+            if let cmd = s.manifest.applyCommand { Task.detached { _ = ApplyCommandRunner.run(cmd) } }
+        } catch {
+            tweakApplyStatus[id] = "Revert failed: \(error.localizedDescription)"
+        }
+    }
+
+    func installedAppName(_ bundleID: String) -> String {
+        apps.first { $0.bundleID == bundleID }?.displayName ?? bundleID
     }
 
     // MARK: Plists

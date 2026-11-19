@@ -13,9 +13,12 @@ let package = Package(
         .executableTarget(name: "DynjectWorkbench", dependencies: ["DynjectCore"]),
         // Live privileged trial against /opt/dynject. Run only with the owner's approval.
         .executableTarget(name: "DynjectLiveTrial", dependencies: ["DynjectCore"]),
+        // Header-only SDK for tweak authors (TweakSDK/include/DynjectTweak.h).
+        .target(name: "DynjectTweakSDK", path: "TweakSDK", publicHeadersPath: "include",
+                cSettings: [.unsafeFlags(["-fobjc-arc"])]),
         .testTarget(
             name: "DynjectCoreTests",
-            dependencies: ["DynjectCore"],
+            dependencies: ["DynjectCore", "DynjectTweakSDK"],
             resources: [.copy("Fixtures")]
         ),
     ],
