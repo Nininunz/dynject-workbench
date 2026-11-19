@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>formatVersion</key><integer>1</integer>
+	<key>identifier</key><string>local.dynject.titlebadge</string>
+	<key>name</key><string>Title Badge</string>
+	<key>summary</key><string>Proof-of-concept tweak: a badge in every window's titlebar. Uses only public AppKit API.</string>
+	<key>version</key><string>0.1</string>
+	<key>author</key><string>Dynject Workbench example</string>
+	<key>dylib</key><string>/opt/dynject/lib/tweaks/libTitleBadge.dylib</string>
+	<key>takesEffect</key><string>live</string>
+	<key>sections</key>
+	<array>
+		<dict>
+			<key>title</key><string>Badge</string>
+			<key>items</key>
+			<array>
+				<dict>
+					<key>type</key><string>switch</string>
+					<key>key</key><string>enabled</string>
+					<key>title</key><string>Show badge</string>
+					<key>default</key><true/>
+					<key>perApp</key><true/>
+				</dict>
+				<dict>
+					<key>type</key><string>text</string>
+					<key>key</key><string>text</string>
+					<key>title</key><string>Text</string>
+					<key>default</key><string>Dynject</string>
+					<key>placeholder</key><string>Dynject</string>
+					<key>perApp</key><true/>
+					<key>enabledIf</key><string>enabled</string>
+				</dict>
+				<dict>
+					<key>type</key><string>switch</string>
+					<key>key</key><string>showBundleID</string>
+					<key>title</key><string>Show the app's bundle ID instead</string>
+					<key>default</key><false/>
+					<key>perApp</key><true/>
+					<key>enabledIf</key><string>enabled</string>
+				</dict>
+			</array>
+		</dict>
+		<dict>
+			<key>title</key><string>Look</string>
+			<key>items</key>
+			<array>
+				<dict>
+					<key>type</key><string>choice</string>
+					<key>key</key><string>style</string>
+					<key>title</key><string>Style</string>
+					<key>options</key>
+					<array>
+						<dict><key>value</key><string>pill</string><key>title</key><string>Pill</string></dict>
+						<dict><key>value</key><string>outline</string><key>title</key><string>Outline</string></dict>
+						<dict><key>value</key><string>plain</string><key>title</key><string>Plain</string></dict>
+					</array>
+					<key>default</key><string>pill</string>
+					<key>perApp</key><true/>
+					<key>enabledIf</key><string>enabled</string>
+				</dict>
+				<dict>
+					<key>type</key><string>color</string>
+					<key>key</key><string>color</string>
+					<key>title</key><string>Color</string>
+					<key>allowAuto</key><true/>
+					<key>default</key><string>#FF6A00</string>
+					<key>footer</key><string>Auto uses the system accent color.</string>
+					<key>perApp</key><true/>
+					<key>enabledIf</key><string>enabled</string>
+				</dict>
+				<dict>
+					<key>type</key><string>slider</string>
+					<key>key</key><string>fontSize</string>
+					<key>title</key><string>Text size</string>
+					<key>min</key><real>9</real>
+					<key>max</key><real>16</real>
+					<key>step</key><real>1</real>
+					<key>integer</key><true/>
+					<key>default</key><integer>11</integer>
+					<key>enabledIf</key><string>enabled</string>
+				</dict>
+			</array>
+		</dict>
+		<dict>
+			<key>title</key><string>Apps</string>
+			<key>footer</key><string>Which apps load the tweak at all is set on the Apps &amp; Injection page.</string>
+			<key>items</key>
+			<array>
+				<dict>
+					<key>type</key><string>appList</string>
+					<key>key</key><string>exclude</string>
+					<key>title</key><string>Never show the badge in</string>
+				</dict>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

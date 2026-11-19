@@ -133,8 +133,13 @@ struct DylibsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Parsed from \(model.env.configPath), including unsaved edits. dynjectd honours at most \(DynjectLimits.maxDylibs) dylibs with \(DynjectLimits.maxOverridesPerDylib) overrides each.")
-                    .font(.callout).foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Parsed from \(model.env.configPath), including unsaved edits. dynjectd honours at most \(DynjectLimits.maxDylibs) dylibs with \(DynjectLimits.maxOverridesPerDylib) overrides each.")
+                        .font(.callout).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Add Dylib…") { chooseDylib() }
+                        .help("Declare an installed dylib in the config (deny by default)")
+                }
                 if model.workingConfig.dylibs.isEmpty {
                     ContentUnavailableView("No dylibs configured", systemImage: "shippingbox",
                                            description: Text("dynjectd refuses to start without at least one dylib: line."))
@@ -159,6 +164,16 @@ struct DylibsView: View {
             .padding(16)
         }
         .axContainer("screen-dylibs")
+    }
+}
+
+extension DylibsView {
+    func chooseDylib() {
+        let panel = NSOpenPanel()
+        panel.directoryURL = URL(fileURLWithPath: "/opt/dynject/lib/tweaks")
+        panel.allowedContentTypes = [.init(filenameExtension: "dylib") ?? .data]
+        panel.message = "Choose an installed tweak dylib to declare in the Dynject config"
+        if panel.runModal() == .OK, let url = panel.url { model.addDylib(url.path) }
     }
 }
 

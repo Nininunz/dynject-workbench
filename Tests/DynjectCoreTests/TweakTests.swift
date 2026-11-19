@@ -29,6 +29,15 @@ final class TweakManifestTests: XCTestCase {
         XCTAssertEqual(m.item("style")?.enabledIf, "enabled")
     }
 
+    func testTitleBadgeManifestParses() {
+        let path = repoRoot.appendingPathComponent("Examples/TitleBadge/TitleBadge.workbench.plist").path
+        let (m, issues) = TweakManifestParser.parse(data: FileManager.default.contents(atPath: path)!, path: path,
+                                                    fileExists: { _ in true })
+        XCTAssertEqual(issues.map(\.message), [])
+        XCTAssertEqual(m?.id, "local.dynject.titlebadge")
+        XCTAssertEqual(m?.perAppItems.map(\.key), ["enabled", "text", "showBundleID", "style", "color"])
+    }
+
     func testRejectsUnusableManifests() {
         func errors(_ d: [String: Any]) -> [String] {
             TweakManifestParser.parse(data: manifestData(d), path: "/x", fileExists: { _ in true }).1.map(\.message)
@@ -184,7 +193,8 @@ final class TweakSettingsTests: XCTestCase {
 
     /// The Swift writer and the C header must agree on the storage contract.
     func testSDKHeaderReadsWhatWorkbenchWrites() throws {
-        let domain = "local.dynject.workbench.tests.\(UUID().uuidString)"
+        // One fixed domain: cfprefsd may re-create an empty file after cleanup, so never use a unique name per run.
+        let domain = "local.dynject.workbench.tests"
         let prefsFile = NSHomeDirectory() + "/Library/Preferences/\(domain).plist"
         defer {
             CFPreferencesSetValue(TweakPrefsContract.payloadKey("com.example.windowtweak") as CFString, nil, domain as CFString,

@@ -69,6 +69,8 @@ func launchAndCheckLoaded(_ app: InstalledApp) -> Bool? {
     return loaded
 }
 
+if CommandLine.arguments.contains("--titlebadge") { exit(runTitleBadgeTrial()) }
+
 // --original <file>: the config to return to (e.g. a pre-trial copy). Defaults to the current file.
 // --skip-restart: skip step 2.
 let args = CommandLine.arguments

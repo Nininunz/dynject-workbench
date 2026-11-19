@@ -26,7 +26,8 @@ Use **Tweaks → Reload** after editing a manifest.
 
 ## Manifest
 
-A property list with a dictionary at the top level. See [`Examples/ExampleTweak.workbench.plist`](../Examples/ExampleTweak.workbench.plist).
+A property list with a dictionary at the top level. See [`Examples/ExampleTweak.workbench.plist`](../Examples/ExampleTweak.workbench.plist)
+(every item type), or [`Examples/TitleBadge`](../Examples/TitleBadge) for a complete working tweak.
 
 | Key | Required | Meaning |
 | --- | --- | --- |

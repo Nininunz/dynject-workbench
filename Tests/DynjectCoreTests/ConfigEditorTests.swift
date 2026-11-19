@@ -175,6 +175,26 @@ final class ConfigEditorTests: XCTestCase {
         XCTAssertFalse(r.document.text.replacingOccurrences(of: "\r\n", with: "").contains("\n"))
     }
 
+    func testAddDylibGoesAfterTheDylibBlockAndDefaultsToDeny() throws {
+        let live = Fixtures.text("live.conf")
+        let doc = try ConfigEditor.addDylib("/opt/dynject/lib/tweaks/libNew.dylib", to: ConfigDocument(text: live))
+        XCTAssertEqual(doc.lines.map(\.text)[3], "dylib:/opt/dynject/lib/tweaks/libNew.dylib:deny")
+        XCTAssertEqual(changedLines(live, doc.text).added, ["dylib:/opt/dynject/lib/tweaks/libNew.dylib:deny"])
+        XCTAssertEqual(changedLines(live, doc.text).removed, [])
+        XCTAssertFalse(EffectiveConfig(document: doc).dylib(path: "/opt/dynject/lib/tweaks/libNew.dylib")!.defaultAllow)
+        // Then it can be enabled for one app like any other dylib.
+        let on = try set(true, "/opt/dynject/lib/tweaks/libNew.dylib", Apps.textEdit, in: doc.text)
+        XCTAssertEqual(injected(Apps.textEdit, on.document.text), ["/opt/dynject/lib/tweaks/libNew.dylib"])
+        XCTAssertEqual(injected(Apps.finder, on.document.text), [brutalium])
+
+        XCTAssertThrowsError(try ConfigEditor.addDylib(brutalium, to: ConfigDocument(text: live)))
+        XCTAssertThrowsError(try ConfigEditor.addDylib("relative.dylib", to: ConfigDocument(text: live)))
+        XCTAssertThrowsError(try ConfigEditor.addDylib("/a:b.dylib", to: ConfigDocument(text: live)))
+        // No dylib lines yet: goes before the process rules.
+        let bare = try ConfigEditor.addDylib("/x.dylib", to: ConfigDocument(text: "# c\nallow:Finder\nui_apps:no\n"))
+        XCTAssertEqual(bare.text, "# c\ndylib:/x.dylib:deny\nallow:Finder\nui_apps:no\n")
+    }
+
     func testRewritePolicyKeepsBytes() throws {
         XCTAssertEqual(try ConfigEditor.rewritePolicy(in: "dylib-override:  /a:deny:x:y ", to: true),
                        "dylib-override:  /a:allow:x:y ")

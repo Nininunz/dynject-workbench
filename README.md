@@ -25,14 +25,14 @@ Version 0.1. Tested against fixtures, and the privileged write and restart paths
 | Plist editor (XML/binary, backup, format-preserving) | Done. |
 | Privileged helper (atomic install, single-daemon restart) | Done. Tested with stubs, then live as root. |
 | UI smoke test | Done. Drives the built app through accessibility against fixtures. |
-| Tweak settings (manifest, settings UI, per-app overrides, SDK header) | Done. Tested on fixtures; no real tweak uses it yet. |
+| Tweak settings (manifest, settings UI, per-app overrides, SDK header) | Done. Verified live with the Title Badge example in sandboxed Calculator. |
 
 ## Getting started
 
 Requires macOS 14+ and Xcode / Swift 6 command-line tools.
 
 ```sh
-swift test                    # 73 unit tests (parser, editor, helper script, writer, plists, tweaks)
+swift test                    # 75 unit tests (parser, editor, helper script, writer, plists, tweaks)
 ./scripts/build-app.sh        # → build/Dynject Workbench.app (release, ad-hoc signed)
 ./scripts/ui-smoke-test.sh    # UI smoke test against config fixtures
 open "build/Dynject Workbench.app"
@@ -146,7 +146,19 @@ Workbench then posts `dynject.tweak.<id>.changed` and runs the tweak's optional 
 key, `dynject.tweak.<id>`, in the global preferences domain, so tweaks can read them from inside sandboxed apps.
 
 Full format and SDK: [docs/tweak-format.md](docs/tweak-format.md). Example manifest:
-[Examples/ExampleTweak.workbench.plist](Examples/ExampleTweak.workbench.plist).
+[Examples/ExampleTweak.workbench.plist](Examples/ExampleTweak.workbench.plist). A working example tweak:
+[Examples/TitleBadge](Examples/TitleBadge), which adds a titlebar badge. On 2026-11-19 it was injected by Dynject into
+sandboxed Calculator, and its own log lines confirmed that it read settings written by Workbench, picked up live
+changes and a per-app override, and returned to defaults on revert (`swift run DynjectLiveTrial --titlebadge …`).
+**Dylibs → Add Dylib…** declares a newly installed dylib in the config (deny by default).
+
+## Hooking
+
+[`DynjectHook.h`](TweakSDK/include/DynjectHook.h) with [`DynjectHook.m`](TweakSDK/DynjectHook.m) is the hooking
+library tweaks compile in (in the spirit of Logos and Substrate): hook classes, `DH_ORIG`, hook groups that can be
+switched off at runtime, a bundle filter and Safe Mode check in `DH_CTOR`. Its symbols are hidden, so several tweaks in
+one app can each include it. Guide: [docs/hooking.md](docs/hooking.md). For the build loop, the `dw` CLI
+(`swift build -c release --product dw`) installs a dylib, enables it for one app, relaunches the app and shows logs.
 
 ## Repository layout
 
@@ -154,9 +166,11 @@ Full format and SDK: [docs/tweak-format.md](docs/tweak-format.md). Example manif
 Sources/DynjectCore/       Parser, evaluator, editor, log/ps/lsof/launchctl readers, writer, helper script, plists
 Sources/DynjectWorkbench/  SwiftUI app and the smoke-test runner (SmokeTest.swift)
 Sources/DynjectLiveTrial/  Live privileged trial runner (run only with approval)
-TweakSDK/                  Header-only SDK for tweak authors (DynjectTweak.h)
-Examples/, docs/           Example tweak manifest; tweak format spec
+Sources/dw/                dw CLI for the tweak build loop (install, enable/disable, relaunch, log)
+TweakSDK/                  Tweak SDK: settings (DynjectTweak.h) and hooking (DynjectHook.h/.m)
+Examples/, docs/           Example manifest and TitleBadge tweak; tweak format and hooking guides
 Tests/DynjectCoreTests/    Unit tests and fixtures (live.conf is a byte copy of the live config)
+Tests/DynjectHookTests/    Objective-C tests for DynjectHook
 Resources/Info.plist       App bundle metadata
 scripts/                   build-app.sh, ui-smoke-test.sh
 ```

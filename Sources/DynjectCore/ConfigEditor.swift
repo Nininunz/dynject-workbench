@@ -182,6 +182,28 @@ public enum ConfigEditor {
         return InjectionEditResult(document: doc, changes: changes, sideEffects: side, notes: notes)
     }
 
+    /// Declares a new dylib (default deny, so it loads nowhere until enabled per app). The line goes right
+    /// after the existing dylib/override block, or before the process rules if there is none.
+    public static func addDylib(_ path: String, to original: ConfigDocument) throws -> ConfigDocument {
+        guard path.hasPrefix("/"), !path.contains(where: { ":\r\n".contains($0) }) else {
+            throw InjectionEditError.blocked("A dylib path must be absolute and can't contain ':' or line breaks (dynjectd splits on ':').")
+        }
+        guard path.utf8.count < DynjectLimits.pathMax else { throw InjectionEditError.blocked("Path is too long.") }
+        let kinds = original.kinds
+        if kinds.contains(where: { if case let .dylib(p, _) = $0 { return p == path } else { return false } }) {
+            throw InjectionEditError.blocked("\(path) is already declared.")
+        }
+        if EffectiveConfig(document: original).dylibs.count >= DynjectLimits.maxDylibs {
+            throw InjectionEditError.blocked("dynjectd supports at most \(DynjectLimits.maxDylibs) dylibs.")
+        }
+        var doc = original
+        let lastDylibLine = kinds.lastIndex { if case .dylib = $0 { return true }; if case .override = $0 { return true }; return false }
+        let firstRule = kinds.firstIndex { switch $0 { case .allow, .deny, .uiApps, .skipHelpers: return true; default: return false } }
+        let at = lastDylibLine.map { $0 + 1 } ?? firstRule ?? doc.lines.count
+        doc.insertLine("dylib:\(path):deny", at: at)
+        return doc
+    }
+
     /// Apps whose injected dylib set differs between two configs.
     public static func affectedApps(from a: ConfigDocument, to b: ConfigDocument, targets: [InjectionTarget],
                                     fileExists: @escaping (String) -> Bool = { FileManager.default.fileExists(atPath: $0) })

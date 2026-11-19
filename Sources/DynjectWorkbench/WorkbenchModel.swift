@@ -328,6 +328,17 @@ final class WorkbenchModel {
         }
     }
 
+    /// Adds a `dylib:<path>:deny` line to the working config (saved through the usual review sheet).
+    func addDylib(_ path: String) {
+        do {
+            workingText = try ConfigEditor.addDylib(path, to: workingDoc).text
+            banner = Banner(kind: .info, title: "Added \((path as NSString).lastPathComponent) (deny by default)",
+                            detail: "Turn it on per app on the Apps & Injection page, then Review & Save.")
+        } catch {
+            banner = Banner(kind: .warning, title: "Can't add dylib", detail: error.localizedDescription)
+        }
+    }
+
     func discardConfigChanges() {
         workingText = diskText
         lastEdit = nil
