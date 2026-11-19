@@ -173,3 +173,12 @@ Results from 2026-11-19 (test app: Calculator, which was not running):
 The first run went wrong because the password was typed at the "click Cancel" step. That appended a test comment to the
 config, and the conflict guard then correctly blocked the next write. A second run started from a pre-trial copy
 and left the config byte-identical to it.
+
+### Through the app's own buttons
+
+Later the same day, the switch, review sheet and **Save & Restart Dynject** button were used in the app against
+the live config, turning libBrutalium on for Notes while Notes was running. Results: exactly two lines added
+(`dylib-override:…:allow:com.apple.Notes`, `allow:Notes`), `root:wheel 644` kept, a backup made, one password
+prompt, and exactly one `dynjectd` afterwards (log: `deny-all, 2 override(s)`). After Notes was relaunched, the
+log showed `MATCH` and `lsof` confirmed libBrutalium was **Loaded**. A Notes launch before the restart was still
+skipped (`SKIP (no_gui)`), which confirms the save → restart → relaunch order the app shows.
