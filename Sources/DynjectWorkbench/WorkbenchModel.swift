@@ -125,6 +125,13 @@ final class WorkbenchModel {
     @ObservationIgnored private var tweakPersistTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var tweakSnapshotsSaved: Set<String> = []
 
+    // MARK: Apple menu (MenuLoader)
+    let menuPublisher: MenuLoaderPublisher
+    let menuSettingsStore: MenuLoaderSettingsStore
+    private(set) var menuSettings: MenuLoaderSettings
+    private(set) var menuStatus: String?
+    @ObservationIgnored private var menuPublishTask: Task<Void, Never>?
+
     init(env: AppEnvironment) {
         self.env = env
         tweakBackend = env.fixtureMode ? FileTweakBackend(path: env.tweakPrefsFile) : CFPreferencesTweakBackend()
@@ -138,6 +145,16 @@ final class WorkbenchModel {
             restarter = PrivilegedRestarter(executor: exec)
             writer = ProtectedFileWriter(backups: backups, executor: exec)
         }
+        if env.isolatesMenuLoader {
+            // Never the real key: the fixture file (shared with tweak settings) and the test names.
+            let store = (tweakBackend as? FileTweakBackend) ?? FileTweakBackend(path: env.menuLoaderPreviewFile)
+            menuPublisher = MenuLoaderPublisher(store: store, names: .test)
+            menuSettingsStore = MenuLoaderSettingsStore(file: env.menuLoaderSettingsFile)
+        } else {
+            menuPublisher = MenuLoaderPublisher(store: CFPreferencesTweakBackend(), names: .production)
+            menuSettingsStore = MenuLoaderSettingsStore(file: nil)
+        }
+        menuSettings = menuSettingsStore.load()
         associations = associationStore.load()
         reloadConfig()
         loadTweaks()
@@ -457,6 +474,7 @@ final class WorkbenchModel {
         if selectedTweakID == nil || !manifests.contains(where: { $0.id == selectedTweakID }) {
             selectedTweakID = manifests.first?.id
         }
+        publishAppleMenu()
     }
 
     var tweaksFolder: String { env.tweakDirectories.first ?? env.supportDirectory.appendingPathComponent("Tweaks").path }
@@ -516,6 +534,64 @@ final class WorkbenchModel {
             if let cmd = s.manifest.applyCommand { Task.detached { _ = ApplyCommandRunner.run(cmd) } }
         } catch {
             tweakApplyStatus[id] = "Revert failed: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: Apple menu (MenuLoader)
+
+    /// Items MenuLoader currently gets, in published order.
+    var appleMenuEntries: [(TweakManifest, AppleMenuItem)] { MenuLoaderPublisher.items(for: tweaks, settings: menuSettings) }
+
+    /// Items whose shortcut is not published because an earlier item already has it.
+    var appleMenuShortcutConflicts: [ShortcutConflict] { MenuLoaderPublisher.shortcutConflicts(for: tweaks, settings: menuSettings) }
+
+    /// Publishes the combined Apple-menu list if it changed (MenuLoader re-reads it on the notification).
+    func publishAppleMenu() {
+        menuPublishTask?.cancel()
+        do {
+            guard try menuPublisher.publish(tweaks, settings: menuSettings) else { return }
+            let n = appleMenuEntries.count
+            let time = Date().formatted(date: .omitted, time: .standard)
+            menuStatus = n == 0 ? "No Apple-menu items; removed \(menuPublisher.names.key) (\(time))"
+                                : "Published \(n) Apple-menu item\(n == 1 ? "" : "s") to \(menuPublisher.names.key) (\(time))"
+        } catch {
+            menuStatus = "Could not publish the Apple menu: \(error.localizedDescription)"
+        }
+    }
+
+    func isInAppleMenu(_ tweakID: String) -> Bool { menuSettings.isIncluded(tweakID) }
+
+    func setInAppleMenu(_ on: Bool, tweakID: String) {
+        guard menuSettings.isIncluded(tweakID) != on else { return }
+        // Store only the exception, so tweaks installed later default to on.
+        menuSettings.included[tweakID] = on ? nil : false
+        saveMenuSettings()
+        publishAppleMenu()
+    }
+
+    func setAppleMenuPlacement(_ placement: MenuLoaderPlacement) {
+        guard menuSettings.placement != placement else { return }
+        menuSettings.placement = placement
+        saveMenuSettings()
+        publishAppleMenu()
+    }
+
+    /// Typing in the title field publishes ~0.5 s after the last keystroke.
+    func setAppleMenuSubmenuTitle(_ title: String) {
+        guard menuSettings.submenuTitle != title else { return }
+        menuSettings.submenuTitle = title
+        saveMenuSettings()
+        menuPublishTask?.cancel()
+        menuPublishTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            self?.publishAppleMenu()
+        }
+    }
+
+    private func saveMenuSettings() {
+        do { try menuSettingsStore.save(menuSettings) } catch {
+            menuStatus = "Could not save Apple-menu preferences: \(error.localizedDescription)"
         }
     }
 

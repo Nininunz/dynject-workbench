@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>formatVersion</key><integer>1</integer>
+	<key>identifier</key><string>local.dynject.menuloader</string>
+	<key>name</key><string>MenuLoader</string>
+	<key>summary</key><string>Adds the Apple-menu items that tweaks declare in their manifests ("appleMenu") to the Apple menu of every app it is injected into.</string>
+	<key>version</key><string>1.0</string>
+	<key>author</key><string>Dynject Workbench</string>
+	<key>dylib</key><string>/opt/dynject/lib/tweaks/libMenuLoader.dylib</string>
+	<key>takesEffect</key><string>live</string>
+	<key>sections</key>
+	<array>
+		<dict>
+			<key>title</key><string>Apple Menu</string>
+			<key>footer</key><string>Which items appear is decided by the tweaks' manifests and the MenuLoader switches on each tweak's page.</string>
+			<key>items</key>
+			<array>
+				<dict>
+					<key>type</key><string>switch</string>
+					<key>key</key><string>enabled</string>
+					<key>title</key><string>Show tweak items in the Apple menu</string>
+					<key>default</key><true/>
+					<key>perApp</key><true/>
+				</dict>
+				<dict>
+					<key>type</key><string>choice</string>
+					<key>key</key><string>placement</string>
+					<key>title</key><string>Placement</string>
+					<key>options</key>
+					<array>
+						<dict><key>value</key><string>auto</string><key>title</key><string>Workbench default</string></dict>
+						<dict><key>value</key><string>submenu</string><key>title</key><string>In a submenu</string></dict>
+						<dict><key>value</key><string>section</string><key>title</key><string>Directly in the Apple menu</string></dict>
+					</array>
+					<key>default</key><string>auto</string>
+					<key>footer</key><string>Workbench default uses the placement Workbench publishes with the item list (a submenu unless changed).</string>
+					<key>perApp</key><true/>
+					<key>enabledIf</key><string>enabled</string>
+				</dict>
+				<dict>
+					<key>type</key><string>text</string>
+					<key>key</key><string>submenuTitle</string>
+					<key>title</key><string>Submenu title</string>
+					<key>default</key><string></string>
+					<key>placeholder</key><string>Dynject</string>
+					<key>footer</key><string>Leave empty to use the title Workbench publishes.</string>
+					<key>enabledIf</key><string>enabled</string>
+				</dict>
+			</array>
+		</dict>
+		<dict>
+			<key>title</key><string>Troubleshooting</string>
+			<key>items</key>
+			<array>
+				<dict>
+					<key>type</key><string>switch</string>
+					<key>key</key><string>diagnostics</string>
+					<key>title</key><string>Log diagnostics</string>
+					<key>default</key><false/>
+					<key>footer</key><string>Logs the item list and the Apple menu after each change (subsystem local.dynject.menuloader).</string>
+				</dict>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

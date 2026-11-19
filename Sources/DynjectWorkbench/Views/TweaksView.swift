@@ -4,6 +4,7 @@ import SwiftUI
 
 struct TweaksView: View {
     @Bindable var model: WorkbenchModel
+    @State private var showAppleMenuOptions = false
 
     var body: some View {
         HSplitView {
@@ -23,6 +24,12 @@ struct TweaksView: View {
                 HStack {
                     Button("Reload") { model.loadTweaks() }
                     Button("Open Tweaks Folder") { openFolder() }
+                    Button { showAppleMenuOptions.toggle() } label: { Image(systemName: "apple.logo") }
+                        .help("Apple-menu items (MenuLoader)")
+                        .accessibilityIdentifier("applemenu-options")
+                        .popover(isPresented: $showAppleMenuOptions, arrowEdge: .top) {
+                            AppleMenuOptions(model: model).padding(14).frame(width: 340)
+                        }
                 }
                 .padding(8)
             }
@@ -94,6 +101,9 @@ struct TweakDetail: View {
                     } footer: {
                         if let f = section.footer { Text(f).font(.caption).foregroundStyle(.secondary) }
                     }
+                }
+                if !m.appleMenu.isEmpty {
+                    AppleMenuSection(model: model, manifest: m)
                 }
                 let overridden = settings.appsWithOverrides
                 if !overridden.isEmpty {
@@ -419,5 +429,96 @@ extension NSColor {
         let r = Int((c.redComponent * 255).rounded()), g = Int((c.greenComponent * 255).rounded())
         let b = Int((c.blueComponent * 255).rounded()), a = Int((c.alphaComponent * 255).rounded())
         return a < 255 ? String(format: "#%02X%02X%02X%02X", r, g, b, a) : String(format: "#%02X%02X%02X", r, g, b)
+    }
+}
+
+/// The tweak's declared Apple-menu items and its "Show in Apple menu" switch.
+struct AppleMenuSection: View {
+    var model: WorkbenchModel
+    var manifest: TweakManifest
+
+    var body: some View {
+        let included = model.isInAppleMenu(manifest.id)
+        let conflicts = model.appleMenuShortcutConflicts.filter { $0.tweakID == manifest.id }
+        Section {
+            Toggle("Show in Apple menu", isOn: Binding(get: { included },
+                                                        set: { model.setInAppleMenu($0, tweakID: manifest.id) }))
+                .accessibilityIdentifier("applemenu-include-\(manifest.id)")
+            ForEach(manifest.appleMenu) { item in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: item.symbol ?? "circle.dashed")
+                        .frame(width: 18)
+                        .foregroundStyle(item.symbol == nil ? .tertiary : .secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        let conflict = conflicts.first { $0.itemID == item.id }
+                        HStack(spacing: 6) {
+                            Text(item.title)
+                            if let k = item.shortcutDisplay {
+                                Text(k).foregroundStyle(.secondary).monospaced().strikethrough(conflict != nil)
+                            }
+                        }
+                        Text(item.action.summary).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                        Text(details(item)).font(.caption).foregroundStyle(.tertiary)
+                        if let note = conflict?.message ?? item.shortcutCaveat {
+                            Label(note, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
+                        }
+                    }
+                }
+                .opacity(included ? 1 : 0.5)
+                .accessibilityIdentifier("applemenu-item-\(item.id)")
+            }
+            if let status = model.menuStatus {
+                Text(status).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("applemenu-status")
+            }
+        } header: {
+            Text("Apple menu")
+        } footer: {
+            Text("The MenuLoader tweak adds these to the Apple menu of apps it is injected into, in the \(model.menuSettings.placement == .submenu ? "\"\(model.menuSettings.effectiveSubmenuTitle)\" submenu" : "Apple menu itself, as a section").")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    func details(_ item: AppleMenuItem) -> String {
+        var parts: [String] = []
+        if let apps = item.apps {
+            parts.append("Only in " + apps.map(model.installedAppName).joined(separator: ", "))
+        } else {
+            parts.append("In every app")
+        }
+        if let c = item.checkedBy { parts.append("checkmark follows \"\(manifest.item(c)?.title ?? c)\"") }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// Global MenuLoader options: placement and submenu title.
+struct AppleMenuOptions: View {
+    var model: WorkbenchModel
+
+    var body: some View {
+        let entries = model.appleMenuEntries
+        let tweakCount = Set(entries.map(\.0.id)).count
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Apple menu (MenuLoader)").font(.headline)
+            Picker("Placement", selection: Binding(get: { model.menuSettings.placement },
+                                                   set: { model.setAppleMenuPlacement($0) })) {
+                Text("Submenu").tag(MenuLoaderPlacement.submenu)
+                Text("Section").tag(MenuLoaderPlacement.section)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("applemenu-placement")
+            if model.menuSettings.placement == .submenu {
+                TextField("Submenu title", text: Binding(get: { model.menuSettings.submenuTitle },
+                                                         set: { model.setAppleMenuSubmenuTitle($0) }),
+                          prompt: Text(MenuLoaderSettings.defaultSubmenuTitle))
+                    .accessibilityIdentifier("applemenu-title")
+            }
+            Text(entries.isEmpty ? "No tweak currently adds Apple-menu items."
+                                 : "\(entries.count) item\(entries.count == 1 ? "" : "s") from \(tweakCount) tweak\(tweakCount == 1 ? "" : "s"), published as \(model.menuPublisher.names.key)\(model.env.isolatesMenuLoader ? " in the fixture file" : " in your global preferences").")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let status = model.menuStatus {
+                Text(status).font(.caption).foregroundStyle(.tertiary)
+            }
+        }
     }
 }

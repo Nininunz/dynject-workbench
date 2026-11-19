@@ -188,6 +188,28 @@ struct SmokeTest {
         _ = check("change notification", (model.tweakBackend as? FileTweakBackend)?.posted.contains("dynject.tweak.\(id).changed") == true, "")
         _ = check("defaults published", (payload()?["defaults"] as? [String: Any])?["radius"] as? Int == 8, "")
 
+        // MenuLoader: the example's Apple-menu items go to the fixture file under the test key, never the real one.
+        let menuKey = model.menuPublisher.names.key
+        func menuItems() -> [String]? {
+            (file.dictionary(forKey: menuKey)?["items"] as? [[String: Any]])?.compactMap { $0["id"] as? String }
+        }
+        func menuPosts() -> Int {
+            (model.tweakBackend as? FileTweakBackend)?.posted.filter { $0 == model.menuPublisher.names.notification }.count ?? 0
+        }
+        _ = check("apple menu isolated", model.menuPublisher.names == .test && model.menuPublisher.store is FileTweakBackend,
+                  "\(menuKey) in \(model.env.tweakPrefsFile)")
+        _ = check("apple menu published", menuItems() == ["toggle", "help"] && menuPosts() == 1, "items=\(menuItems() ?? [])")
+        _ = check("apple menu section", await wait { await AXSelf.exists("applemenu-include-\(id)") }, "")
+        _ = check("press apple menu switch", await pressWhenReady("applemenu-include-\(id)"), "AXPress on Show in Apple menu")
+        _ = check("apple menu removed", await wait { menuItems() == nil && menuPosts() == 2 && !model.isInAppleMenu(id) }
+                  && FileManager.default.fileExists(atPath: model.env.menuLoaderSettingsFile.path),
+                  "no items left: key removed, notification recorded, flag saved")
+        scrollFormsToBottom()
+        await settle()
+        snapshot("tweak-apple-menu-off")
+        _ = await pressWhenReady("applemenu-include-\(id)")
+        _ = check("apple menu restored", await wait { menuItems() == ["toggle", "help"] && menuPosts() == 3 }, "")
+
         model.section = .injection
         model.searchText = ""
         model.selectedAppID = finder.id
@@ -220,6 +242,19 @@ struct SmokeTest {
     /// Retries a press for a few seconds: the AX window list is briefly empty while a sheet animates.
     func pressWhenReady(_ id: String) async -> Bool {
         await wait(5) { await AXSelf.press(id) }
+    }
+
+    /// Scrolls every scrollable form in the main window to its end, so a screenshot shows the last section.
+    func scrollFormsToBottom() {
+        func visit(_ v: NSView) {
+            if let sv = v as? NSScrollView, let doc = sv.documentView, doc.frame.height > sv.contentView.bounds.height {
+                let y = doc.isFlipped ? doc.frame.height - sv.contentView.bounds.height : 0
+                sv.contentView.scroll(to: NSPoint(x: 0, y: y))
+                sv.reflectScrolledClipView(sv.contentView)
+            }
+            v.subviews.forEach(visit)
+        }
+        mainWindow?.contentView.map(visit)
     }
 
     func settle() async { try? await Task.sleep(nanoseconds: 500_000_000) }

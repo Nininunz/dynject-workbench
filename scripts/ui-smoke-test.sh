@@ -22,6 +22,7 @@ rm -rf "$REPORT"; mkdir -p "$REPORT"
 
 live_before=$( [ -f "$LIVE" ] && shasum -a 256 "$LIVE" || echo none)
 global_before=$(defaults read -g 2>/dev/null | grep -c "dynject.tweak" || true)
+menu_before=$(defaults read -g dynject.menuloader 2>/dev/null | shasum -a 256 || true)
 daemons_before=$(pgrep -x dynjectd | sort | tr '\n' ' ' || true)
 
 "$APP/Contents/MacOS/DynjectWorkbench" \
@@ -47,6 +48,8 @@ daemons_after=$(pgrep -x dynjectd | sort | tr '\n' ' ' || true)
 if [ "$live_before" != "$live_after" ]; then echo "FAIL: live config changed"; status=1; fi
 global_after=$(defaults read -g 2>/dev/null | grep -c "dynject.tweak" || true)
 if [ "$global_before" != "$global_after" ]; then echo "FAIL: global preferences gained dynject.tweak keys"; status=1; fi
+menu_after=$(defaults read -g dynject.menuloader 2>/dev/null | shasum -a 256 || true)
+if [ "$menu_before" != "$menu_after" ]; then echo "FAIL: the real dynject.menuloader key changed"; status=1; fi
 if [ "$daemons_before" != "$daemons_after" ]; then echo "FAIL: dynjectd processes changed ($daemons_before -> $daemons_after)"; status=1; fi
 echo "live config unchanged: $([ "$live_before" = "$live_after" ] && echo yes || echo NO)"
 echo "dynjectd pids unchanged: $daemons_after"

@@ -38,9 +38,26 @@ public final class CFPreferencesTweakBackend: TweakPrefsBackend {
     }
 
     public func postChange(for id: String) {
+        postNotification(TweakPrefsContract.notificationName(id))
+    }
+}
+
+extension CFPreferencesTweakBackend: GlobalPrefsStore {
+    public func dictionary(forKey key: String) -> [String: Any]? {
+        CFPreferencesSynchronize(domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+        return CFPreferencesCopyValue(key as CFString, domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? [String: Any]
+    }
+
+    public func setDictionary(_ value: [String: Any]?, forKey key: String) throws {
+        CFPreferencesSetValue(key as CFString, value as CFPropertyList?, domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+        guard CFPreferencesSynchronize(domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) else {
+            throw WriteError.io("Could not save preferences key \(key).")
+        }
+    }
+
+    public func postNotification(_ name: String) {
         CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
-                                             CFNotificationName(TweakPrefsContract.notificationName(id) as CFString),
-                                             nil, nil, true)
+                                             CFNotificationName(name as CFString), nil, nil, true)
     }
 }
 
@@ -56,26 +73,50 @@ public final class FileTweakBackend: TweakPrefsBackend {
         return ((try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any]) ?? [:]
     }
 
-    public func payload(for id: String) -> [String: Any]? { all()[TweakPrefsContract.payloadKey(id)] as? [String: Any] }
+    public func payload(for id: String) -> [String: Any]? { dictionary(forKey: TweakPrefsContract.payloadKey(id)) }
 
     public func setPayload(_ payload: [String: Any]?, for id: String) throws {
+        try setDictionary(payload, forKey: TweakPrefsContract.payloadKey(id))
+    }
+
+    public func postChange(for id: String) { postNotification(TweakPrefsContract.notificationName(id)) }
+}
+
+extension FileTweakBackend: GlobalPrefsStore {
+    public func dictionary(forKey key: String) -> [String: Any]? { all()[key] as? [String: Any] }
+
+    public func setDictionary(_ value: [String: Any]?, forKey key: String) throws {
         var a = all()
-        a[TweakPrefsContract.payloadKey(id)] = payload
+        a[key] = value
         let data = try PropertyListSerialization.data(fromPropertyList: a, format: .xml, options: 0)
         try FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
         try data.write(to: URL(fileURLWithPath: path), options: .atomic)
     }
 
-    public func postChange(for id: String) { posted.append(TweakPrefsContract.notificationName(id)) }
+    public func postNotification(_ name: String) { posted.append(name) }
 }
 
 public final class MemoryTweakBackend: TweakPrefsBackend {
     public var store: [String: [String: Any]] = [:]
     public private(set) var posted: [String] = []
+    /// Raw global keys written through `GlobalPrefsStore`, the number of those writes, and posted notification names.
+    public var keyed: [String: [String: Any]] = [:]
+    public fileprivate(set) var writes = 0
+    public fileprivate(set) var notifications: [String] = []
     public init() {}
     public func payload(for id: String) -> [String: Any]? { store[id] }
     public func setPayload(_ payload: [String: Any]?, for id: String) throws { store[id] = payload }
     public func postChange(for id: String) { posted.append(id) }
+}
+
+/// Raw keys (MenuLoader) live apart from the per-tweak `store`, so tests of either stay independent.
+extension MemoryTweakBackend: GlobalPrefsStore {
+    public func dictionary(forKey key: String) -> [String: Any]? { keyed[key] }
+    public func setDictionary(_ value: [String: Any]?, forKey key: String) throws {
+        keyed[key] = value
+        writes += 1
+    }
+    public func postNotification(_ name: String) { notifications.append(name) }
 }
 
 /// One tweak's settings: typed access for the UI over a raw payload. Keys the manifest doesn't know

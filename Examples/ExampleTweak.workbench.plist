@@ -20,6 +20,28 @@
 	<string>/opt/dynject/lib/tweaks/libWindowTweak.dylib</string>
 	<key>takesEffect</key>
 	<string>live</string>
+	<!-- Optional: items for the Apple menu, added by the MenuLoader tweak (see docs/tweak-format.md). -->
+	<key>appleMenu</key>
+	<array>
+		<dict>
+			<key>id</key><string>toggle</string>
+			<key>title</key><string>Window Tweak</string>
+			<key>action</key><string>notify:com.example.windowtweak.toggle</string>
+			<key>symbol</key><string>macwindow</string>
+			<key>checkedBy</key><string>enabled</string>
+			<key>keyEquivalent</key><string>k</string>
+			<key>modifiers</key>
+			<array><string>control</string><string>option</string><string>command</string></array>
+		</dict>
+		<dict>
+			<key>id</key><string>help</string>
+			<key>title</key><string>Window Tweak Help</string>
+			<key>action</key><string>url:https://example.com/windowtweak</string>
+			<key>symbol</key><string>questionmark.circle</string>
+			<key>apps</key>
+			<array><string>com.apple.finder</string></array>
+		</dict>
+	</array>
 	<key>sections</key>
 	<array>
 		<dict>

@@ -25,6 +25,8 @@ public struct TweakManifest: Identifiable, Sendable {
     public var applyCommand: [String]?
     public var sections: [Section]
     public var sourcePath: String
+    /// Items this tweak declares for the Apple menu (MenuLoader). Optional; see docs/tweak-format.md.
+    public var appleMenu: [AppleMenuItem] = []
 
     public var items: [TweakItem] { sections.flatMap(\.items) }
     public var perAppItems: [TweakItem] { items.filter(\.perApp) }
@@ -199,7 +201,9 @@ public enum TweakManifestParser {
             }
             sections.append(.init(title: rawSection["title"] as? String, footer: rawSection["footer"] as? String, items: items))
         }
-        if sections.flatMap(\.items).isEmpty { warn("No usable settings items.") }
+        let appleMenu = AppleMenuParser.parse(root["appleMenu"], switchKeys: switchKeys, error: err, warning: warn)
+        // A manifest may exist only to declare Apple-menu items.
+        if sections.flatMap(\.items).isEmpty && appleMenu.isEmpty { warn("No usable settings items.") }
         for item in sections.flatMap(\.items) {
             if let dep = item.enabledIf, !switchKeys.contains(dep) {
                 err("\"\(item.key)\": enabledIf \"\(dep)\" is not a switch in this manifest; ignored.")
@@ -214,7 +218,8 @@ public enum TweakManifestParser {
 
         let manifest = TweakManifest(id: id, name: name, dylib: dylib, summary: root["summary"] as? String,
                                      version: root["version"] as? String, author: root["author"] as? String,
-                                     takesEffect: takesEffect, applyCommand: apply, sections: sections, sourcePath: path)
+                                     takesEffect: takesEffect, applyCommand: apply, sections: sections, sourcePath: path,
+                                     appleMenu: appleMenu)
         return (manifest, issues)
     }
 

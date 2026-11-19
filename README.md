@@ -9,6 +9,7 @@ A native macOS app for managing the installed [Dynject](#how-dynject-decides) in
 - Restart `dynjectd` safely: exactly one daemon, never duplicates.
 - Give tweaks a settings page (similar to iOS's PreferenceLoader): a tweak ships a small manifest, and Workbench
   draws its settings, with per-app overrides. See [Tweak settings](#tweak-settings).
+- Let tweaks add items to the Apple menu by declaring them in that manifest (MenuLoader). See [Apple menu](#apple-menu-menuloader).
 
 It manages the existing engine at `/opt/dynject`. It is not an injector, not a theme UI, and not a binary/hex editor.
 
@@ -32,7 +33,8 @@ Version 0.1. Tested against fixtures, and the privileged write and restart paths
 Requires macOS 14+ and Xcode / Swift 6 command-line tools.
 
 ```sh
-swift test                    # 75 unit tests (parser, editor, helper script, writer, plists, tweaks)
+swift test                    # 95 DynjectCore tests (parser, editor, helper script, writer, plists, tweaks, Apple menu),
+                              # 75 DynjectHook tests and 5 DynjectWorkbench tests (launch arguments)
 ./scripts/build-app.sh        # → build/Dynject Workbench.app (release, ad-hoc signed)
 ./scripts/ui-smoke-test.sh    # UI smoke test against config fixtures
 open "build/Dynject Workbench.app"
@@ -43,8 +45,11 @@ Launched normally, the app reads the **live** paths (`/opt/dynject/etc/dynjectd.
 
 ### Fixture mode
 
-Any of these launch arguments switch to fixture mode. In fixture mode restarts are simulated, relaunching apps
-is disabled, and an administrator prompt can never appear. A purple strip marks the window.
+`-DWConfigPath` switches to fixture mode. In fixture mode restarts are simulated, relaunching apps is disabled, and
+an administrator prompt can never appear. A purple strip marks the window. The other arguments redirect the log,
+support folder and app roots; with `-DWSupportDir` or `-DWTweaksDir` (a folder of manifests to preview) the
+Apple-menu list is also kept out of the global preferences (in `menuloader-preview.plist` in the support folder, or
+the fixture's `tweak-prefs.plist` in fixture mode), so previewing never replaces what the installed tweaks publish.
 
 ```sh
 "build/Dynject Workbench.app/Contents/MacOS/DynjectWorkbench" \
@@ -152,6 +157,18 @@ sandboxed Calculator, and its own log lines confirmed that it read settings writ
 changes and a per-app override, and returned to defaults on revert (`swift run DynjectLiveTrial --titlebadge …`).
 **Dylibs → Add Dylib…** declares a newly installed dylib in the config (deny by default).
 
+## Apple menu (MenuLoader)
+
+The Apple-menu counterpart of PreferenceLoader. A tweak lists items in its manifest's `appleMenu` array (title,
+SF Symbol, action `notify:` / `url:` / `shortcut:` / `app:`, optional app filter, checkmark bound to one of its
+switches, key equivalent). Workbench validates them, shows them in the tweak's "Apple menu" section with a
+**Show in Apple menu** switch, and publishes the combined list as `dynject.menuloader` in the global preferences
+domain, posting `dynject.menuloader.changed` when it changes. The global MenuLoader tweak (`Tweaks/MenuLoader`) reads that
+list and adds the items, in a "Dynject" submenu or as their own section, so no tweak writes menu code. Fixture mode,
+the smoke test and launches with `-DWTweaksDir` or `-DWSupportDir` publish only to a file in the support folder.
+Shortcuts must include Command (a Control-only shortcut would steal text-editing keys like ⌃A and ⌃E); Workbench warns about common app shortcuts and drops a shortcut an earlier
+item already has. Format: [docs/tweak-format.md](docs/tweak-format.md#apple-menu-items-menuloader).
+
 ## Hooking
 
 [`DynjectHook.h`](TweakSDK/include/DynjectHook.h) with [`DynjectHook.m`](TweakSDK/DynjectHook.m) is the hooking
@@ -171,6 +188,7 @@ TweakSDK/                  Tweak SDK: settings (DynjectTweak.h) and hooking (Dyn
 Examples/, docs/           Example manifest and TitleBadge tweak; tweak format and hooking guides
 Tests/DynjectCoreTests/    Unit tests and fixtures (live.conf is a byte copy of the live config)
 Tests/DynjectHookTests/    Objective-C tests for DynjectHook
+Tests/DynjectWorkbenchTests/ Tests of the app's launch arguments (AppEnvironment)
 Resources/Info.plist       App bundle metadata
 scripts/                   build-app.sh, ui-smoke-test.sh
 ```
@@ -181,8 +199,10 @@ scripts/                   build-app.sh, ui-smoke-test.sh
   script honours stubs only when it is not running as root. One test reproduces this machine's two-daemon state.
 - The UI smoke test launches the built app on copies of the fixtures. It drives it as an accessibility client of
   its own process (no Accessibility permission needed): it flips the TextEdit switch, reviews and saves, toggles
-  back to the original bytes, checks diagnostics, edits and saves a binary plist, and checks every result on disk.
-  The script then confirms that the live config hash and the set of `dynjectd` PIDs did not change.
+  back to the original bytes, checks diagnostics, edits and saves a binary plist, switches the example tweak's
+  Apple-menu items off and on again (published to the fixture file under the test key), and checks every result on disk.
+  The script then confirms that the live config hash, the real `dynject.menuloader` key and the set of `dynjectd`
+  PIDs did not change.
   Screenshots in `build/smoke-report/` are approximate, because `cacheDisplay` can't render vibrancy layers.
 
 ## Live trial

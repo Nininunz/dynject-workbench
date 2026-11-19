@@ -27,6 +27,8 @@ let package = Package(
             dependencies: ["DynjectTweakSDK", "DynjectHookSwiftFixtures"],
             cSettings: [.unsafeFlags(["-fobjc-arc"])]
         ),
+        // Tests of the app target's launch-argument handling (AppEnvironment).
+        .testTarget(name: "DynjectWorkbenchTests", dependencies: ["DynjectWorkbench"]),
         .testTarget(
             name: "DynjectCoreTests",
             dependencies: ["DynjectCore", "DynjectTweakSDK"],
