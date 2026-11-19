@@ -11,6 +11,8 @@ let package = Package(
     targets: [
         .target(name: "DynjectCore"),
         .executableTarget(name: "DynjectWorkbench", dependencies: ["DynjectCore"]),
+        // Live privileged trial against /opt/dynject. Run only with the owner's approval.
+        .executableTarget(name: "DynjectLiveTrial", dependencies: ["DynjectCore"]),
         .testTarget(
             name: "DynjectCoreTests",
             dependencies: ["DynjectCore"],

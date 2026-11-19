@@ -12,8 +12,8 @@ It manages the existing engine at `/opt/dynject`. It is not an injector, not a t
 
 ## Status
 
-Version 0.1, built and tested against fixtures. The privileged write and restart paths have **not** yet been
-exercised against the live install (see [Live trial checklist](#live-trial-checklist)).
+Version 0.1. Tested against fixtures, and the privileged write and restart paths passed a live trial on
+2026-11-19 (see [Live trial](#live-trial)).
 
 | Area | State |
 | --- | --- |
@@ -21,7 +21,7 @@ exercised against the live install (see [Live trial checklist](#live-trial-check
 | App discovery, configured vs. loaded status | Done. "Loaded" is confirmed with `lsof` on running apps. |
 | Raw config editor and diagnostics | Done. |
 | Plist editor (XML/binary, backup, format-preserving) | Done. |
-| Privileged helper (atomic install, single-daemon restart) | Done. Tested with stubbed `pgrep`/`kill`/`launchctl`, not yet as root. |
+| Privileged helper (atomic install, single-daemon restart) | Done. Tested with stubs, then live as root. |
 | UI smoke test | Done. Drives the built app through accessibility against fixtures. |
 
 ## Getting started
@@ -153,16 +153,23 @@ scripts/                   build-app.sh, ui-smoke-test.sh
   The script then confirms that the live config hash and the set of `dynjectd` PIDs did not change.
   Screenshots in `build/smoke-report/` are approximate, because `cacheDisplay` can't render vibrancy layers.
 
-## Live trial checklist
+## Live trial
 
-Not run yet. Each step needs your approval because it touches the live install.
+`swift run DynjectLiveTrial` runs the privileged paths against `/opt/dynject` using the same DynjectCore code as
+the app (`ConfigEditor`, `ProtectedFileWriter`, `PrivilegedRestarter` via osascript), and checks each step
+from outside. Each administrator dialog is labelled with its step. Run it only when you mean to touch the live
+install. `--original <file>` names the config to return to; `--skip-restart` skips step 2.
 
-1. Open the app normally. Confirm the Daemon page shows the running `dynjectd` processes and the Finder row shows
-   Configured + Loaded.
-2. In Raw Config, make a no-op edit (for example, add a comment) → Save Only. Expect one administrator prompt, a
-   backup in Application Support, and an unchanged owner and mode (`root:wheel 644`).
-3. Daemon → Restart Dynject. Expect one prompt, then exactly one `dynjectd` (check with `pgrep -x dynjectd`).
-   Any duplicates are gone.
-4. Toggle a test app (for example, TextEdit) → Save & Restart → relaunch it → confirm it shows Loaded. Then turn it
-   off, Save & Restart, relaunch, and confirm Not loaded.
-5. Cancel the password prompt once and confirm nothing was written.
+Results from 2026-11-19 (test app: Calculator, which was not running):
+
+| Step | Result |
+| --- | --- |
+| Cancel the password prompt | Reported as cancelled; nothing written. |
+| Restart with two detached daemons running (7237, 45044) | Both stopped; exactly one new `dynjectd` started with the current config. |
+| Enable libBrutalium for Calculator, Save & Restart in one prompt | Only two lines added; `root:wheel 644` kept; backup made; one daemon (log: `deny-all, 2 override(s)`); log `MATCH`; `lsof` confirmed **Loaded**. |
+| Disable it, Save & Restart | Config byte-identical to the original; one daemon (`1 override(s)`); Calculator relaunched **Not loaded**. |
+| Conflict guard (unplanned) | When the file changed between load and write, the helper refused to write. |
+
+The first run went wrong because the password was typed at the "click Cancel" step. That appended a test comment to the
+config, and the conflict guard then correctly blocked the next write. A second run started from a pre-trial copy
+and left the config byte-identical to it.
