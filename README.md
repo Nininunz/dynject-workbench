@@ -7,8 +7,8 @@ sdk, an apple-menu loader, crash safe mode, respring, a cli and a native app tha
 manages the injector's config. no store, no packages yet.
 
 this is free software. if you paid for it, you got scammed: ask for your money back
-and report the seller (open an issue with a link). same goes for paid tweaks built
-with this sdk.
+and report the seller with a link at https://github.com/Nininunz/dynject-workbench/issues.
+same goes for paid tweaks built with this sdk.
 
 this is alpha. it injects code into your apps. if that worries you, stop here.
 

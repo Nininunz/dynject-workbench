@@ -6,7 +6,7 @@ public enum WorkbenchInfo {
     public static let version = "0.1.0"
 
     public static let licenseNotice =
-        "free software (PolyForm Noncommercial 1.0.0). if you paid for it, you were scammed — report the seller."
+        "free software (PolyForm Noncommercial 1.0.0). if you paid for it, you were scammed — report the seller: https://github.com/Nininunz/dynject-workbench/issues"
 
     public static let engineCredit =
         "injection engine: dynject by ut0mt8 (https://github.com/ut0mt8/dynject, MIT). not affiliated with or endorsed by its author."

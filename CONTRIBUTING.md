@@ -13,4 +13,4 @@ issues and patches welcome.
   class-free.
 - bug reports: macOS version, what you ran, `dw safemode status`, the crash report if there is
   one, and `dw log <subsystem>` output.
-- someone selling this or tweaks built with it: open an issue with a link.
+- someone selling this or tweaks built with it: open an issue with a link (https://github.com/Nininunz/dynject-workbench/issues).
