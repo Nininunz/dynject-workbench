@@ -135,7 +135,7 @@ DYI_HIDDEN NSRect DYILayerRectInWindow(CALayer *layer, NSView *host);
 
 @interface DYIPanelController : NSObject
 + (instancetype)shared;
-@property (nonatomic, readonly, nullable) NSPanel *panel;
+@property (nonatomic, readonly, nullable) NSWindow *panel;
 /// Shows the panel inspecting `object` (an instance) and pushes it on the history.
 - (void)inspectObject:(id)object;
 /// Shows the panel on a class (no instance).

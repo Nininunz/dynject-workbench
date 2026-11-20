@@ -1,4 +1,4 @@
-// Inspector: the panel. A floating utility NSPanel built in code (no nibs, no SwiftUI): a header with the class,
+// Inspector: the panel. An ordinary window of the app (in Mission Control, Spaces and ⌘`), built in code (no nibs, no SwiftUI): a header with the class,
 // pointer, image and superclass chain (click a class to show its methods, ivars and properties), back/forward history
 // and five tabs in one table: hierarchy, properties, methods, ivars and a runtime class browser.
 //
@@ -47,13 +47,13 @@ static NSArray<NSString *> *DYITabNames(void) { return @[@"Hierarchy", @"Propert
 @implementation DYITarget
 @end
 
-@interface DYIInspectorPanel : NSPanel
+@interface DYIInspectorPanel : NSWindow
 @end
 @implementation DYIInspectorPanel
 @end
 
 @interface DYIPanelController () <NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate, NSMenuDelegate>
-@property (nonatomic, readwrite, strong, nullable) NSPanel *panel;
+@property (nonatomic, readwrite, strong, nullable) NSWindow *panel;
 @property (nonatomic, strong) NSTextField *header;
 @property (nonatomic, strong) NSPathControl *chain;
 @property (nonatomic, strong) NSSegmentedControl *tabs;
@@ -110,16 +110,19 @@ static NSButton *DYIButton(NSString *title, NSString *symbol, id target, SEL act
 - (void)buildPanel {
     CGFloat W = 640, H = 700;
     DYIInspectorPanel *p = [[DYIInspectorPanel alloc] initWithContentRect:NSMakeRect(0, 0, W, H)
-        styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable | NSWindowStyleMaskUtilityWindow
+        styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable | NSWindowStyleMaskMiniaturizable
         backing:NSBackingStoreBuffered defer:NO];
-    p.floatingPanel = YES;
-    p.becomesKeyOnlyIfNeeded = NO;
-    p.hidesOnDeactivate = YES;
+    // A normal window of the app, not a floating utility panel: it shows in Mission Control and the app's
+    // window list, stays put when the app is in the background, and lives on its own Space like the app's other
+    // windows (a floating panel that hides on deactivate and follows the active Space vanished from Mission
+    // Control and jumped around).
+    p.hidesOnDeactivate = NO;
     p.releasedWhenClosed = NO;
+    p.tabbingMode = NSWindowTabbingModeDisallowed;
     p.minSize = NSMakeSize(420, 360);
     p.delegate = self;
-    p.excludedFromWindowsMenu = YES;
-    p.collectionBehavior = NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorMoveToActiveSpace;
+    p.excludedFromWindowsMenu = NO;
+    p.collectionBehavior = NSWindowCollectionBehaviorManaged | NSWindowCollectionBehaviorParticipatesInCycle;
     NSString *app = NSRunningApplication.currentApplication.localizedName ?: NSProcessInfo.processInfo.processName;
     p.title = [NSString stringWithFormat:@"Inspector — %@", app];
     NSView *root = p.contentView;

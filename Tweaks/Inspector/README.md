@@ -51,7 +51,7 @@ use
   `local.dynject.inspector.toggle`; only the frontmost app with the tweak acts on it.
 - the panel's pick button does the same.
 
-the panel (floating utility window, resizable):
+the panel (an ordinary window of the app: resizable, in mission control and spaces, stays open when the app is in the background):
 
     header        class, pointer, image (framework or dylib) and its path, protocols.
                   superclass chain: click a class to show its properties, methods and
