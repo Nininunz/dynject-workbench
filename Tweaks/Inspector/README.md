@@ -34,9 +34,14 @@ use
 - hold ⌃⌥⌘ while the app is frontmost: pick mode. the deepest view under the pointer
   is outlined and labelled (class, frame in window coordinates, accessibility id and
   role, layer class).
-- L (keep holding, or in toggle mode just press it): layer mode. the deepest visible
-  core animation layer under the pointer, including layers inside swiftui hosting
-  views (shapes, liquid glass `CASDF*` layers). label: class, bounds, cornerRadius.
+- L (keep holding, or in toggle mode just press it): layer mode. every visible core
+  animation layer under the pointer in the whole window, frontmost first, labelled
+  `[n/total]`, class, bounds, cornerRadius. the window's whole tree, not just the view
+  under the pointer: what you see often comes from another branch (calculator's key
+  glass lives in the keypad's SwiftUI.SDFLayer, not under the key's view).
+- tab / shift-tab (layer mode): one layer deeper / back up. in calculator, tab a few
+  times on a key to reach its `CASDFElementLayer` (60x48, cornerRadius 24) and the
+  keypad's tint `CASDFLayer`s.
   L again: back to views.
 - click: inspect it. the panel opens and pick mode ends. the click never reaches the app.
 - let go of ⌃⌥⌘ without clicking, or press esc: cancel. ⌃⌥⌘ with another key (an app's
@@ -118,7 +123,7 @@ safety
 - ivars are listed, never read.
 - events: a local event monitor only (events this app already gets). no global
   monitor, no event tap, no accessibility api. while picking it swallows the click
-  that selects, right clicks, L and esc; everything else passes through.
+  that selects, right clicks, L, tab (in layer mode) and esc; everything else passes through.
 - the overlay is a borderless, transparent panel over the hovered window. it ignores
   the mouse, can't become key or main, and is ordered out when picking ends or the
   app goes to the background. the inspector panel is the only window that takes focus.

@@ -56,6 +56,44 @@ CALayer *DYIDeepestLayer(NSView *view, NSPoint windowPoint, NSView **outHost) {
     return hit ?: host.layer;
 }
 
+/// Every visible layer under the point in the whole window, frontmost first (a layer's children, front to back,
+/// before the layer itself). The window's root layer is where the walk starts, because what you see at a point can
+/// come from a different branch than the view under it (Calculator's key glass lives in the keypad's SwiftUI.SDFLayer,
+/// not under the key's own view). Capped at 200 layers.
+static void DYICollectLayers(CALayer *layer, CGPoint p, int depth, int *budget, NSMutableArray<CALayer *> *out) {
+    if (!layer || depth > 64 || --*budget < 0 || out.count >= 200 || layer.hidden || layer.opacity < 0.01f) return;
+    BOOL inside = CGRectContainsPoint(layer.bounds, p);
+    if (!inside && layer.masksToBounds) return;
+    NSArray<CALayer *> *subs = [layer.sublayers sortedArrayWithOptions:NSSortStable
+                                                       usingComparator:^NSComparisonResult(CALayer *a, CALayer *b) {
+        return a.zPosition < b.zPosition ? NSOrderedAscending : a.zPosition > b.zPosition ? NSOrderedDescending : NSOrderedSame;
+    }];
+    for (CALayer *sub in subs.reverseObjectEnumerator)
+        DYICollectLayers(sub, [layer convertPoint:p toLayer:sub], depth + 1, budget, out);
+    if (inside && layer.bounds.size.width > 0 && layer.bounds.size.height > 0 && out.count < 200) [out addObject:layer];
+}
+
+NSArray<CALayer *> *DYILayerStack(NSWindow *window, NSPoint windowPoint, NSView **outHost) {
+    // Convert through a layer-backed view, then walk from the top of its layer tree (the frame view itself may not
+    // be layer-backed, while the content view's layer sits inside the window's full tree).
+    NSView *host = window.contentView;
+    if (!host.layer) {
+        NSView *frameView = window.contentView.superview;
+        if (frameView.layer) host = frameView;
+    }
+    if (outHost) *outHost = host;
+    NSMutableArray<CALayer *> *out = [NSMutableArray array];
+    if (!host.layer) return out;
+    DYITry(^{
+        CALayer *root = host.layer;
+        while (root.superlayer) root = root.superlayer;
+        CGPoint p = [host.layer convertPoint:[host convertPoint:windowPoint fromView:nil] toLayer:root];
+        int budget = 40000;
+        DYICollectLayers(root, p, 0, &budget, out);
+    });
+    return out;
+}
+
 NSRect DYILayerRectInWindow(CALayer *layer, NSView *host) {
     if (!layer || !host.layer) return NSZeroRect;
     __block NSRect r = NSZeroRect;
@@ -89,7 +127,7 @@ NSRect DYILayerRectInWindow(CALayer *layer, NSView *host) {
     (void)dirty;
     NSColor *tint = self.layerMode ? [NSColor systemOrangeColor] : [NSColor systemBlueColor];
     // Hint along the top edge.
-    NSString *hint = self.layerMode ? @"layers · L views · esc cancel · click inspect"
+    NSString *hint = self.layerMode ? @"layers · tab deeper · shift-tab back · L views · esc cancel · click inspect"
                                     : @"views · L layers · esc cancel · click inspect";
     [self drawText:hint at:NSMakePoint(NSMaxX(self.bounds), 8) below:NO tint:tint small:YES];   // bottom right
     if (NSEqualRects(self.highlight, NSZeroRect)) return;
@@ -137,6 +175,9 @@ NSRect DYILayerRectInWindow(CALayer *layer, NSView *host) {
 @interface DYIPicker ()
 @property (nonatomic, readwrite, getter=isActive) BOOL active;
 @property (nonatomic, readwrite) BOOL layerMode;
+@property (nonatomic, copy) NSArray<CALayer *> *layerStack;
+@property (nonatomic) NSUInteger layerIndex;
+@property (nonatomic, weak) NSView *layerHost;
 @property (nonatomic, readwrite) BOOL holdMode;
 @property (nonatomic, readwrite, strong, nullable) NSView *hoveredView;
 @property (nonatomic, readwrite, strong, nullable) CALayer *hoveredLayer;
@@ -242,10 +283,14 @@ static NSPoint DYIScreenPointOfEvent(NSEvent *event) {
                 if (!event.isARepeat) [self toggleLayerMode];
                 return nil;
             }
+            if (event.keyCode == 48 && self.layerMode) {   // tab: one layer deeper; shift-tab: back up
+                [self stepLayer:(event.modifierFlags & NSEventModifierFlagShift) ? -1 : 1];
+                return nil;
+            }
             if (self.holdMode) [self cancel];   // ⌃⌥⌘ plus another key: a shortcut, not a pick
             return event;
         case NSEventTypeKeyUp:
-            if (event.keyCode == 53 || [event.charactersIgnoringModifiers.lowercaseString isEqualToString:@"l"]) return nil;
+            if (event.keyCode == 53 || event.keyCode == 48 || [event.charactersIgnoringModifiers.lowercaseString isEqualToString:@"l"]) return nil;
             return event;
         default:
             return event;
@@ -287,6 +332,25 @@ static NSPoint DYIScreenPointOfEvent(NSEvent *event) {
     self.layerMode = !self.layerMode;
     self.lastPoint = NSMakePoint(NAN, NAN);
     [self tick:nil];
+}
+
+- (void)stepLayer:(NSInteger)delta {
+    if (!self.active || !self.layerMode || self.layerStack.count == 0) return;
+    NSInteger n = (NSInteger)self.layerStack.count;
+    self.layerIndex = (NSUInteger)(((NSInteger)self.layerIndex + delta) % n + n) % n;
+    [self showLayerAtIndex];
+}
+
+- (void)showLayerAtIndex {
+    CALayer *layer = self.layerStack.count ? self.layerStack[MIN(self.layerIndex, self.layerStack.count - 1)] : nil;
+    self.hoveredLayer = layer;
+    NSRect rect = layer ? DYILayerRectInWindow(layer, self.layerHost) : NSZeroRect;
+    NSString *label = layer ? [NSString stringWithFormat:@"[%lu/%lu] %@", (unsigned long)self.layerIndex + 1,
+                                                 (unsigned long)self.layerStack.count, [self labelForLayer:layer]] : @"";
+    self.labelText = label;
+    self.overlayView.highlight = rect;
+    self.overlayView.label = label;
+    self.overlayView.needsDisplay = YES;
 }
 
 - (void)selectCurrent {
@@ -363,12 +427,15 @@ static NSPoint DYIScreenPointOfEvent(NSEvent *event) {
     NSRect rect = NSZeroRect;
     NSString *label = @"";
     CALayer *layer = nil;
-    if (view && self.layerMode) {
+    if (self.layerMode) {
         NSView *host = nil;
-        layer = DYIDeepestLayer(view, wp, &host);
+        self.layerStack = DYILayerStack(w, wp, &host);
+        self.layerHost = host;
+        self.layerIndex = 0;
+        layer = self.layerStack.firstObject;
         if (layer) {
             rect = DYILayerRectInWindow(layer, host);
-            label = [self labelForLayer:layer];
+            label = [NSString stringWithFormat:@"[1/%lu] %@", (unsigned long)self.layerStack.count, [self labelForLayer:layer]];
         }
     } else if (view) {
         rect = [view convertRect:view.bounds toView:nil];

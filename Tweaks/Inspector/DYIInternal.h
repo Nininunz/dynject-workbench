@@ -126,6 +126,8 @@ DYI_HIDDEN NSView *_Nullable DYIDeepestView(NSWindow *window, NSPoint windowPoin
 /// Deepest frontmost layer at a point in `view`'s coordinates, in the layer tree of `view` (or its nearest
 /// layer-backed ancestor).
 DYI_HIDDEN CALayer *_Nullable DYIDeepestLayer(NSView *view, NSPoint windowPoint, NSView *_Nullable *_Nullable outHost);
+/// Every visible layer under the point in the whole window, frontmost first (layer mode steps through it with Tab).
+DYI_HIDDEN NSArray<CALayer *> *DYILayerStack(NSWindow *window, NSPoint windowPoint, NSView *_Nullable *_Nullable outHost);
 /// The layer's bounds in window coordinates, through `host` (the view whose layer tree contains it).
 DYI_HIDDEN NSRect DYILayerRectInWindow(CALayer *layer, NSView *host);
 
