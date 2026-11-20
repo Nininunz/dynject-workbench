@@ -2,7 +2,7 @@
 
 The Apple-menu counterpart of iOS's PreferenceLoader. Tweaks **declare** items for the Apple menu () in
 their Workbench manifest, and this one small global tweak adds them to the Apple menu of every app it is
-injected into. No tweak writes menu code.
+injected into. No tweak writes menu code. MenuLoader is pure infrastructure: it has no items of its own.
 
 ```
  About This Mac
@@ -10,16 +10,31 @@ injected into. No tweak writes menu code.
  System Settings…
  App Store…
  ───────────────
- Dynject            ▸   Glass Calculator   ✓
- ───────────────        Open Tweak Website ⌥⌘K
- Recent Items       ▸   ──────────────────
- …                      Run Cleanup Shortcut
+ Dynject            ▸   (Respring…, Safe Mode…, Open Dynject Workbench: Workbench's own group)
+ Glass              ▸   (a tweak with appleMenuPlacement = submenu)
+ Tweaks             ▸   GLASS CALCULATOR
+ ───────────────        Glass Calculator   ✓
+ Recent Items       ▸   Open Tweak Website ⌥⌘K
+ …                      ──────────────────
+                        CLEANUP
+                        Run Cleanup Shortcut
 ```
 
 ## For tweak authors
 
 Add an `appleMenu` array to your manifest (`*.workbench.plist`); the full format is in
-[docs/tweak-format.md](../../docs/tweak-format.md).
+[docs/tweak-format.md](../../docs/tweak-format.md). Where the items go is your choice, with three optional
+top-level keys:
+
+```xml
+<key>appleMenuPlacement</key><string>submenu</string>   <!-- own "Title ▸" entry; default shared -->
+<key>appleMenuTitle</key><string>Glass</string>          <!-- default: the tweak's name -->
+<key>appleMenuSymbol</key><string>sparkles</string>      <!-- own entry's icon, optional -->
+```
+
+`shared` (the default) makes your items one section of the shared entry ("Tweaks" unless the user renamed it, or a
+flat section of the Apple menu), headed by your title when other tweaks share it too. `submenu` gives the tweak its
+own entry below App Store…, for tweaks whose items are their main interface.
 
 ```xml
 <key>appleMenu</key>
@@ -51,15 +66,26 @@ change (`dynject.tweak.<id>.changed`).
 
 ## What Workbench publishes, what MenuLoader reads
 
-Workbench collects every manifest's `appleMenu` items and writes them to the global preferences key
-`dynject.menuloader` (readable from sandboxed apps), then posts `dynject.menuloader.changed`:
+Workbench collects every manifest's `appleMenu` items, adds its own **Dynject** group, and writes them to the
+global preferences key `dynject.menuloader` (readable from sandboxed apps), then posts `dynject.menuloader.changed`:
 
 ```
 { formatVersion: 1,
   items: [ { id, title, action, symbol?, apps?, checkedBy?, checkedByDefault?, keyEquivalent?, modifiers?, tweakID, tweakName }, … ],
-  placement: "submenu" | "section",     // default "submenu"
-  submenuTitle: "Dynject" }             // default "Dynject"
+  contributors: [ { tweakID, title, placement: "submenu" | "shared", symbol? }, … ],
+  placement: "submenu" | "section",     // the shared entry's style, default "submenu"
+  submenuTitle: "Tweaks" }              // the shared entry's title, default "Tweaks"
 ```
+
+The Dynject group is contributor `local.dynject.workbench` (`submenu`, `puzzlepiece.extension`): **Respring…**
+(`url:dynject-workbench://respring`, Workbench's Respring sheet, see [docs/respring.md](../../docs/respring.md)),
+**Safe Mode…** (`url:dynject-workbench://safemode`, Workbench's Safe Mode page) and **Open Dynject Workbench**
+(`app:local.dynject.workbench`). Workbench's Apple-menu options (the Apple-logo button under the tweak list) hide it.
+
+`contributors` was added without changing `formatVersion`: an older MenuLoader ignores it and puts everything in
+its one submenu, and this MenuLoader treats an item without a `contributors` entry (an older Workbench's list) as
+`shared`, titled with its `tweakName`. A `placement` other than `submenu`, or an invalid contributor entry, means
+`shared`.
 
 MenuLoader skips invalid items (missing `id`/`title`/`action`/`tweakID`, unknown action scheme, duplicates) and
 items whose `apps` don't include the current app, and ignores a list whose `formatVersion` is not 1.
@@ -73,28 +99,33 @@ two items with the same shortcut the first keeps it.
 A checkmark falls back to `checkedByDefault` (the switch's manifest default) while the tweak has no settings
 payload, so it matches what Workbench shows.
 
-- **submenu**: one item, `submenuTitle` with the `puzzlepiece.extension` symbol, in its own section right after
-  the section that holds App Store…; inside it the items in published order, a separator between tweaks.
-- **section**: the items themselves as one new section at the same place.
-- Nothing for this app (or MenuLoader switched off): nothing is inserted, not even a separator.
+Layout, in one block right after the section that holds App Store…, followed by a separator (then Recent Items):
+
+1. one entry per `submenu` contributor that has items for this app, "`title` ▸" with its `symbol`, in published
+   order (Workbench publishes the Dynject group first, then by title);
+2. the shared entry, if any shared contributor has items for this app:
+   - **submenu**: one item, `submenuTitle` with the `puzzlepiece` symbol; inside it a section per contributor,
+     separated, each headed by an AppKit section header (`+[NSMenuItem sectionHeaderWithTitle:]`) with the
+     contributor's title when there is more than one;
+   - **section**: the shared items directly in the Apple menu, a section per contributor (separators between them
+     and after the own entries; no headers).
+3. Nothing for this app (or MenuLoader switched off): nothing is inserted, not even a separator.
 
 Since macOS 27 AppKit hides menu-item images by default; MenuLoader marks items that declare a `symbol`
 `preferredImageVisibility = .visible`, as AppKit does for About This Mac and App Store….
 
 ## MenuLoader's own settings
 
-`MenuLoader.workbench.plist` (identifier `local.dynject.menuloader`, takes effect live). It also declares one
-Apple-menu item of its own, **Respring…** (`arrow.clockwise`, action `url:dynject-workbench://respring`), which opens
-Workbench's Respring sheet: the running apps that still lack a tweak update, ready to relaunch (see
-[docs/respring.md](../../docs/respring.md)). It is published like any tweak's item, so its tweak page's
-**Show in Apple menu** switch hides it. Copy the updated manifest to `~/Library/Application Support/Dynject Workbench/Tweaks/`
-(`./build.sh install` prints the command) for Workbench to publish it.
+`MenuLoader.workbench.plist` (identifier `local.dynject.menuloader`, takes effect live). It declares no Apple-menu
+items (up to version 1.0 it carried **Respring…**, now in Workbench's Dynject group). Copy the updated manifest to
+`~/Library/Application Support/Dynject Workbench/Tweaks/` (`./build.sh install` prints the command) so Workbench
+stops publishing the old item.
 
 | Key | Type | Meaning |
 | --- | --- | --- |
-| `enabled` | switch, per app | Off removes the items live. |
-| `placement` | choice, per app | `auto` (use what Workbench publishes), `submenu`, `section`. |
-| `submenuTitle` | text | Empty: use the published title. |
+| `enabled` | switch, per app | Off removes everything MenuLoader adds (the Dynject group too), live. |
+| `placement` | choice, per app | Style of the shared entry: `auto` (use what Workbench publishes), `submenu`, `section`. Own entries are unaffected. |
+| `submenuTitle` | text | Title of the shared entry. Empty: use the published title. |
 | `diagnostics` | switch | Logs the item list and the resulting Apple menu after each change. |
 
 ## How it works
@@ -114,7 +145,7 @@ MenuLoader hooks both methods with a DynjectHook hook class:
   and Recent Items submenus): a cheap check, a generation counter and one `indexOfItemWithTag:`, that rebuilds
   only if the items are missing or out of date.
 
-Every item MenuLoader adds (items, submenu item, separators) carries the tag `'dmlr'`, so a rebuild removes
+Every item MenuLoader adds to the Apple menu (items, submenu items, separators) carries the tag `'dmlr'`, so a rebuild removes
 exactly MenuLoader's items first: they are present once whether AppKit builds the menu once or many times.
 MenuLoader never inserts into an empty Apple menu, because AppKit only adds its own items to an empty one.
 
@@ -148,14 +179,18 @@ testhost/run.sh
 Builds the test dylib, an AppKit test host (`local.dynject.menuloader.testhost`, accessory app: it never takes
 focus) and `mltool` (the "Workbench side" in a separate process: publishes the test list, writes test settings,
 observes notifications), then runs the host with `DYLD_INSERT_LIBRARIES`. The host drives AppKit's real populate
-path on its own `_NSAppleMenu` and inspects the menu object: placement, titles, icons, checkmarks, separators, app
-filtering, invalid items, live list changes, placement/title overrides, enabled off/on (incl. per-app), an
-AppKit rebuild from scratch, and every action type (the `notify:` one is received by another process; the
-⌥⌘K key equivalent fires through the Apple menu). A second, sandboxed copy of the host
+path on its own `_NSAppleMenu` and inspects the menu object: placement, the order of own entries (a Dynject group
+listed after shared items still comes first) and the shared entry, contributor titles and symbols, section headers,
+titles, icons, checkmarks, separators, app filtering (incl. an own-entry contributor with nothing for this app),
+invalid items and contributor entries, a list without `contributors` (older Workbench), live list changes,
+style/title overrides, enabled off/on (incl. per-app), an AppKit rebuild from scratch, and every action type,
+the Dynject group's `dynject-workbench://` links and `app:` included (the `notify:` one is received by another
+process; the ⌥⌘K key equivalent fires through the Apple menu). A second, sandboxed copy of the host
 (`local.dynject.menuloader.testhost.sandboxed`, app-sandbox entitlement) checks that the list is readable and a
 `notify:` action gets out of the sandbox. Test keys are deleted at the end.
 
-`ML_SHOT=<dir>` makes the host pop up a copy of its populated Apple menu whose items do nothing, and capture it.
+`ML_SHOT=<dir>` makes the host pop up a copy of its populated Apple menu (and of MenuLoader's first entry) whose items do
+nothing, and capture it.
 
 ## Install
 

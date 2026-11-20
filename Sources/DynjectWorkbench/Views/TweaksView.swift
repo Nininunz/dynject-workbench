@@ -473,9 +473,18 @@ struct AppleMenuSection: View {
         } header: {
             Text("Apple menu")
         } footer: {
-            Text("The MenuLoader tweak adds these to the Apple menu of apps it is injected into, in the \(model.menuSettings.placement == .submenu ? "\"\(model.menuSettings.effectiveSubmenuTitle)\" submenu" : "Apple menu itself, as a section").")
+            Text("The MenuLoader tweak adds these to the Apple menu of apps it is injected into, \(placementText).")
                 .font(.caption).foregroundStyle(.secondary)
         }
+    }
+
+    /// Where the items go, as the manifest's appleMenuPlacement and the shared entry's style decide.
+    var placementText: String {
+        let title = manifest.effectiveAppleMenuTitle
+        if manifest.appleMenuPlacement == .submenu { return "in its own \"\(title)\" submenu" }
+        return model.menuSettings.placement == .submenu
+            ? "as the \"\(title)\" section of the shared \"\(model.menuSettings.effectiveSubmenuTitle)\" submenu"
+            : "as their own section of the Apple menu"
     }
 
     func details(_ item: AppleMenuItem) -> String {
@@ -490,7 +499,7 @@ struct AppleMenuSection: View {
     }
 }
 
-/// Global MenuLoader options: placement and submenu title.
+/// Global MenuLoader options: Workbench's own "Dynject" group, and the style and title of the shared entry.
 struct AppleMenuOptions: View {
     var model: WorkbenchModel
 
@@ -499,8 +508,16 @@ struct AppleMenuOptions: View {
         let tweakCount = Set(entries.map(\.0.id)).count
         VStack(alignment: .leading, spacing: 10) {
             Text("Apple menu (MenuLoader)").font(.headline)
-            Picker("Placement", selection: Binding(get: { model.menuSettings.placement },
-                                                   set: { model.setAppleMenuPlacement($0) })) {
+            Toggle("Show the Dynject menu", isOn: Binding(get: { model.showsDynjectAppleMenu },
+                                                         set: { model.setShowsDynjectAppleMenu($0) }))
+                .accessibilityIdentifier("applemenu-dynject")
+            Text("Respring…, Safe Mode… and Open Dynject Workbench, in a \"Dynject\" submenu below App Store….")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Divider()
+            Text("Shared menu, for tweaks that don't ask for their own submenu:").font(.subheadline)
+            Picker("Style", selection: Binding(get: { model.menuSettings.placement },
+                                               set: { model.setAppleMenuPlacement($0) })) {
                 Text("Submenu").tag(MenuLoaderPlacement.submenu)
                 Text("Section").tag(MenuLoaderPlacement.section)
             }
@@ -512,8 +529,8 @@ struct AppleMenuOptions: View {
                           prompt: Text(MenuLoaderSettings.defaultSubmenuTitle))
                     .accessibilityIdentifier("applemenu-title")
             }
-            Text(entries.isEmpty ? "No tweak currently adds Apple-menu items."
-                                 : "\(entries.count) item\(entries.count == 1 ? "" : "s") from \(tweakCount) tweak\(tweakCount == 1 ? "" : "s"), published as \(model.menuPublisher.names.key)\(model.env.isolatesMenuLoader ? " in the fixture file" : " in your global preferences").")
+            Text(entries.isEmpty ? "Nothing is added to the Apple menu."
+                                 : "\(entries.count) item\(entries.count == 1 ? "" : "s") from \(tweakCount) group\(tweakCount == 1 ? "" : "s"), published as \(model.menuPublisher.names.key)\(model.env.isolatesMenuLoader ? " in the fixture file" : " in your global preferences").")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             if let status = model.menuStatus {

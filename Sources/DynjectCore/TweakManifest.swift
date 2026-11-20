@@ -27,6 +27,15 @@ public struct TweakManifest: Identifiable, Sendable {
     public var sourcePath: String
     /// Items this tweak declares for the Apple menu (MenuLoader). Optional; see docs/tweak-format.md.
     public var appleMenu: [AppleMenuItem] = []
+    /// Where MenuLoader puts those items: the tweak's own Apple-menu entry or the shared one ("Tweaks").
+    public var appleMenuPlacement: AppleMenuPlacement = .shared
+    /// The title of the tweak's own entry (or its section in the shared one). nil = `name`.
+    public var appleMenuTitle: String?
+    /// SF Symbol of the tweak's own entry.
+    public var appleMenuSymbol: String?
+
+    /// The title MenuLoader shows for this tweak's items.
+    public var effectiveAppleMenuTitle: String { appleMenuTitle ?? name }
 
     public var items: [TweakItem] { sections.flatMap(\.items) }
     public var perAppItems: [TweakItem] { items.filter(\.perApp) }
@@ -202,6 +211,7 @@ public enum TweakManifestParser {
             sections.append(.init(title: rawSection["title"] as? String, footer: rawSection["footer"] as? String, items: items))
         }
         let appleMenu = AppleMenuParser.parse(root["appleMenu"], switchKeys: switchKeys, error: err, warning: warn)
+        let menuGroup = AppleMenuParser.parseGroup(root, hasItems: !appleMenu.isEmpty, error: err, warning: warn)
         // A manifest may exist only to declare Apple-menu items.
         if sections.flatMap(\.items).isEmpty && appleMenu.isEmpty { warn("No usable settings items.") }
         for item in sections.flatMap(\.items) {
@@ -219,7 +229,8 @@ public enum TweakManifestParser {
         let manifest = TweakManifest(id: id, name: name, dylib: dylib, summary: root["summary"] as? String,
                                      version: root["version"] as? String, author: root["author"] as? String,
                                      takesEffect: takesEffect, applyCommand: apply, sections: sections, sourcePath: path,
-                                     appleMenu: appleMenu)
+                                     appleMenu: appleMenu, appleMenuPlacement: menuGroup.placement,
+                                     appleMenuTitle: menuGroup.title, appleMenuSymbol: menuGroup.symbol)
         return (manifest, issues)
     }
 

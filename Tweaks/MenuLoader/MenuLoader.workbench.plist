@@ -5,38 +5,30 @@
 	<key>formatVersion</key><integer>1</integer>
 	<key>identifier</key><string>local.dynject.menuloader</string>
 	<key>name</key><string>MenuLoader</string>
-	<key>summary</key><string>Adds the Apple-menu items that tweaks declare in their manifests ("appleMenu") to the Apple menu of every app it is injected into.</string>
-	<key>version</key><string>1.0</string>
+	<key>summary</key><string>Adds the Apple-menu items that tweaks (and Dynject Workbench) declare to the Apple menu of every app it is injected into. Pure infrastructure: it has no items of its own.</string>
+	<key>version</key><string>1.1</string>
 	<key>author</key><string>Dynject Workbench</string>
 	<key>dylib</key><string>/opt/dynject/lib/tweaks/libMenuLoader.dylib</string>
 	<key>takesEffect</key><string>live</string>
-	<key>appleMenu</key>
-	<array>
-		<dict>
-			<key>id</key><string>respring</string>
-			<key>title</key><string>Respring…</string>
-			<key>symbol</key><string>arrow.clockwise</string>
-			<key>action</key><string>url:dynject-workbench://respring</string>
-		</dict>
-	</array>
 	<key>sections</key>
 	<array>
 		<dict>
 			<key>title</key><string>Apple Menu</string>
-			<key>footer</key><string>Which items appear is decided by the tweaks' manifests and the MenuLoader switches on each tweak's page.</string>
+			<key>footer</key><string>Which items appear, and whether a tweak gets its own submenu or a section of the shared one, is decided by the tweaks' manifests, the Show in Apple menu switch on each tweak's page and Workbench's Apple-menu options (which also hide the Dynject menu).</string>
 			<key>items</key>
 			<array>
 				<dict>
 					<key>type</key><string>switch</string>
 					<key>key</key><string>enabled</string>
 					<key>title</key><string>Show tweak items in the Apple menu</string>
+					<key>footer</key><string>Off removes everything MenuLoader adds, the Dynject menu included.</string>
 					<key>default</key><true/>
 					<key>perApp</key><true/>
 				</dict>
 				<dict>
 					<key>type</key><string>choice</string>
 					<key>key</key><string>placement</string>
-					<key>title</key><string>Placement</string>
+					<key>title</key><string>Shared menu style</string>
 					<key>options</key>
 					<array>
 						<dict><key>value</key><string>auto</string><key>title</key><string>Workbench default</string></dict>
@@ -44,16 +36,16 @@
 						<dict><key>value</key><string>section</string><key>title</key><string>Directly in the Apple menu</string></dict>
 					</array>
 					<key>default</key><string>auto</string>
-					<key>footer</key><string>Workbench default uses the placement Workbench publishes with the item list (a submenu unless changed).</string>
+					<key>footer</key><string>For tweaks that share one menu. Workbench default uses the style Workbench publishes (a submenu unless changed). Tweaks with their own submenu keep it.</string>
 					<key>perApp</key><true/>
 					<key>enabledIf</key><string>enabled</string>
 				</dict>
 				<dict>
 					<key>type</key><string>text</string>
 					<key>key</key><string>submenuTitle</string>
-					<key>title</key><string>Submenu title</string>
+					<key>title</key><string>Shared submenu title</string>
 					<key>default</key><string></string>
-					<key>placeholder</key><string>Dynject</string>
+					<key>placeholder</key><string>Tweaks</string>
 					<key>footer</key><string>Leave empty to use the title Workbench publishes.</string>
 					<key>enabledIf</key><string>enabled</string>
 				</dict>

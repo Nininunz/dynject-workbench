@@ -80,8 +80,9 @@ are noticed), and with the sheet's **Refresh** or the toolbar's Refresh.
 
 `dynject-workbench://respring` (`CFBundleURLTypes` in `Resources/Info.plist`) opens the sheet, launching Workbench
 if needed. If the save review is up, the sheet opens after it closes. A link never relaunches anything; only the
-button does. MenuLoader's own manifest declares the Apple-menu item **Respring…** (`arrow.clockwise`,
-`url:dynject-workbench://respring`), so the sheet is one click away from any app MenuLoader is injected into. Launch
+button does. Workbench publishes the Apple-menu item **Dynject ▸ Respring…** (`arrow.clockwise`,
+`url:dynject-workbench://respring`) in its own group, so the sheet is one click away from any app MenuLoader is
+injected into. Launch
 Services learns the scheme once the new build of Workbench has been launched (or opened in Finder).
 
 In fixture mode, in the smoke test and with `-DWRespringFixture <json>` (`AppEnvironment.isolatesRespring`), the

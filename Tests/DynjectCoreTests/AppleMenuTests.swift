@@ -3,14 +3,22 @@ import XCTest
 
 /// Parses a manifest with the given Apple-menu items (and a switch "on" plus a text "t" setting).
 private func menuManifest(_ appleMenu: Any?, id: String = "com.test.a", name: String? = nil,
-                          sections: [[String: Any]]? = nil) -> (TweakManifest?, [ManifestIssue]) {
+                          sections: [[String: Any]]? = nil, extra: [String: Any] = [:]) -> (TweakManifest?, [ManifestIssue]) {
     var d: [String: Any] = [
         "formatVersion": 1, "identifier": id, "dylib": "/d",
         "sections": sections ?? [["items": [["type": "switch", "key": "on"], ["type": "text", "key": "t"]]]],
     ]
     if let name { d["name"] = name }
     if let appleMenu { d["appleMenu"] = appleMenu }
+    d.merge(extra) { _, b in b }
     return TweakManifestParser.parse(data: manifestData(d), path: "/\(id).workbench.plist", fileExists: { _ in true })
+}
+
+/// Settings without Workbench's own "Dynject" group, so a test sees only its manifests' items.
+private func withoutDynject() -> MenuLoaderSettings {
+    var s = MenuLoaderSettings()
+    s.included[MenuLoaderContributor.dynjectID] = false
+    return s
 }
 
 private func item(_ id: String, _ action: String = "notify:x.y", _ extra: [String: Any] = [:]) -> [String: Any] {
@@ -33,8 +41,9 @@ final class AppleMenuManifestTests: XCTestCase {
         XCTAssertEqual(m.appleMenu[1].apps, ["com.apple.finder"])
     }
 
-    /// MenuLoader's own manifest adds "Respring…", which opens Workbench's Respring sheet through its URL scheme.
-    func testMenuLoaderManifestDeclaresRespring() throws {
+    /// MenuLoader is pure infrastructure: its manifest declares no Apple-menu items (Respring… moved to Workbench's
+    /// own "Dynject" group).
+    func testMenuLoaderManifestHasNoItemsOfItsOwn() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let path = root.appendingPathComponent("Tweaks/MenuLoader/MenuLoader.workbench.plist").path
         let (m, issues) = TweakManifestParser.parse(data: try XCTUnwrap(FileManager.default.contents(atPath: path)), path: path,
@@ -42,18 +51,48 @@ final class AppleMenuManifestTests: XCTestCase {
         XCTAssertEqual(issues.map(\.message), [], "no errors or warnings")
         let manifest = try XCTUnwrap(m)
         XCTAssertEqual(manifest.id, "local.dynject.menuloader")
-        XCTAssertEqual(manifest.appleMenu.count, 1)
-        let item = try XCTUnwrap(manifest.appleMenu.first)
-        XCTAssertEqual(item.id, "respring")
-        XCTAssertEqual(item.title, "Respring…")
-        XCTAssertEqual(item.symbol, "arrow.clockwise")
-        XCTAssertEqual(item.action, .url("dynject-workbench://respring"))
-        XCTAssertNil(item.apps)
-        XCTAssertNil(item.keyEquivalent)
+        XCTAssertEqual(manifest.appleMenu, [])
         XCTAssertEqual(manifest.sections.flatMap { $0.items }.map { $0.key }, ["enabled", "placement", "submenuTitle", "diagnostics"],
-                       "its settings are unchanged")
-        let published = MenuLoaderPublisher.items(for: [manifest], settings: MenuLoaderSettings())
-        XCTAssertEqual(published.map(\.1.id), ["respring"])
+                       "its settings keys are unchanged")
+        XCTAssertEqual(manifest.item("submenuTitle")?.placeholder, MenuLoaderSettings.defaultSubmenuTitle)
+        XCTAssertTrue(MenuLoaderPublisher.items(for: [manifest], settings: withoutDynject()).isEmpty)
+        XCTAssertEqual(MenuLoaderPublisher.items(for: [manifest], settings: MenuLoaderSettings()).map(\.0.id),
+                       Array(repeating: MenuLoaderContributor.dynjectID, count: 3), "only Workbench's own group")
+    }
+
+    func testPlacementTitleAndSymbolParse() {
+        let (m, issues) = menuManifest([item("a")], name: "Glass", extra: [
+            "appleMenuPlacement": "submenu", "appleMenuTitle": "  Glass Tools ", "appleMenuSymbol": "sparkles",
+        ])
+        XCTAssertEqual(issues, [])
+        XCTAssertEqual(m?.appleMenuPlacement, .submenu)
+        XCTAssertEqual(m?.appleMenuTitle, "Glass Tools")
+        XCTAssertEqual(m?.effectiveAppleMenuTitle, "Glass Tools")
+        XCTAssertEqual(m?.appleMenuSymbol, "sparkles")
+
+        let (d, _) = menuManifest([item("a")], name: "Glass")
+        XCTAssertEqual(d?.appleMenuPlacement, .shared, "shared by default")
+        XCTAssertNil(d?.appleMenuTitle)
+        XCTAssertEqual(d?.effectiveAppleMenuTitle, "Glass", "title defaults to the tweak's name")
+        XCTAssertNil(d?.appleMenuSymbol)
+
+        let (b, bad) = menuManifest([item("a")], extra: ["appleMenuPlacement": "sideways", "appleMenuTitle": " ", "appleMenuSymbol": 3])
+        XCTAssertEqual(b?.appleMenuPlacement, .shared)
+        XCTAssertNil(b?.appleMenuTitle)
+        XCTAssertNil(b?.appleMenuSymbol)
+        XCTAssertEqual(bad.map(\.message), [
+            "appleMenuPlacement must be submenu or shared; using shared.",
+            "appleMenuTitle must be a non-empty string; ignored.",
+            "appleMenuSymbol must be an SF Symbol name; ignored.",
+        ])
+        XCTAssertEqual(bad.map(\.severity), [.error, .error, .error])
+        XCTAssertNotNil(b, "the manifest still loads")
+
+        let (n, noItems) = menuManifest(nil, extra: ["appleMenuPlacement": "submenu", "appleMenuTitle": "X"])
+        XCTAssertEqual(n?.appleMenuPlacement, .shared)
+        XCTAssertNil(n?.appleMenuTitle)
+        XCTAssertEqual(noItems.map(\.message), ["appleMenuPlacement, appleMenuTitle without appleMenu items; ignored."])
+        XCTAssertEqual(noItems.map(\.severity), [.warning])
     }
 
     func testManifestWithoutAppleMenuIsUnchanged() {
@@ -261,10 +300,15 @@ final class MenuLoaderPublisherTests: XCTestCase {
     }
 
     func testPayloadSortsByTweakNameThenManifestOrder() {
-        let p = MenuLoaderPublisher.payload(for: manifests(), settings: MenuLoaderSettings())!
+        let p = MenuLoaderPublisher.payload(for: manifests(), settings: withoutDynject())!
         XCTAssertEqual(p["formatVersion"] as? Int, 1)
         XCTAssertEqual(p["placement"] as? String, "submenu")
-        XCTAssertEqual(p["submenuTitle"] as? String, "Dynject")
+        XCTAssertEqual(p["submenuTitle"] as? String, "Tweaks")
+        XCTAssertEqual(p["contributors"] as? NSArray, [
+            ["tweakID": "com.test.alpha", "title": "alpha", "placement": "shared"],
+            ["tweakID": "com.test.alpha2", "title": "Alpha", "placement": "shared"],
+            ["tweakID": "com.test.zeta", "title": "Zeta", "placement": "shared"],
+        ] as NSArray)
         let items = p["items"] as! [[String: Any]]
         // "alpha" and "Alpha" compare equal ignoring case; the identifier breaks the tie.
         XCTAssertEqual(items.map { $0["id"] as! String }, ["a2", "b1", "z1", "z2"])
@@ -281,7 +325,7 @@ final class MenuLoaderPublisherTests: XCTestCase {
         let sections: [[String: Any]] = [["items": [["type": "switch", "key": "on", "default": true], ["type": "switch", "key": "off"]]]]
         let m = menuManifest([item("c1", "notify:x.y", ["checkedBy": "on"]), item("c2", "notify:x.y", ["checkedBy": "off"]), item("c3")],
                              sections: sections).0!
-        let items = MenuLoaderPublisher.payload(for: [m], settings: MenuLoaderSettings())!["items"] as! [[String: Any]]
+        let items = MenuLoaderPublisher.payload(for: [m], settings: withoutDynject())!["items"] as! [[String: Any]]
         // MenuLoader's fallback while the tweak has no settings payload, matching Workbench's effective value.
         XCTAssertEqual(items.map { $0["checkedByDefault"] as? Bool }, [true, false, nil])
     }
@@ -299,41 +343,85 @@ final class MenuLoaderPublisherTests: XCTestCase {
                           item("g3", "notify:a", ["keyEquivalent": "j", "modifiers": ["option", "command"], "apps": ["com.w", "com.y"]])],
                          id: "com.test.gamma", name: "Gamma").0!,
         ]
-        let items = MenuLoaderPublisher.payload(for: all, settings: MenuLoaderSettings())!["items"] as! [[String: Any]]
+        let items = MenuLoaderPublisher.payload(for: all, settings: withoutDynject())!["items"] as! [[String: Any]]
         XCTAssertEqual(items.map { $0["id"] as! String }, ["a1", "a2", "a3", "b1", "b2", "g1", "g2", "g3"])
         XCTAssertEqual(items.map { $0["keyEquivalent"] as? String }, ["j", "K", nil, nil, nil, "j", "j", nil])
         XCTAssertTrue(items.filter { $0["keyEquivalent"] == nil }.allSatisfy { $0["modifiers"] == nil })
-        let conflicts = MenuLoaderPublisher.shortcutConflicts(for: all, settings: MenuLoaderSettings())
+        let conflicts = MenuLoaderPublisher.shortcutConflicts(for: all, settings: withoutDynject())
         XCTAssertEqual(conflicts.map(\.itemID), ["a3", "b1", "b2", "g3"])
         XCTAssertEqual(conflicts[1].message, "Shortcut ⌘J not published: \"Title a1\" (Alpha) already uses it.")
         XCTAssertEqual(conflicts[0].shortcut, "⇧⌘K")
         // Turning off the tweak that had it gives the shortcut to the next one.
-        var s = MenuLoaderSettings()
+        var s = withoutDynject()
         s.included["com.test.alpha"] = false
         XCTAssertEqual(MenuLoaderPublisher.items(for: all, settings: s).map(\.1.keyEquivalent), ["j", nil, "j", "j", nil])
     }
 
     func testIncludeFlagPlacementAndTitle() {
-        var s = MenuLoaderSettings()
+        var s = withoutDynject()
         s.included["com.test.zeta"] = false
         s.placement = .section
         s.submenuTitle = "   "
         let p = MenuLoaderPublisher.payload(for: manifests(), settings: s)!
         XCTAssertEqual((p["items"] as! [[String: Any]]).map { $0["id"] as! String }, ["a2", "b1"])
         XCTAssertEqual(p["placement"] as? String, "section")
-        XCTAssertEqual(p["submenuTitle"] as? String, "Dynject")
-        s.submenuTitle = "Tweaks"
-        XCTAssertEqual(MenuLoaderPublisher.payload(for: manifests(), settings: s)!["submenuTitle"] as? String, "Tweaks")
+        XCTAssertEqual(p["submenuTitle"] as? String, "Tweaks")
+        s.submenuTitle = "My Stuff"
+        XCTAssertEqual(MenuLoaderPublisher.payload(for: manifests(), settings: s)!["submenuTitle"] as? String, "My Stuff")
 
-        s.included = ["com.test.zeta": false, "com.test.alpha": false, "com.test.alpha2": false]
+        s.included = ["com.test.zeta": false, "com.test.alpha": false, "com.test.alpha2": false, MenuLoaderContributor.dynjectID: false]
         XCTAssertNil(MenuLoaderPublisher.payload(for: manifests(), settings: s))
-        XCTAssertNil(MenuLoaderPublisher.payload(for: [], settings: MenuLoaderSettings()))
+        XCTAssertNil(MenuLoaderPublisher.payload(for: [], settings: withoutDynject()))
+        // Workbench's own group alone is still a list.
+        s.included[MenuLoaderContributor.dynjectID] = nil
+        XCTAssertEqual((MenuLoaderPublisher.payload(for: manifests(), settings: s)?["items"] as? [Any])?.count, 3)
+    }
+
+    /// Own-entry contributors first (Workbench's group, then by title), then the shared ones by title.
+    func testDynjectGroupAndPerContributorPlacement() throws {
+        let all = [
+            menuManifest([item("z")], id: "com.test.zeta", name: "Zeta").0!,
+            menuManifest([item("b")], id: "com.test.beta", name: "Beta",
+                         extra: ["appleMenuPlacement": "submenu", "appleMenuTitle": "Beta Tools", "appleMenuSymbol": "hammer"]).0!,
+            menuManifest([item("a")], id: "com.test.aard", name: "aardvark", extra: ["appleMenuPlacement": "submenu"]).0!,
+            menuManifest([item("s")], id: "com.test.shared", name: "Shared One", extra: ["appleMenuTitle": "Alpha Shared"]).0!,
+            // The reserved identifier is Workbench's: such a manifest is not published.
+            menuManifest([item("fake")], id: MenuLoaderContributor.dynjectID, name: "Impostor").0!,
+        ]
+        let order = MenuLoaderPublisher.contributors(for: all, settings: MenuLoaderSettings())
+        XCTAssertEqual(order.map(\.id), [MenuLoaderContributor.dynjectID, "com.test.aard", "com.test.beta", "com.test.shared", "com.test.zeta"])
+        XCTAssertEqual(order.map(\.placement), [.submenu, .submenu, .submenu, .shared, .shared])
+
+        let p = try XCTUnwrap(MenuLoaderPublisher.payload(for: all, settings: MenuLoaderSettings()))
+        XCTAssertTrue(PropertyListSerialization.propertyList(p, isValidFor: .binary))
+        XCTAssertEqual(p["contributors"] as? NSArray, [
+            ["tweakID": "local.dynject.workbench", "title": "Dynject", "placement": "submenu", "symbol": "puzzlepiece.extension"],
+            ["tweakID": "com.test.aard", "title": "aardvark", "placement": "submenu"],
+            ["tweakID": "com.test.beta", "title": "Beta Tools", "placement": "submenu", "symbol": "hammer"],
+            ["tweakID": "com.test.shared", "title": "Alpha Shared", "placement": "shared"],
+            ["tweakID": "com.test.zeta", "title": "Zeta", "placement": "shared"],
+        ] as NSArray)
+        let items = try XCTUnwrap(p["items"] as? [[String: Any]])
+        XCTAssertEqual(items.map { $0["id"] as! String }, ["respring", "safemode", "open", "a", "b", "s", "z"])
+        XCTAssertEqual(items[0] as NSDictionary, ["id": "respring", "title": "Respring…", "action": "url:dynject-workbench://respring",
+                                                  "symbol": "arrow.clockwise", "tweakID": "local.dynject.workbench", "tweakName": "Dynject"] as NSDictionary)
+        XCTAssertEqual(items[1]["action"] as? String, "url:dynject-workbench://safemode")
+        XCTAssertEqual(items[2]["action"] as? String, "app:local.dynject.workbench")
+        XCTAssertEqual(items[2]["title"] as? String, "Open Dynject Workbench")
+        XCTAssertEqual(items[5]["tweakName"] as? String, "Shared One", "tweakName stays the manifest name")
+
+        // Hiding Workbench's group removes its items and its contributor entry.
+        var s = MenuLoaderSettings()
+        s.included[MenuLoaderContributor.dynjectID] = false
+        let hidden = try XCTUnwrap(MenuLoaderPublisher.payload(for: all, settings: s))
+        XCTAssertEqual((hidden["items"] as? [[String: Any]])?.map { $0["id"] as! String }, ["a", "b", "s", "z"])
+        XCTAssertEqual((hidden["contributors"] as? [[String: Any]])?.first?["tweakID"] as? String, "com.test.aard")
     }
 
     func testPublishWritesAndNotifiesOnlyOnChange() throws {
         let backend = MemoryTweakBackend()
         let publisher = MenuLoaderPublisher(store: backend, names: .test)
-        var s = MenuLoaderSettings()
+        var s = withoutDynject()
 
         XCTAssertTrue(try publisher.publish(manifests(), settings: s))
         XCTAssertEqual(backend.writes, 1)
@@ -364,7 +452,7 @@ final class MenuLoaderPublisherTests: XCTestCase {
 
     func testNoItemsAndNothingPublishedWritesNothing() throws {
         let backend = MemoryTweakBackend()
-        XCTAssertFalse(try MenuLoaderPublisher(store: backend, names: .test).publish([menuManifest(nil).0!], settings: MenuLoaderSettings()))
+        XCTAssertFalse(try MenuLoaderPublisher(store: backend, names: .test).publish([menuManifest(nil).0!], settings: withoutDynject()))
         XCTAssertEqual(backend.writes, 0)
         XCTAssertEqual(backend.notifications, [])
     }
@@ -382,7 +470,8 @@ final class MenuLoaderPublisherTests: XCTestCase {
         XCTAssertFalse(try MenuLoaderPublisher(store: FileTweakBackend(path: backend.path), names: .test).publish([m], settings: MenuLoaderSettings()))
         XCTAssertEqual(backend.posted, ["dynject.tweak.com.example.windowtweak.changed", "dynject.menuloader.test.changed"])
         XCTAssertNotNil(backend.payload(for: m.id))
-        XCTAssertEqual((publisher.currentPayload()?["items"] as? [[String: Any]])?.map { $0["id"] as? String }, ["toggle", "help"])
+        XCTAssertEqual((publisher.currentPayload()?["items"] as? [[String: Any]])?.map { $0["id"] as? String },
+                       ["respring", "safemode", "open", "toggle", "help"])
     }
 
     /// Unchanged detection must survive a real CFPreferences round trip (number and boolean bridging).
@@ -418,5 +507,11 @@ final class MenuLoaderPublisherTests: XCTestCase {
         s.included["x"] = false
         s.placement = .section
         XCTAssertEqual(try JSONDecoder().decode(MenuLoaderSettings.self, from: JSONEncoder().encode(s)), s)
+        // The shared entry used to be called "Dynject" by default; that name is now Workbench's own group.
+        let legacy = try JSONDecoder().decode(MenuLoaderSettings.self, from: Data(#"{"submenuTitle":"Dynject","placement":"submenu"}"#.utf8))
+        XCTAssertEqual(legacy.effectiveSubmenuTitle, "Tweaks")
+        let custom = try JSONDecoder().decode(MenuLoaderSettings.self, from: Data(#"{"submenuTitle":"Mine"}"#.utf8))
+        XCTAssertEqual(custom.effectiveSubmenuTitle, "Mine")
+        XCTAssertTrue(MenuLoaderSettings().isIncluded(MenuLoaderContributor.dynjectID), "Workbench's group is shown by default")
     }
 }

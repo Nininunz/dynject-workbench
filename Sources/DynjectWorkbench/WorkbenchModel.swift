@@ -516,13 +516,15 @@ final class WorkbenchModel {
         respring.present(fromLink: fromLink)
     }
 
-    /// Links to dynject-workbench:// (Info.plist registers the scheme; MenuLoader's "Respring…" item opens one).
+    /// Links to dynject-workbench:// (Info.plist registers the scheme; the Apple menu's "Dynject" group opens them).
     /// SwiftUI delivers them to ContentView's onOpenURL, also when the link launches the app. A custom GetURL
     /// Apple Event handler is avoided: installing one left the window out of the accessibility tree.
     func handle(url: URL) {
         switch WorkbenchLink(url: url) {
         case .respring?:
             openRespring(fromLink: true)
+        case .safeMode?:
+            section = .safemode
         case nil:
             banner = Banner(kind: .warning, title: "Unknown link", detail: "Workbench doesn't handle \(url.absoluteString).")
         }
@@ -608,8 +610,8 @@ final class WorkbenchModel {
 
     // MARK: Apple menu (MenuLoader)
 
-    /// Items MenuLoader currently gets, in published order.
-    var appleMenuEntries: [(TweakManifest, AppleMenuItem)] { MenuLoaderPublisher.items(for: tweaks, settings: menuSettings) }
+    /// Items MenuLoader currently gets, in published order (Workbench's own "Dynject" group included).
+    var appleMenuEntries: [(MenuLoaderContributor, AppleMenuItem)] { MenuLoaderPublisher.items(for: tweaks, settings: menuSettings) }
 
     /// Items whose shortcut is not published because an earlier item already has it.
     var appleMenuShortcutConflicts: [ShortcutConflict] { MenuLoaderPublisher.shortcutConflicts(for: tweaks, settings: menuSettings) }
@@ -629,6 +631,10 @@ final class WorkbenchModel {
     }
 
     func isInAppleMenu(_ tweakID: String) -> Bool { menuSettings.isIncluded(tweakID) }
+
+    /// Workbench's own "Dynject" group (Respring…, Safe Mode…, Open Dynject Workbench).
+    var showsDynjectAppleMenu: Bool { isInAppleMenu(MenuLoaderContributor.dynjectID) }
+    func setShowsDynjectAppleMenu(_ on: Bool) { setInAppleMenu(on, tweakID: MenuLoaderContributor.dynjectID) }
 
     func setInAppleMenu(_ on: Bool, tweakID: String) {
         guard menuSettings.isIncluded(tweakID) != on else { return }

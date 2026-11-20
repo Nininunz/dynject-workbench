@@ -192,20 +192,24 @@ struct SmokeTest {
 
         // MenuLoader: the example's Apple-menu items go to the fixture file under the test key, never the real one.
         let menuKey = model.menuPublisher.names.key
-        func menuItems() -> [String]? {
-            (file.dictionary(forKey: menuKey)?["items"] as? [[String: Any]])?.compactMap { $0["id"] as? String }
+        /// Published item IDs of one contributor (the example tweak unless given).
+        func menuItems(_ tweakID: String? = nil) -> [String] {
+            ((file.dictionary(forKey: menuKey)?["items"] as? [[String: Any]]) ?? [])
+                .filter { $0["tweakID"] as? String == tweakID ?? id }.compactMap { $0["id"] as? String }
         }
         func menuPosts() -> Int {
             (model.tweakBackend as? FileTweakBackend)?.posted.filter { $0 == model.menuPublisher.names.notification }.count ?? 0
         }
         _ = check("apple menu isolated", model.menuPublisher.names == .test && model.menuPublisher.store is FileTweakBackend,
                   "\(menuKey) in \(model.env.tweakPrefsFile)")
-        _ = check("apple menu published", menuItems() == ["toggle", "help"] && menuPosts() == 1, "items=\(menuItems() ?? [])")
+        _ = check("apple menu published", menuItems() == ["toggle", "help"] && menuPosts() == 1
+                  && menuItems(MenuLoaderContributor.dynjectID) == ["respring", "safemode", "open"],
+                  "items=\(menuItems()), Dynject group=\(menuItems(MenuLoaderContributor.dynjectID))")
         _ = check("apple menu section", await wait { await AXSelf.exists("applemenu-include-\(id)") }, "")
         _ = check("press apple menu switch", await pressWhenReady("applemenu-include-\(id)"), "AXPress on Show in Apple menu")
-        _ = check("apple menu removed", await wait { menuItems() == nil && menuPosts() == 2 && !model.isInAppleMenu(id) }
+        _ = check("apple menu removed", await wait { menuItems().isEmpty && menuPosts() == 2 && !model.isInAppleMenu(id) }
                   && FileManager.default.fileExists(atPath: model.env.menuLoaderSettingsFile.path),
-                  "no items left: key removed, notification recorded, flag saved")
+                  "its items removed (the Dynject group stays), notification recorded, flag saved")
         scrollFormsToBottom()
         await settle()
         snapshot("tweak-apple-menu-off")

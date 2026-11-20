@@ -40,6 +40,9 @@ A property list with a dictionary at the top level. See [`Examples/ExampleTweak.
 | `applyCommand` | no | Array: absolute executable path plus arguments. Run as the user, with no shell and a 10 s timeout, after each change. Only needed if the tweak must do extra work beyond the notification. |
 | `sections` | yes | Array of `{ title?, footer?, items: [item] }`. May be empty when the manifest only declares `appleMenu` items. |
 | `appleMenu` | no | Array of Apple-menu items, added to the Apple menu by MenuLoader. See [Apple menu items](#apple-menu-items-menuloader). |
+| `appleMenuPlacement` | no | `shared` (default): the items are one section of the shared "Tweaks" entry. `submenu`: the tweak gets its own entry in the Apple menu. |
+| `appleMenuTitle` | no | Title of the tweak's own entry, or of its section in the shared one. Default: `name`. |
+| `appleMenuSymbol` | no | SF Symbol name for the tweak's own entry (`submenu` placement). |
 
 ### Items
 
@@ -66,7 +69,8 @@ Invalid items are skipped and reported. The rest of the manifest still loads.
 
 MenuLoader is the Apple-menu counterpart of PreferenceLoader. A tweak **declares** items in its manifest, and
 one small global tweak, `Tweaks/MenuLoader`, adds them to the Apple menu of every app it is injected into.
-No tweak writes menu code.
+No tweak writes menu code. MenuLoader itself is pure infrastructure, like PreferenceLoader: it has no items of
+its own. Dynject's own controls (Respring…, Safe Mode…, Open Dynject Workbench) are a group Workbench publishes.
 
 ```xml
 <key>appleMenu</key>
@@ -97,9 +101,36 @@ Actions:
 | Action | Effect |
 | --- | --- |
 | `notify:<name>` | Posts the Darwin notification `<name>` (allowed from sandboxed apps). Observe it in your tweak or a helper. |
-| `url:<absolute URL>` | Opens the URL with NSWorkspace. Any scheme, e.g. `url:dynject-workbench://respring` (MenuLoader's own **Respring…** item). |
+| `url:<absolute URL>` | Opens the URL with NSWorkspace. Any scheme, e.g. `url:dynject-workbench://respring` (the **Dynject ▸ Respring…** item) or `url:dynject-workbench://safemode`. |
 | `shortcut:<Shortcut name>` | Opens `shortcuts://run-shortcut?name=<percent-encoded name>`. |
 | `app:<bundle ID>` | Launches or activates that app. |
+
+Placement. The contributor (the tweak) chooses, with top-level manifest keys:
+
+```xml
+<key>appleMenuPlacement</key><string>submenu</string>   <!-- or shared (default) -->
+<key>appleMenuTitle</key><string>Glass</string>          <!-- default: the tweak's name -->
+<key>appleMenuSymbol</key><string>sparkles</string>      <!-- own entry's icon, optional -->
+```
+
+```
+ App Store…
+ ───────────────
+ Dynject      ▸     Workbench's own group (can be hidden in Workbench)
+ Glass        ▸     tweaks with appleMenuPlacement = submenu, by title
+ Tweaks       ▸     the shared entry: one section per shared tweak, headed by its title
+ ───────────────
+ Recent Items ▸
+```
+
+- `submenu`: the tweak gets its own entry, "`appleMenuTitle` ▸" with `appleMenuSymbol`, below App Store…. Use it for a
+  tweak whose items are its main interface.
+- `shared` (default): its items are one section of the shared entry, which the user can rename (default "Tweaks")
+  or flatten into sections of the Apple menu itself. With several tweaks in it, each section starts with a header
+  showing `appleMenuTitle`; sections are separated either way.
+- An entry or section appears only in apps where at least one of its items does (`apps`).
+- A bad `appleMenuPlacement` is an error and `shared` applies; an empty `appleMenuTitle` or a non-string
+  `appleMenuSymbol` is ignored with an error. The keys without `appleMenu` items get a warning.
 
 Shortcuts. The Apple menu is part of every app's main menu, and AppKit checks it for key equivalents before
 the key reaches the focused view. So:
@@ -127,33 +158,45 @@ drop the `keyEquivalent`, so a shortcut never lands on the wrong keys).
 
 ### What Workbench publishes
 
-Workbench combines the items of every loaded manifest into one key in the global preferences domain, and posts a
-Darwin notification after each change:
+Workbench combines the items of every loaded manifest, plus its own **Dynject** group, into one key in the global
+preferences domain, and posts a Darwin notification after each change:
 
 ```
 key   dynject.menuloader
 value {
   formatVersion: 1,
   items: [ { id, title, action, symbol?, apps?, checkedBy?, checkedByDefault?, keyEquivalent?, modifiers?, tweakID, tweakName }, ... ],
-  placement: "submenu" | "section",
-  submenuTitle: "Dynject"
+  contributors: [ { tweakID, title, placement: "submenu" | "shared", symbol? }, ... ],
+  placement: "submenu" | "section",     // style of the shared entry
+  submenuTitle: "Tweaks"                // title of the shared entry
 }
 notification  dynject.menuloader.changed
 ```
 
-- Items are sorted by tweak name (then identifier), and keep manifest order within a tweak.
+- `contributors` has one entry per tweak with published items, in Apple-menu order: Workbench's own group
+  (`local.dynject.workbench`) first, then the other `submenu` contributors by title, then the `shared` ones by
+  title (ties: identifier). `items` follow the same order, in manifest order within a tweak.
+- The **Dynject** group (`tweakID` `local.dynject.workbench`, `placement` `submenu`, symbol `puzzlepiece.extension`):
+  **Respring…** (`url:dynject-workbench://respring`), **Safe Mode…** (`url:dynject-workbench://safemode`) and
+  **Open Dynject Workbench** (`app:local.dynject.workbench`). Workbench's Apple-menu options can hide it. A manifest
+  that uses that identifier is ignored.
+- `formatVersion` stays 1: `contributors` is an addition. A MenuLoader build that predates it puts every item in
+  the shared entry. MenuLoader treats an item whose `tweakID` has no `contributors` entry (a list from an older
+  Workbench) as `shared`, titled with its `tweakName`; a `placement` other than `submenu` means `shared`.
 - Only valid items are published. Tweaks the user switched off with **Show in Apple menu** are left out.
 - Shortcuts are published normalized: `keyEquivalent` is a lowercase letter, or the uppercase letter when
   `modifiers` includes `shift`, and `modifiers` always includes `command` (absent = `command`). An item
   whose shortcut an earlier item already has, in an app where both can appear, is published without one.
 - Items with `checkedBy` also carry `checkedByDefault`, the manifest default of that switch. MenuLoader uses it as
   the fallback while the tweak has no settings payload yet, so the checkmark matches what Workbench shows.
-- When no tweak contributes an item, the key is removed. Treat a missing key as "no items".
+- When nothing contributes an item (every tweak and the Dynject group hidden), the key is removed. Treat a missing
+  key as "no items".
 - The key is rewritten, and the notification posted, only when its content changes: on launch, on **Reload**, and
-  when the user changes a tweak's switch, the placement or the submenu title.
-- `placement: submenu` (default): MenuLoader adds one item titled `submenuTitle` right after the section that holds
-  "App Store…", with the items grouped by tweak (separators between tweaks). `section`: the items go directly into the
-  Apple menu at the same place, as their own section. An app with no items for it gets nothing.
+  when the user changes a tweak's switch, the Dynject group switch, the shared style or the shared title.
+- In the Apple menu, after the section that holds "App Store…": one entry per `submenu` contributor, then the
+  shared entry: `placement: submenu` (default) is one submenu titled `submenuTitle`, `section` puts the shared
+  tweaks' items directly into the Apple menu, a section per tweak. Then MenuLoader's separator before Recent Items.
+  An app with no items for it gets nothing.
 - Test builds of MenuLoader (`-DML_TEST`) read `dynject.menuloader.test` and listen for
   `dynject.menuloader.test.changed`. Workbench's fixture mode and UI smoke test write that test key into the fixture
   preferences file, never to the global domain.
@@ -215,8 +258,9 @@ are best-effort; a relaunch always picks up the latest values.
 - **Restarting Dynject:** changing a tweak's settings never touches `dynjectd.conf` and never needs a restart.
   Which apps load the tweak is still decided by the Injection page.
 - **Apple menu:** a tweak that declares `appleMenu` items gets an "Apple menu" section listing them, with a
-  **Show in Apple menu** switch (on by default, kept in Workbench's own preferences). The Apple-logo button under the tweak
-  list sets the placement (submenu or section) and the submenu title for all tweaks.
+  **Show in Apple menu** switch (on by default, kept in Workbench's own preferences) and says where the items go.
+  The Apple-logo button under the tweak list shows or hides the **Dynject** group and sets the shared entry's style
+  (submenu or section) and title.
 
 ## Not in version 1
 

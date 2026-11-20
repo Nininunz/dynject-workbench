@@ -139,8 +139,43 @@ public struct AppleMenuItem: Identifiable, Sendable, Equatable {
     }
 }
 
+/// Where MenuLoader puts a tweak's items (manifest key `appleMenuPlacement`).
+public enum AppleMenuPlacement: String, Sendable, CaseIterable {
+    /// The tweak's own entry, "<title> ▸", after the App Store section.
+    case submenu
+    /// One section of the shared entry ("Tweaks" unless the user renamed it). The default.
+    case shared
+}
+
 enum AppleMenuParser {
     static let bundleIDPattern = "^[A-Za-z0-9][A-Za-z0-9.-]*$"
+
+    /// The manifest's top-level `appleMenuPlacement`, `appleMenuTitle` and `appleMenuSymbol`. Bad values are
+    /// ignored with an error (the defaults apply); without `appleMenu` items they mean nothing and get a warning.
+    static func parseGroup(_ root: [String: Any], hasItems: Bool, error: (String) -> Void, warning: (String) -> Void)
+        -> (placement: AppleMenuPlacement, title: String?, symbol: String?) {
+        let keys = ["appleMenuPlacement", "appleMenuTitle", "appleMenuSymbol"].filter { root[$0] != nil }
+        guard hasItems else {
+            if !keys.isEmpty { warning("\(keys.joined(separator: ", ")) without appleMenu items; ignored.") }
+            return (.shared, nil, nil)
+        }
+        var placement = AppleMenuPlacement.shared
+        if let raw = root["appleMenuPlacement"] {
+            if let v = (raw as? String).flatMap(AppleMenuPlacement.init(rawValue:)) { placement = v } else {
+                error("appleMenuPlacement must be \(AppleMenuPlacement.allCases.map(\.rawValue).joined(separator: " or ")); using shared.")
+            }
+        }
+        var title: String?
+        if let raw = root["appleMenuTitle"] {
+            let t = (raw as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if t.isEmpty { error("appleMenuTitle must be a non-empty string; ignored.") } else { title = t }
+        }
+        var symbol: String?
+        if let raw = root["appleMenuSymbol"] {
+            if let v = raw as? String, !v.isEmpty { symbol = v } else { error("appleMenuSymbol must be an SF Symbol name; ignored.") }
+        }
+        return (placement, title, symbol)
+    }
 
     /// Parses the manifest's `appleMenu` array. Broken items are skipped and broken optional fields ignored,
     /// each with an error, so the rest of the manifest keeps working.
@@ -327,11 +362,63 @@ enum AppleMenuParser {
 
 // MARK: - Published list
 
+/// The style of the shared entry, which holds the items of every tweak whose placement is `shared`.
 public enum MenuLoaderPlacement: String, Sendable, CaseIterable, Codable {
-    /// One "Dynject" submenu holding every item, grouped by tweak.
+    /// One submenu ("Tweaks" unless renamed), one section per tweak.
     case submenu
-    /// The items directly in the Apple menu, as their own section.
+    /// The items directly in the Apple menu, one section per tweak.
     case section
+}
+
+/// One tweak's share of the Apple menu: a manifest with `appleMenu` items, or Workbench's own "Dynject" group.
+public struct MenuLoaderContributor: Identifiable, Sendable {
+    /// The tweak identifier (`tweakID` in the published list).
+    public var id: String
+    public var name: String
+    public var title: String
+    public var placement: AppleMenuPlacement
+    public var symbol: String?
+    public var items: [AppleMenuItem]
+    /// Manifest defaults of the switches `checkedBy` refers to (published as `checkedByDefault`).
+    public var checkedDefaults: [String: Bool] = [:]
+
+    public init(id: String, name: String, title: String, placement: AppleMenuPlacement, symbol: String?, items: [AppleMenuItem],
+                checkedDefaults: [String: Bool] = [:]) {
+        self.id = id
+        self.name = name
+        self.title = title
+        self.placement = placement
+        self.symbol = symbol
+        self.items = items
+        self.checkedDefaults = checkedDefaults
+    }
+
+    public init(manifest m: TweakManifest) {
+        var defaults: [String: Bool] = [:]
+        for key in Set(m.appleMenu.compactMap(\.checkedBy)) { defaults[key] = m.item(key)?.defaultValue.bool ?? false }
+        self.init(id: m.id, name: m.name, title: m.effectiveAppleMenuTitle, placement: m.appleMenuPlacement,
+                  symbol: m.appleMenuSymbol, items: m.appleMenu, checkedDefaults: defaults)
+    }
+
+    /// Identifier of Workbench's built-in group (Workbench's bundle ID). A manifest using it is ignored.
+    public static let dynjectID = "local.dynject.workbench"
+
+    /// Workbench's own group, "Dynject ▸": Respring…, Safe Mode…, Open Dynject Workbench. Hidden with the
+    /// per-tweak include flag of `dynjectID` (MenuLoaderSettings).
+    public static let dynject = MenuLoaderContributor(
+        id: dynjectID, name: "Dynject", title: "Dynject", placement: .submenu, symbol: "puzzlepiece.extension",
+        items: [
+            AppleMenuItem(id: "respring", title: "Respring…", action: .url("dynject-workbench://respring"), symbol: "arrow.clockwise"),
+            AppleMenuItem(id: "safemode", title: "Safe Mode…", action: .url("dynject-workbench://safemode"), symbol: "cross.case"),
+            AppleMenuItem(id: "open", title: "Open Dynject Workbench", action: .app(dynjectID), symbol: "macwindow"),
+        ])
+
+    /// As published in the list's `contributors` array.
+    public var plistDictionary: [String: Any] {
+        var d: [String: Any] = ["tweakID": id, "title": title, "placement": placement.rawValue]
+        if let symbol { d["symbol"] = symbol }
+        return d
+    }
 }
 
 /// Where Workbench publishes the Apple-menu list and how MenuLoader hears about changes.
@@ -351,10 +438,14 @@ public struct MenuLoaderNames: Sendable, Equatable {
 
 /// Workbench's own MenuLoader preferences (stored by the app, not published as such).
 public struct MenuLoaderSettings: Codable, Equatable, Sendable {
-    public static let defaultSubmenuTitle = "Dynject"
+    /// Title of the shared entry.
+    public static let defaultSubmenuTitle = "Tweaks"
+    /// The shared entry's default title before Workbench's own group got that name; read as the new default.
+    static let legacyDefaultSubmenuTitle = "Dynject"
 
-    /// Per-tweak "Show in Apple menu" flag. Missing = on.
+    /// Per-tweak "Show in Apple menu" flag. Missing = on. `MenuLoaderContributor.dynjectID` hides Workbench's group.
     public var included: [String: Bool] = [:]
+    /// Style and title of the shared entry.
     public var placement: MenuLoaderPlacement = .submenu
     public var submenuTitle: String = MenuLoaderSettings.defaultSubmenuTitle
 
@@ -373,6 +464,8 @@ public struct MenuLoaderSettings: Codable, Equatable, Sendable {
         included = try c.decodeIfPresent([String: Bool].self, forKey: .included) ?? [:]
         placement = (try? c.decodeIfPresent(MenuLoaderPlacement.self, forKey: .placement)) ?? .submenu
         submenuTitle = try c.decodeIfPresent(String.self, forKey: .submenuTitle) ?? Self.defaultSubmenuTitle
+        // Saved by a Workbench whose one entry was "Dynject": that name now belongs to Workbench's own group.
+        if submenuTitle == Self.legacyDefaultSubmenuTitle { submenuTitle = Self.defaultSubmenuTitle }
     }
 }
 
@@ -397,8 +490,9 @@ public struct ShortcutConflict: Sendable, Equatable {
     }
 }
 
-/// Builds the MenuLoader list from the loaded manifests and publishes it when it changed.
+/// Builds the MenuLoader list from the loaded manifests (plus Workbench's own group) and publishes it when it changed.
 public final class MenuLoaderPublisher {
+    /// Still 1: `contributors` is an addition older MenuLoader builds ignore (they put every item in the shared entry).
     public static let formatVersion = 1
 
     public let store: GlobalPrefsStore
@@ -409,9 +503,25 @@ public final class MenuLoaderPublisher {
         self.names = names
     }
 
-    /// Included tweaks sorted by name (then identifier), items in manifest order. An item whose shortcut an earlier
-    /// item already has (in an app both can appear in) loses its shortcut; see `shortcutConflicts`.
-    public static func items(for manifests: [TweakManifest], settings: MenuLoaderSettings) -> [(TweakManifest, AppleMenuItem)] {
+    /// The included contributors with items, in Apple-menu order: own-entry contributors first (Workbench's group,
+    /// then by title), then the shared ones by title; ties broken by identifier.
+    public static func contributors(for manifests: [TweakManifest], settings: MenuLoaderSettings) -> [MenuLoaderContributor] {
+        func rank(_ c: MenuLoaderContributor) -> Int { c.id == MenuLoaderContributor.dynjectID ? 0 : c.placement == .submenu ? 1 : 2 }
+        let all = [MenuLoaderContributor.dynject]
+            + manifests.filter { $0.id != MenuLoaderContributor.dynjectID }.map(MenuLoaderContributor.init(manifest:))
+        return all
+            .filter { !$0.items.isEmpty && settings.isIncluded($0.id) }
+            .sorted {
+                if rank($0) != rank($1) { return rank($0) < rank($1) }
+                let c = $0.title.compare($1.title, options: [.caseInsensitive, .numeric])
+                return c == .orderedSame ? $0.id < $1.id : c == .orderedAscending
+            }
+    }
+
+    /// Every published item with its contributor, in published order (contributors in Apple-menu order, items in
+    /// manifest order). An item whose shortcut an earlier item already has (in an app both can appear in) loses
+    /// its shortcut; see `shortcutConflicts`.
+    public static func items(for manifests: [TweakManifest], settings: MenuLoaderSettings) -> [(MenuLoaderContributor, AppleMenuItem)] {
         resolved(manifests, settings: settings).entries
     }
 
@@ -421,54 +531,51 @@ public final class MenuLoaderPublisher {
     }
 
     static func resolved(_ manifests: [TweakManifest], settings: MenuLoaderSettings)
-        -> (entries: [(TweakManifest, AppleMenuItem)], conflicts: [ShortcutConflict]) {
-        let ordered = manifests
-            .filter { !$0.appleMenu.isEmpty && settings.isIncluded($0.id) }
-            .sorted {
-                let c = $0.name.compare($1.name, options: [.caseInsensitive, .numeric])
-                return c == .orderedSame ? $0.id < $1.id : c == .orderedAscending
-            }
-            .flatMap { m in m.appleMenu.map { (m, $0) } }
+        -> (entries: [(MenuLoaderContributor, AppleMenuItem)], conflicts: [ShortcutConflict]) {
+        let ordered = contributors(for: manifests, settings: settings).flatMap { c in c.items.map { (c, $0) } }
         // AppKit runs the first matching item, so a later item with the same shortcut would never run from the
         // keyboard; drop its shortcut so the menu (and Workbench) never shows a shortcut that does nothing.
         func overlap(_ a: [String]?, _ b: [String]?) -> Bool {
             guard let a, let b else { return true }
             return !Set(a).isDisjoint(with: b)
         }
-        var kept: [(identity: String, manifest: TweakManifest, item: AppleMenuItem)] = []
+        var kept: [(identity: String, contributor: MenuLoaderContributor, item: AppleMenuItem)] = []
         var conflicts: [ShortcutConflict] = []
-        let entries = ordered.map { m, item -> (TweakManifest, AppleMenuItem) in
-            guard let identity = item.shortcutIdentity else { return (m, item) }
+        let entries = ordered.map { c, item -> (MenuLoaderContributor, AppleMenuItem) in
+            guard let identity = item.shortcutIdentity else { return (c, item) }
             if let winner = kept.first(where: { $0.identity == identity && overlap($0.item.apps, item.apps) }) {
-                conflicts.append(ShortcutConflict(tweakID: m.id, itemID: item.id, shortcut: item.shortcutDisplay ?? identity,
-                                                  keptByTweakName: winner.manifest.name, keptByTitle: winner.item.title))
+                conflicts.append(ShortcutConflict(tweakID: c.id, itemID: item.id, shortcut: item.shortcutDisplay ?? identity,
+                                                  keptByTweakName: winner.contributor.name, keptByTitle: winner.item.title))
                 var stripped = item
                 stripped.keyEquivalent = nil
                 stripped.modifiers = nil
-                return (m, stripped)
+                return (c, stripped)
             }
-            kept.append((identity, m, item))
-            return (m, item)
+            kept.append((identity, c, item))
+            return (c, item)
         }
         return (entries, conflicts)
     }
 
-    /// The dictionary to publish, or nil when no tweak contributes an item (the key is then removed).
+    /// The dictionary to publish, or nil when nothing contributes an item (the key is then removed).
     public static func payload(for manifests: [TweakManifest], settings: MenuLoaderSettings) -> [String: Any]? {
         let entries = items(for: manifests, settings: settings)
         guard !entries.isEmpty else { return nil }
-        let list: [[String: Any]] = entries.map { m, item in
+        let list: [[String: Any]] = entries.map { c, item in
             var d = item.plistDictionary
-            d["tweakID"] = m.id
-            d["tweakName"] = m.name
+            d["tweakID"] = c.id
+            d["tweakName"] = c.name
             // The switch's manifest default: MenuLoader's fallback while the tweak has no settings payload yet,
             // so the checkmark matches what Workbench shows (DTPrefBool's `fallback`).
-            if let key = item.checkedBy { d["checkedByDefault"] = m.item(key)?.defaultValue.bool ?? false }
+            if let key = item.checkedBy { d["checkedByDefault"] = c.checkedDefaults[key] ?? false }
             return d
         }
+        var seen = Set<String>()
+        let contributors = entries.map(\.0).filter { seen.insert($0.id).inserted }.map(\.plistDictionary)
         return [
             "formatVersion": formatVersion,
             "items": list,
+            "contributors": contributors,
             "placement": settings.placement.rawValue,
             "submenuTitle": settings.effectiveSubmenuTitle,
         ]

@@ -95,6 +95,9 @@ final class RespringWorkbenchTests: XCTestCase {
                   "dynject-workbench://respring?from=menu"] {
             XCTAssertEqual(WorkbenchLink(url: URL(string: s)!), .respring, s)
         }
+        for s in ["dynject-workbench://safemode", "dynject-workbench:SafeMode", "dynject-workbench://safemode/"] {
+            XCTAssertEqual(WorkbenchLink(url: URL(string: s)!), .safeMode, s)
+        }
         for s in ["dynject-workbench://settings", "https://respring.example", "dynject-workbench://"] {
             XCTAssertNil(WorkbenchLink(url: URL(string: s)!), s)
         }

@@ -11,7 +11,7 @@ A native macOS app for managing the installed [Dynject](#how-dynject-decides) in
   draws its settings, with per-app overrides. See [Tweak settings](#tweak-settings).
 - Let tweaks add items to the Apple menu by declaring them in that manifest (MenuLoader). See [Apple menu](#apple-menu-menuloader).
 - Respring: relaunch the running apps whose tweaks no longer match the config, then check them with `lsof`, from
-  `dw respring`, Workbench's Respring sheet or MenuLoader's "Respring…" Apple-menu item. See [Respring](#respring).
+  `dw respring`, Workbench's Respring sheet or the Apple menu's **Dynject ▸ Respring…**. See [Respring](#respring).
 
 It manages the existing engine at `/opt/dynject`. It is not an injector, not a theme UI, and not a binary/hex editor.
 
@@ -36,7 +36,7 @@ Version 0.1. Tested against fixtures, and the privileged write and restart paths
 Requires macOS 14+ and Xcode / Swift 6 command-line tools.
 
 ```sh
-swift test                    # 176 DynjectCore tests (parser, editor, helper script, writer, plists, tweaks, Apple menu,
+swift test                    # 178 DynjectCore tests (parser, editor, helper script, writer, plists, tweaks, Apple menu,
                               # Safe Mode, respring), 81 DynjectHook tests and 19 DynjectWorkbench tests (launch
                               # arguments, the Respring sheet's model and links)
 ./scripts/build-app.sh        # → build/Dynject Workbench.app (release, ad-hoc signed)
@@ -179,7 +179,10 @@ SF Symbol, action `notify:` / `url:` / `shortcut:` / `app:`, optional app filter
 switches, key equivalent). Workbench validates them, shows them in the tweak's "Apple menu" section with a
 **Show in Apple menu** switch, and publishes the combined list as `dynject.menuloader` in the global preferences
 domain, posting `dynject.menuloader.changed` when it changes. The global MenuLoader tweak (`Tweaks/MenuLoader`) reads that
-list and adds the items, in a "Dynject" submenu or as their own section, so no tweak writes menu code. Fixture mode,
+list and adds the items, so no tweak writes menu code. MenuLoader has no items of its own. Each tweak chooses
+(`appleMenuPlacement`) between its own "Title ▸" entry and a section of the shared "Tweaks" entry (a submenu or a flat
+section, set in Workbench). Workbench also publishes its own **Dynject ▸** group, first: Respring…, Safe Mode…
+(`dynject-workbench://safemode`) and Open Dynject Workbench; the Apple-logo button under the tweak list hides it. Fixture mode,
 the smoke test and launches with `-DWTweaksDir` or `-DWSupportDir` publish only to a file in the support folder.
 Shortcuts must include Command (a Control-only shortcut would steal text-editing keys like ⌃A and ⌃E); Workbench warns about common app shortcuts and drops a shortcut an earlier
 item already has. Format: [docs/tweak-format.md](docs/tweak-format.md#apple-menu-items-menuloader).
@@ -232,8 +235,9 @@ In Workbench, the sidebar footer shows how many running apps are pending; it and
 sheet listing them with their reasons and checkboxes (excluded apps start unchecked, with a note), a quit timeout,
 **Respring Selected**, live progress and a result per app. The count refreshes when the config is saved, dynjectd is
 restarted, Safe Mode changes, apps launch or quit, the config or a tweak dylib changes on disk, and on demand.
-The link `dynject-workbench://respring` (registered in `Resources/Info.plist`) opens the same sheet. MenuLoader's
-manifest adds it to the Apple menu as **Respring…**. A link never relaunches anything: only the button does.
+The link `dynject-workbench://respring` (registered in `Resources/Info.plist`) opens the same sheet. Workbench
+publishes it to the Apple menu as **Dynject ▸ Respring…** (MenuLoader). A link never relaunches anything: only the
+button does. `dynject-workbench://safemode` shows the Safe Mode page.
 
 ```
 dw respring --dry-run                         the plan with reasons; nothing is quit

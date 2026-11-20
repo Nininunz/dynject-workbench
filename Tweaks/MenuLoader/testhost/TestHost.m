@@ -42,6 +42,7 @@ static void openMenu(void) {
 
 static NSString *sym(NSMenuItem *i) {
     if (i.isSeparatorItem) return @"---";
+    if (i.isSectionHeader) return [@"§" stringByAppendingString:i.title];
     return [NSString stringWithFormat:@"%@%@%@", i.state == NSControlStateValueOn ? @"✓" : @"", i.title, i.hasSubmenu ? @"▸" : @""];
 }
 
@@ -70,6 +71,13 @@ static NSMenuItem *find(NSMenu *m, NSString *title) {
         if (sub) return sub;
     }
     return nil;
+}
+
+/// Chooses an item (anywhere in the Apple menu) the way clicking it does.
+static void choose(NSString *title) {
+    NSMenuItem *i = find(appleMenu(), title);
+    if (!i) { check(NO, [NSString stringWithFormat:@"item \"%@\" exists", title]); return; }
+    [i.menu performActionForItemAtIndex:[i.menu indexOfItem:i]];
 }
 
 static NSInteger appleItemCount(NSMenu *m) { return m.numberOfItems - (NSInteger)ours(m).count; }
@@ -144,6 +152,18 @@ static NSArray<Step> *steps(void) {
     NSDictionary *g1 = item(G, @"Gamma Tweak", @{@"id": @"g", @"title": @"Gamma Item", @"action": @"notify:x.y", @"symbol": @"star"});
     NSDictionary *bad1 = item(G, @"Gamma Tweak", @{@"id": @"bad1", @"title": @"Bad Scheme", @"action": @"ftp:x"});
     NSDictionary *bad2 = item(G, @"Gamma Tweak", @{@"id": @"bad2", @"action": @"notify:x"});
+    // Contributors with their own entry: Workbench's built-in "Dynject" group, a tweak without a symbol, and one whose
+    // items are all for another app.
+    NSString *D = @"local.dynject.workbench", *Z = @"local.test.zeta", *E = @"local.test.elsewhere";
+    NSDictionary *d1 = item(D, @"Dynject", @{@"id": @"respring", @"title": @"Respring…", @"action": @"url:dynject-workbench://respring", @"symbol": @"arrow.clockwise"});
+    NSDictionary *d2 = item(D, @"Dynject", @{@"id": @"safemode", @"title": @"Safe Mode…", @"action": @"url:dynject-workbench://safemode", @"symbol": @"cross.case"});
+    NSDictionary *d3 = item(D, @"Dynject", @{@"id": @"open", @"title": @"Open Dynject Workbench", @"action": @"app:local.dynject.workbench", @"symbol": @"macwindow"});
+    NSDictionary *z1 = item(Z, @"Zeta Tools", @{@"id": @"z", @"title": @"Zeta Item", @"action": @"notify:x.y"});
+    NSDictionary *e1 = item(E, @"Elsewhere", @{@"id": @"e", @"title": @"Elsewhere Item", @"action": @"notify:x.y", @"apps": @[@"com.example.other"]});
+    NSDictionary *cD = @{@"tweakID": D, @"title": @"Dynject", @"placement": @"submenu", @"symbol": @"puzzlepiece.extension"};
+    NSDictionary *cZ = @{@"tweakID": Z, @"title": @"Zeta", @"placement": @"submenu"};
+    NSDictionary *cE = @{@"tweakID": E, @"title": @"Elsewhere", @"placement": @"submenu"};
+    NSDictionary *cA = @{@"tweakID": A, @"title": @"Alpha", @"placement": @"shared"};
     __block NSInteger appleCount = 0;
     __block NSMenuItem *betaShortcut = nil;
     __block NSTask *observer = nil;
@@ -155,32 +175,46 @@ static NSArray<Step> *steps(void) {
             settings(ML, mlSettings(@{@"diagnostics": @YES}, nil));
             settings(A, @{@"formatVersion": @1, @"values": @{@"on": @YES}, @"defaults": @{@"on": @NO}});
             settings(B, @{@"formatVersion": @1, @"values": @{}, @"defaults": @{@"flag": @NO}});
+            // Shared items first in the list: own entries still come first in the menu.
             publish(@"list-a", @{@"formatVersion": @1, @"placement": @"submenu", @"submenuTitle": @"Tweaks Test",
-                                 @"items": @[a1, a2, b1, b2, b3, b4]});
+                                 @"items": @[a1, a2, d1, d2, d3, z1, e1, b1, b2, b3, b4],
+                                 @"contributors": @[cA, cD, cZ, cE, @{@"title": @"no tweakID"}, @"junk"]});
             check(appleMenu().numberOfItems == 0, @"the Apple menu is still unbuilt before the first open");
             return 0.3;
         },
         ^double{
-            printf("Phase 1: first open builds the Apple menu with MenuLoader's submenu\n");
+            printf("Phase 1: first open builds the Apple menu: own entries (Dynject, Zeta), then the shared submenu\n");
             openMenu();
             NSMenu *m = appleMenu();
             printf("    %s\n", describe(m).UTF8String);
             appleCount = appleItemCount(m);
             check(appleCount > 10 && [m indexOfItemWithTag:kAppStoreTag] >= 0, @"AppKit's own items are there");
             check(gAddCalls == 1, [NSString stringWithFormat:@"_addAppleMenuItems ran once (%lu)", (unsigned long)gAddCalls]);
-            checkPlacement(m, 1);
-            NSMenuItem *sub = ours(m).firstObject;
-            check([sub.title isEqual:@"Tweaks Test"] && sub.hasSubmenu, @"submenu titled with the published submenuTitle");
-            check(sub.image != nil, @"submenu item has an icon (puzzlepiece.extension)");
+            checkPlacement(m, 3);
+            NSArray<NSMenuItem *> *o = ours(m);
+            check([[o valueForKey:@"title"] isEqual:(@[@"Dynject", @"Zeta", @"Tweaks Test", @""])],
+                  [NSString stringWithFormat:@"Dynject, Zeta, then the shared entry (got %@); nothing for the contributor whose items are elsewhere",
+                   [[o valueForKey:@"title"] componentsJoinedByString:@" | "]]);
+            NSMenuItem *dyn = o[0], *zeta = o[1], *sub = o[2];
+            check(dyn.hasSubmenu && dyn.image != nil && [titles(dyn.submenu) isEqual:(@[@"Respring…", @"Safe Mode…", @"Open Dynject Workbench"])],
+                  [NSString stringWithFormat:@"Dynject ▸ with its symbol: %@", [titles(dyn.submenu) componentsJoinedByString:@" | "]]);
+            check(zeta.hasSubmenu && zeta.image == nil && [titles(zeta.submenu) isEqual:@[@"Zeta Item"]],
+                  @"Zeta ▸ titled by its contributor entry, no icon without a symbol");
+            check(find(m, @"Elsewhere") == nil && find(m, @"Elsewhere Item") == nil, @"no entry for a contributor with nothing for this app");
+            check([sub.title isEqual:@"Tweaks Test"] && sub.hasSubmenu, @"shared submenu titled with the published submenuTitle");
+            check(sub.image != nil, @"shared submenu item has an icon (puzzlepiece)");
             if (@available(macOS 27.0, *)) {
                 check(sub.preferredImageVisibility == NSMenuItemImageVisibilityVisible
+                      && dyn.preferredImageVisibility == NSMenuItemImageVisibilityVisible
                       && find(sub.submenu, @"Alpha Notify").preferredImageVisibility == NSMenuItemImageVisibilityVisible
                       && find(sub.submenu, @"Beta Shortcut").preferredImageVisibility == NSMenuItemImageVisibilityAutomatic,
                       @"macOS 27: icons marked always visible (like About This Mac), items without one left automatic");
             }
-            NSArray *want = @[@"✓Alpha Notify", @"Alpha Web", @"---", @"Beta Shortcut", @"Beta App", @"Only Here"];
-            check([titles(sub.submenu) isEqual:want], [NSString stringWithFormat:@"submenu grouped by tweak, filtered for this app: %@",
+            NSArray *want = @[@"§Alpha", @"✓Alpha Notify", @"Alpha Web", @"---", @"§Beta Tweak", @"Beta Shortcut", @"Beta App", @"Only Here"];
+            check([titles(sub.submenu) isEqual:want], [NSString stringWithFormat:@"shared submenu: a headed section per tweak (contributor title, "
+                                                       "else tweak name), filtered for this app: %@",
                                                        [titles(sub.submenu) componentsJoinedByString:@" | "]]);
+            check(find(sub.submenu, @"Alpha").enabled == NO || find(sub.submenu, @"Alpha").action == NULL, @"section headers are not choosable");
             check(find(sub.submenu, @"Alpha Notify").image && find(sub.submenu, @"Alpha Web").image && find(sub.submenu, @"Beta App").image
                   && !find(sub.submenu, @"Beta Shortcut").image, @"SF Symbol icons where declared, none otherwise");
             NSMenuItem *web = find(sub.submenu, @"Alpha Web");
@@ -191,10 +225,10 @@ static NSArray<Step> *steps(void) {
         },
         ^double{
             printf("Phase 2: opening again (x5) never duplicates or rebuilds\n");
-            NSMenuItem *before = ours(appleMenu()).firstObject;
+            NSArray<NSMenuItem *> *before = ours(appleMenu());
             for (int i = 0; i < 5; i++) openMenu();
             NSMenu *m = appleMenu();
-            check(ours(m).count == 2 && ours(m).firstObject == before, @"same single submenu item after 5 more opens");
+            check([ours(m) isEqual:before] && ours(m).count == 4, @"same entries (identical objects) after 5 more opens");
             check(appleItemCount(m) == appleCount, @"AppKit's items unchanged");
             check(gAddCalls == 1, [NSString stringWithFormat:@"_addAppleMenuItems still ran only once (%lu)", (unsigned long)gAddCalls]);
             return 0.1;
@@ -209,23 +243,27 @@ static NSArray<Step> *steps(void) {
             [observer launchAndReturnError:NULL];
             NSData *ready = [observerOut.fileHandleForReading readDataOfLength:6];   // "READY\n"
             check([[[NSString alloc] initWithData:ready encoding:NSUTF8StringEncoding] hasPrefix:@"READY"], @"observer process is listening");
-            NSMenu *sub = ours(appleMenu()).firstObject.submenu;
-            [sub performActionForItemAtIndex:[sub indexOfItem:find(sub, @"Alpha Notify")]];
+            choose(@"Alpha Notify");
             return 0.3;
         },
         ^double{
             [observer waitUntilExit];
             NSString *out = [[NSString alloc] initWithData:[observerOut.fileHandleForReading readDataToEndOfFile] encoding:NSUTF8StringEncoding];
             check(observer.terminationStatus == 0 && [out containsString:@"RECEIVED"], @"notify: another process received local.dynject.menuloader.test.ping");
-            NSMenu *sub = ours(appleMenu()).firstObject.submenu;
-            [sub performActionForItemAtIndex:[sub indexOfItem:find(sub, @"Alpha Web")]];
+            choose(@"Alpha Web");
             check([lastAction()[@"value"] isEqual:@"https://example.com/menuloader-test"] && [lastAction()[@"kind"] isEqual:@"open"],
                   [NSString stringWithFormat:@"url: logged, not opened (%@)", lastAction()[@"value"]]);
-            [sub performActionForItemAtIndex:[sub indexOfItem:find(sub, @"Beta Shortcut")]];
+            choose(@"Beta Shortcut");
             check([lastAction()[@"value"] isEqual:@"shortcuts://run-shortcut?name=My%20Test%20%26%20Shortcut%2F1"],
                   [NSString stringWithFormat:@"shortcut: percent-encoded URL logged, not opened (%@)", lastAction()[@"value"]]);
-            [sub performActionForItemAtIndex:[sub indexOfItem:find(sub, @"Beta App")]];
+            choose(@"Beta App");
             check([lastAction()[@"kind"] isEqual:@"app"] && [lastAction()[@"value"] isEqual:@"com.apple.TextEdit"], @"app: bundle ID logged, not launched");
+            choose(@"Respring…");
+            check([lastAction()[@"kind"] isEqual:@"open"] && [lastAction()[@"value"] isEqual:@"dynject-workbench://respring"], @"Dynject ▸ Respring… logs dynject-workbench://respring");
+            choose(@"Safe Mode…");
+            check([lastAction()[@"kind"] isEqual:@"open"] && [lastAction()[@"value"] isEqual:@"dynject-workbench://safemode"], @"Dynject ▸ Safe Mode… logs dynject-workbench://safemode");
+            choose(@"Open Dynject Workbench");
+            check([lastAction()[@"kind"] isEqual:@"app"] && [lastAction()[@"value"] isEqual:@"local.dynject.workbench"], @"Dynject ▸ Open Dynject Workbench logs app local.dynject.workbench");
             NSUInteger n = gActions.count;
             sendKey(@"k", kVK_ANSI_K, NSEventModifierFlagOption | NSEventModifierFlagCommand);
             check(gActions.count == n + 1 && [lastAction()[@"id"] isEqual:@"web"], @"⌥⌘K key equivalent triggers Alpha Web through the Apple menu");
@@ -243,16 +281,17 @@ static NSArray<Step> *steps(void) {
             check(bs.state == NSControlStateValueOn, @"Beta Shortcut checked after its tweak's flag turned on");
             check(find(appleMenu(), @"Alpha Notify").state == NSControlStateValueOff, @"Alpha Notify unchecked by a per-app override");
             check(bs == betaShortcut, @"checkmarks updated in place (no rebuild)");
-            printf("Phase 5: list change → section placement, invalid items skipped\n");
-            publish(@"list-b", @{@"formatVersion": @1, @"placement": @"section", @"items": @[a1, g1, bad1, bad2, b3]});
+            printf("Phase 5: list change → shared style \"section\", invalid items skipped, Dynject ▸ still first\n");
+            publish(@"list-b", @{@"formatVersion": @1, @"placement": @"section", @"items": @[a1, g1, bad1, bad2, b3, d1], @"contributors": @[cD]});
             return 0.6;
         },
         ^double{
             NSMenu *m = appleMenu();
             printf("    %s\n", describe(m).UTF8String);
-            checkPlacement(m, 2);
-            check([[ours(m) valueForKey:@"title"] isEqual:@[@"Alpha Notify", @"Gamma Item", @""]] && !ours(m).firstObject.hasSubmenu,
-                  @"items directly in the Apple menu as their own section");
+            checkPlacement(m, 5);
+            check([[ours(m) valueForKey:@"title"] isEqual:(@[@"Dynject", @"", @"Alpha Notify", @"", @"Gamma Item", @""])] && !ours(m)[2].hasSubmenu,
+                  [NSString stringWithFormat:@"Dynject ▸, then each shared tweak as its own section of the Apple menu (%@)",
+                   [[ours(m) valueForKey:@"title"] componentsJoinedByString:@" | "]]);
             check(find(m, @"Bad Scheme") == nil && find(m, @"Beta App") == nil, @"invalid and removed items are gone");
             check(appleItemCount(m) == appleCount, @"AppKit's items unchanged");
             printf("Phase 6: MenuLoader's own settings override placement and title\n");
@@ -261,9 +300,10 @@ static NSArray<Step> *steps(void) {
         },
         ^double{
             NSMenu *m = appleMenu();
-            checkPlacement(m, 1);
-            NSMenuItem *sub = ours(m).firstObject;
-            check([sub.title isEqual:@"Override"] && [titles(sub.submenu) isEqual:(@[@"Alpha Notify", @"---", @"Gamma Item"])],
+            checkPlacement(m, 2);
+            NSMenuItem *sub = ours(m)[1];
+            check([ours(m)[0].title isEqual:@"Dynject"] && [sub.title isEqual:@"Override"]
+                  && [titles(sub.submenu) isEqual:(@[@"§Alpha Tweak", @"Alpha Notify", @"---", @"§Gamma Tweak", @"Gamma Item"])],
                   [NSString stringWithFormat:@"submenu \"Override\": %@", [titles(sub.submenu) componentsJoinedByString:@" | "]]);
             printf("Phase 7: enabled off removes the items live; a per-app override turns them back on\n");
             settings(ML, mlSettings(@{@"enabled": @NO}, nil));
@@ -278,7 +318,7 @@ static NSArray<Step> *steps(void) {
             return 0.6;
         },
         ^double{
-            checkPlacement(appleMenu(), 2);   // placement override dropped: the published "section" again
+            checkPlacement(appleMenu(), 5);   // placement override dropped: the published "section" again
             printf("Phase 8: AppKit rebuilds the menu from scratch → items again, exactly once\n");
             [appleMenu() removeAllItems];
             openMenu();
@@ -286,9 +326,9 @@ static NSArray<Step> *steps(void) {
             printf("    %s\n", describe(m).UTF8String);
             check(gAddCalls == 2, [NSString stringWithFormat:@"_addAppleMenuItems ran again for the empty menu (%lu)", (unsigned long)gAddCalls]);
             check(appleItemCount(m) == appleCount, @"AppKit's items rebuilt");
-            checkPlacement(m, 2);
+            checkPlacement(m, 5);
             printf("Phase 9: nothing for this app → nothing inserted\n");
-            publish(@"list-c", @{@"formatVersion": @1, @"items": @[b3]});
+            publish(@"list-c", @{@"formatVersion": @1, @"items": @[b3, e1], @"contributors": @[cE]});
             return 0.6;
         },
         ^double{
@@ -305,6 +345,9 @@ static NSArray<Step> *steps(void) {
         },
         ^double{
             check(find(appleMenu(), @"Gamma Item") != nil, @"back with a valid list");
+            NSMenuItem *only = ours(appleMenu()).firstObject;
+            check([only.title isEqual:@"Tweaks"] && [titles(only.submenu) isEqual:@[@"Gamma Item"]],
+                  @"a list without contributors or submenuTitle: one shared \"Tweaks\" submenu, no header for a single tweak");
             printf("Phase 11: shortcuts from a hand-edited list: none without Command, no function keys,\n"
                    "          a Shift letter is the uppercase letter, a repeated shortcut stays with the first item\n");
             NSDictionary *(^sc)(NSString *, NSString *, NSString *, id) = ^NSDictionary *(NSString *tweak, NSString *iid, NSString *key, id mods) {

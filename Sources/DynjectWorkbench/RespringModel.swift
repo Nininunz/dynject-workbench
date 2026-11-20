@@ -8,11 +8,13 @@ import Observation
 // `-DWRespringFixture`), the running apps are made up (RespringFixtureWorld) and the controller is
 // SimulatedAppController, so no real app is ever quit, opened or inspected.
 
-/// `dynject-workbench://respring` (also `dynject-workbench:respring`). It only opens the sheet.
+/// `dynject-workbench://respring` (also `dynject-workbench:respring`) opens the Respring sheet; `…://safemode` shows
+/// the Safe Mode page. Links only show things; nothing is changed or relaunched.
 enum WorkbenchLink: Equatable {
     static let scheme = "dynject-workbench"
 
     case respring
+    case safeMode
 
     init?(url: URL) {
         guard url.scheme?.lowercased() == Self.scheme else { return nil }
@@ -20,6 +22,7 @@ enum WorkbenchLink: Equatable {
             .split(separator: "/").first.map { String($0).lowercased() }
         switch target {
         case "respring": self = .respring
+        case "safemode": self = .safeMode
         default: return nil
         }
     }

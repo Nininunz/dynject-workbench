@@ -5,6 +5,11 @@
 // tweak, injected everywhere, reads that list and adds the items to the Apple menu of the app it runs in.
 // No tweak writes menu code. Contract: docs/tweak-format.md and README.md next to this file.
 //
+// MenuLoader is pure infrastructure: it has no items of its own. Each contributor (a tweak, or Workbench's own
+// "Dynject" group) is published with a placement: "submenu" gets its own "<title> ▸" entry, "shared" puts its items
+// in one common entry ("Tweaks" by default, or a flat section), one section per contributor. After the App Store
+// section come the own entries in published order, then the shared entry, then a separator before Recent Items.
+//
 // How it hooks AppKit (private, macOS 14 to 27): every app builds its own Apple menu, an instance of the private
 // class _NSAppleMenu (an NSMenu that is its own delegate). AppKit populates it lazily, the first time the menu bar
 // is opened or a key equivalent is checked: -updateMenu:withEvent:withFlags: (called on every open and every
@@ -61,14 +66,25 @@ static const NSInteger kMLSystemSettingsTag = 0x73797373;  // 'syss'  System Set
 @implementation DMLR_Entry
 @end
 
+/// One contributor's items for this app, as one Apple-menu entry or one section of the shared entry.
+@interface DMLR_Group : NSObject
+@property (copy) NSString *tweakID, *title, *symbol;
+/// YES: its own "<title> ▸" entry (published placement "submenu"); NO: a section of the shared entry.
+@property BOOL ownEntry;
+@property (strong) NSMutableArray<DMLR_Entry *> *entries;
+@end
+@implementation DMLR_Group
+@end
+
 /// Target of every MenuLoader menu item.
 @interface DMLR_Target : NSObject <NSMenuItemValidation>
 - (void)dmlr_perform:(NSMenuItem *)sender;
 @end
 
 static NSArray<DMLR_Entry *> *gEntries;   // the items for this app, in published order
-static NSString *gPlacement = @"submenu"; // "submenu" or "section"
-static NSString *gSubmenuTitle = @"Dynject";
+static NSArray<DMLR_Group *> *gGroups;    // gEntries by contributor: own entries first, then the shared sections
+static NSString *gPlacement = @"submenu"; // style of the shared entry: "submenu" or "section"
+static NSString *gSubmenuTitle = @"Tweaks";
 static BOOL gEnabled = YES, gDiagnostics = NO, gLoaded = NO;
 static NSUInteger gGeneration = 1, gAppliedGeneration = 0;
 static NSUInteger gAddAppleMenuItemsCalls = 0;
@@ -234,6 +250,44 @@ static DMLR_Entry *MLParseItem(id raw, NSString **why, BOOL *filtered) {
 
 static void MLObserveSettings(NSSet<NSString *> *tweakIDs);
 
+/// The published `contributors` (tweak ID -> entry). A list without them (an older Workbench) puts every item in
+/// the shared entry; an invalid entry is ignored, and so is a placement other than "submenu" (shared).
+static NSDictionary<NSString *, NSDictionary *> *MLContributors(NSDictionary *list) {
+    NSMutableDictionary *byID = [NSMutableDictionary dictionary];
+    id raw = list[@"contributors"];
+    if (![raw isKindOfClass:[NSArray class]]) return byID;
+    for (id c in raw) {
+        if (![c isKindOfClass:[NSDictionary class]]) continue;
+        NSString *tweakID = MLString(c, @"tweakID");
+        if (tweakID && !byID[tweakID]) byID[tweakID] = c;
+    }
+    return byID;
+}
+
+/// Groups the entries by contributor (first appearance order) and puts the own entries before the shared sections.
+static NSArray<DMLR_Group *> *MLGroups(NSArray<DMLR_Entry *> *entries, NSDictionary<NSString *, NSDictionary *> *contributors) {
+    NSMutableArray<DMLR_Group *> *own = [NSMutableArray array], *shared = [NSMutableArray array];
+    NSMutableDictionary<NSString *, DMLR_Group *> *byID = [NSMutableDictionary dictionary];
+    NSCharacterSet *ws = [NSCharacterSet whitespaceAndNewlineCharacterSet];
+    for (DMLR_Entry *e in entries) {
+        DMLR_Group *g = byID[e.tweakID];
+        if (!g) {
+            NSDictionary *c = contributors[e.tweakID];
+            g = [DMLR_Group new];
+            g.tweakID = e.tweakID;
+            NSString *title = [MLString(c, @"title") stringByTrimmingCharactersInSet:ws];
+            g.title = title.length ? title : e.tweakName;
+            g.symbol = MLString(c, @"symbol");
+            g.ownEntry = [c[@"placement"] isEqual:@"submenu"];
+            g.entries = [NSMutableArray array];
+            byID[e.tweakID] = g;
+            [(g.ownEntry ? own : shared) addObject:g];
+        }
+        [g.entries addObject:e];
+    }
+    return [own arrayByAddingObjectsFromArray:shared];
+}
+
 /// Re-reads the published list and MenuLoader's own settings. Cheap enough for a change notification; never
 /// called per menu open.
 static void MLReload(void) {
@@ -275,6 +329,7 @@ static void MLReload(void) {
         [entries addObject:e];
     }
     gEntries = entries;
+    gGroups = MLGroups(entries, MLContributors(list));
 
     NSString *placement = MLSettingString(ML_ID, @"placement", cache);
     if (![placement isEqual:@"submenu"] && ![placement isEqual:@"section"]) placement = MLString(list, @"placement");
@@ -282,7 +337,7 @@ static void MLReload(void) {
     NSString *title = MLSettingString(ML_ID, @"submenuTitle", cache);
     title = [title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if (!title.length) title = [MLString(list, @"submenuTitle") stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    gSubmenuTitle = title.length ? title : @"Dynject";
+    gSubmenuTitle = title.length ? title : @"Tweaks";
 
     NSMutableSet<NSString *> *observe = [NSMutableSet set];
     for (DMLR_Entry *e in entries) if (e.checkedBy) [observe addObject:e.tweakID];
@@ -291,9 +346,12 @@ static void MLReload(void) {
     gLoaded = YES;
     gGeneration++;
     if (gDiagnostics) {
-        MLInfo("loaded %lu item(s) for %{public}@ (%lu for other apps, %lu invalid), enabled=%d placement=%{public}@ title=\"%{public}@\"",
-               (unsigned long)entries.count, MLBundleID(), (unsigned long)filtered, (unsigned long)invalid, gEnabled,
-               gPlacement, gSubmenuTitle);
+        NSUInteger ownEntries = 0;
+        for (DMLR_Group *g in gGroups) if (g.ownEntry) ownEntries++;
+        MLInfo("loaded %lu item(s) from %lu contributor(s) (%lu with their own entry) for %{public}@ (%lu for other apps, %lu invalid), "
+               "enabled=%d shared style=%{public}@ title=\"%{public}@\"",
+               (unsigned long)entries.count, (unsigned long)gGroups.count, (unsigned long)ownEntries, MLBundleID(),
+               (unsigned long)filtered, (unsigned long)invalid, gEnabled, gPlacement, gSubmenuTitle);
     }
 }
 
@@ -383,7 +441,18 @@ static void MLLogMenu(NSMenu *menu, NSString *reason) {
 #endif
 }
 
+/// A "<title> ▸" entry of the Apple menu holding `menu`.
+static NSMenuItem *MLSubmenuItem(NSString *title, NSString *symbol, NSMenu *menu) {
+    NSMenuItem *parent = [[NSMenuItem alloc] initWithTitle:title action:NULL keyEquivalent:@""];
+    parent.tag = kMLTag;
+    MLSetImage(parent, symbol);
+    parent.submenu = menu;
+    return parent;
+}
+
 /// Removes MenuLoader's items from the Apple menu and inserts the current ones. Never touches an empty menu.
+/// Block: one entry per own-entry contributor, then the shared entry (a submenu with a section per contributor,
+/// headed by its title when there are several, or those sections directly in the Apple menu).
 static void MLRebuild(NSMenu *menu, NSString *reason) {
     if (!menu || menu.numberOfItems == 0) return;
     if (!gLoaded) MLReload();
@@ -393,21 +462,27 @@ static void MLRebuild(NSMenu *menu, NSString *reason) {
 
     NSMutableDictionary *cache = [NSMutableDictionary dictionary];
     NSMutableArray<NSMenuItem *> *block = [NSMutableArray array];
-    if ([gPlacement isEqual:@"section"]) {
-        for (DMLR_Entry *e in gEntries) [block addObject:MLItemFor(e, cache)];
-    } else {
-        NSMenu *submenu = [[NSMenu alloc] initWithTitle:gSubmenuTitle];
-        NSString *lastTweak = nil;
-        for (DMLR_Entry *e in gEntries) {
-            if (lastTweak && ![lastTweak isEqual:e.tweakID]) [submenu addItem:[NSMenuItem separatorItem]];
-            lastTweak = e.tweakID;
-            [submenu addItem:MLItemFor(e, cache)];
+    NSMutableArray<DMLR_Group *> *shared = [NSMutableArray array];
+    for (DMLR_Group *g in gGroups) {
+        if (!g.ownEntry) { [shared addObject:g]; continue; }
+        NSMenu *submenu = [[NSMenu alloc] initWithTitle:g.title];
+        for (DMLR_Entry *e in g.entries) [submenu addItem:MLItemFor(e, cache)];
+        [block addObject:MLSubmenuItem(g.title, g.symbol, submenu)];
+    }
+    if (shared.count && [gPlacement isEqual:@"section"]) {
+        for (DMLR_Group *g in shared) {
+            if (block.count) [block addObject:MLSeparator()];
+            for (DMLR_Entry *e in g.entries) [block addObject:MLItemFor(e, cache)];
         }
-        NSMenuItem *parent = [[NSMenuItem alloc] initWithTitle:gSubmenuTitle action:NULL keyEquivalent:@""];
-        parent.tag = kMLTag;
-        MLSetImage(parent, @"puzzlepiece.extension");
-        parent.submenu = submenu;
-        [block addObject:parent];
+    } else if (shared.count) {
+        NSMenu *submenu = [[NSMenu alloc] initWithTitle:gSubmenuTitle];
+        for (DMLR_Group *g in shared) {
+            if (submenu.numberOfItems) [submenu addItem:[NSMenuItem separatorItem]];
+            // Section headers (macOS 14+) name each contributor once there is more than one.
+            if (shared.count > 1) [submenu addItem:[NSMenuItem sectionHeaderWithTitle:g.title]];
+            for (DMLR_Entry *e in g.entries) [submenu addItem:MLItemFor(e, cache)];
+        }
+        [block addObject:MLSubmenuItem(gSubmenuTitle, @"puzzlepiece", submenu)];
     }
 
     BOOL separatorAbove = NO;
