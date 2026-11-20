@@ -118,6 +118,7 @@ where to go next
 
 - TWEAKS.md: writing tweaks.
 - HACKING.md: changing the tools; layout, tests, how the pieces talk.
+- CHANGELOG.md: what changed per version.
 - KNOWN-ISSUES.md: what's broken or untested.
 - TODO.md: what's missing.
 - CONTRIBUTING.md: patches.

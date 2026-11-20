@@ -216,6 +216,22 @@ conventions
 - keep `swift test` and `scripts/build-app.sh` green.
 
 
+process
+-------
+
+- commits: one logical change each. imperative one-line subject, a body that says why.
+  run `swift test` before committing.
+- branches: work on a branch, merge to `main` when it builds and tests pass. `main`
+  stays buildable. no force-pushes to `main`.
+- versions: `0.x` while alpha; bump the minor for anything a tester would notice.
+  `WorkbenchInfo.version` and `Resources/Info.plist` must match (a test checks).
+  tag releases `vX.Y.Z` on `main`.
+- CHANGELOG.md: a few lines per version, newest first, written for testers, not for
+  the commit log. add to the `unreleased` section as you go.
+- docs move with the code: a change that alters behaviour updates README, TWEAKS,
+  HACKING, KNOWN-ISSUES or docs/ in the same commit.
+
+
 status
 ------
 

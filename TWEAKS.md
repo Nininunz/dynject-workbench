@@ -292,6 +292,43 @@ workbench and finder unless you `--include` them; `--all` takes everything, find
 included. docs/respring.md.
 
 
+conventions
+-----------
+
+several tweaks end up in the same app, written by people who never talked to each
+other. these keep them out of each other's way.
+
+names
+- tweak id: reverse-dns you own. `com.yourname.tweakname`, or `local.yourname.tweakname`
+  if you have no domain. `local.dynject.*` is reserved for the tweaks in this repo.
+  `dw new` defaults to `local.<name>`; pass `--id` to set yours.
+- derive everything else from the id: os_log subsystem = the id, darwin notifications
+  `<id>.something`, the settings key is `dynject.tweak.<id>` (automatic).
+- dylib: `lib<Name>.dylib`. it has to be unique in `/opt/dynject/lib/tweaks`.
+- manifest: `<Name>.workbench.plist`, next to the source.
+
+objective-c
+- prefix every class you define, hook classes included. two tweaks with a `GlassHook`
+  class collide and one of them silently loses.
+- categories on system classes: prefix the method names too (`xyz_frame`, not `frame`),
+  or you replace someone else's.
+- no `+load`. start in `DH_CTOR`.
+
+behaviour
+- give `DH_CTOR` a bundle filter unless you really mean every app.
+- an `enabled` switch bound to a `DHGroup`, so off means off without a relaunch.
+- nothing slow at load: no network, no disk scans, no synchronous ax queries in the
+  constructor. defer to the main queue.
+- don't write the global preferences from inside the app (sandboxed apps can't anyway);
+  signal something outside instead.
+- log through os_log with your subsystem, quietly. no `NSLog` spam.
+
+menus
+- `appleMenuPlacement: shared` unless you have several items worth their own entry.
+- shortcuts only when they earn it, always with ⌘, and not one an app already uses.
+- `url:` actions: http(s) or your own scheme. never `file://`.
+
+
 gotchas
 -------
 
