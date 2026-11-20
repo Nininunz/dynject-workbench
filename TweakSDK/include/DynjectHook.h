@@ -51,6 +51,11 @@
 /// Applied to every DynjectHook symbol so two tweaks' copies never interpose on each other.
 #define DH_HIDDEN __attribute__((visibility("hidden")))
 
+/// The version of this SDK, the same as Dynject Workbench's. DynjectHook.m embeds it in every dylib
+/// it is compiled into as the C string "dynject.sdk:<version>"; Workbench, `dw tweak list` and
+/// `dw doctor` read it back and suggest a rebuild when it is older than theirs. Don't edit it.
+#define DH_SDK_VERSION "0.1.0"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -282,6 +287,35 @@ DH_HIDDEN BOOL DHShouldLoad(const char *tweakID, const char *const *bundleIDs);
         } \
     } \
     static void DHTweakBody_(void)
+
+#pragma mark - System version
+
+/// Whether the running macOS is `version` or later. `version` is "27", "27.0" or "27.2.1"; missing
+/// components count as 0. NO (and logged) for NULL or anything else. An app linked against a macOS
+/// 10.15 or older SDK is told "10.16" by the system; that is read as "unknown" and answers YES.
+DH_HIDDEN BOOL DHSystemVersionAtLeast(const char *version);
+
+/// Implementation detail of DH_REQUIRE_SYSTEM: DHSystemVersionAtLeast, logging when it says NO.
+DH_HIDDEN BOOL DHRequireSystemVersion(const char *version);
+
+/// Load-time guard for the top of a DH_CTOR body: when the running macOS is older than VERSION,
+/// logs "requires macOS VERSION or later ..." and returns from the body, so nothing is hooked.
+///
+///   DH_CTOR("com.you.tweak", "com.apple.finder") {
+///       DH_REQUIRE_SYSTEM("27.0");
+///       ...
+///   }
+///
+/// Use the same version as the manifest's minimumSystemVersion. Installs already refuse below it,
+/// but a sandboxed tweak can't read its manifest, and a macOS downgrade or a copied dylib skips the
+/// install check. Declare the real minimum (the first release with the classes and methods you
+/// hook); there is no maximum: a newer macOS is checked with testedSystemVersions, which only warns.
+#define DH_REQUIRE_SYSTEM(VERSION) \
+    do { if (!DHRequireSystemVersion(VERSION)) return; } while (0)
+
+/// TEST ONLY. Makes DHSystemVersionAtLeast compare against `version` ("26.4") instead of the
+/// running macOS. NULL restores the default.
+DH_HIDDEN void DHSetSystemVersionForTesting(const char *version);
 
 /// TEST ONLY. Makes DHShouldLoad read Safe Mode from preferences domain `domain` instead of the
 /// global domain (kCFPreferencesAnyApplication). NULL restores the default.

@@ -203,6 +203,7 @@ struct TweakDetail: View {
                 Chip(text: m.takesEffect == .live ? "applies live" : "needs app relaunch",
                      color: m.takesEffect == .live ? .green : .orange)
             }
+            TweakCompatibilityInfo(model: model, manifest: m)
             if !loadedIn.isEmpty {
                 HStack {
                     Text("Loaded in: " + loadedIn.map(\.displayName).joined(separator: ", "))

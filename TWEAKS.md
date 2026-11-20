@@ -37,7 +37,7 @@ what `dw new` gives you:
       WindowTitles.m                  DH_CTOR with the --app bundle filter, a hook class on
                                       -[NSWindow setTitle:] using DH_ORIG, an Enabled setting
                                       bound to a hook group via DTPrefBool + DTPrefObserve, os_log
-      WindowTitles.workbench.plist    manifest: id, install path, version 0.1, settings
+      WindowTitles.workbench.plist    manifest: id, install path, version 0.1.0, settings
       build.sh                        universal (x86_64 arm64 arm64e), ad-hoc or SIGN_IDENTITY,
                                       fails if anything is exported
       README.md
@@ -57,7 +57,11 @@ manifest essentials
     identifier      com.you.tweak. names the settings key and the safe mode entry.
     dylib           /opt/dynject/lib/tweaks/libYourTweak.dylib. must be a *.dylib directly
                     in /opt/dynject/lib/tweaks, no ':' or spaces, for dw tweak install.
-    name, version, summary, author
+    name, summary, author
+    version         semver: 1.2.0, 2.0.0-beta.1. see below.
+    minimumSystemVersion   "27.0". installs refuse below it.
+    testedSystemVersions   "27.0 - 27.2" or "27.2". installs warn outside it.
+    depends         other tweaks ("com.you.lib >= 1.1.0"), "bridge", "safemode".
     takesEffect     live (you observe changes) or relaunch (default)
     sections        settings ui. may be empty if you only add apple-menu items.
     appleMenu       apple-menu items, see below.
@@ -91,6 +95,59 @@ users when a macos update breaks your tweak, before they go hunting:
 list what you hook or look up by name, not public api. `<array/>` says "nothing private".
 the bridge's own spi is checked for you when you declare `bridge`. try it before you
 install: `dw doctor --apis --tweaks-dir .`. format: docs/tweak-format.md#requirements.
+
+
+versions, macos and dependencies
+--------------------------------
+
+`version` is semver, `MAJOR.MINOR.PATCH[-prerelease]`. anything else is a warning, and
+then install can't tell an upgrade from a downgrade. bump it every release you hand to
+someone: patch for fixes, minor for anything a user would notice, major when settings
+keys or behaviour change incompatibly. install compares it with what's installed and
+says so in the plan's first line:
+
+    Installed 1.1.0 → new 1.2.0 (upgrade)
+    Installed 1.2.0 → new 1.2.0 (rebuilt: same version, different dylib)
+    Installed 1.2.0 → new 1.1.0 (downgrade)        refused without --allow-downgrade
+
+so a rebuild during development doesn't need a bump; going back does need a flag.
+
+macos limits:
+
+    <key>minimumSystemVersion</key><string>27.0</string>
+    <key>testedSystemVersions</key><string>27.0 - 27.2</string>
+
+and the same minimum at load time, because a sandboxed tweak can't read its manifest and
+a copied dylib never went through install:
+
+    DH_CTOR("com.you.tweak", "com.apple.finder") {
+        DH_REQUIRE_SYSTEM("27.0");    // returns from the body, logs, hooks nothing
+        ...
+    }
+
+declare the real minimum: the first macos that has every class and method you touch,
+not just the one you happen to run. don't cap the maximum. there is no
+`maximumSystemVersion` on purpose: most tweaks keep working on the next release, and a
+cap turns every update into a forced re-release. say what you tested in
+`testedSystemVersions` (a warning outside it, never a refusal), and fail quietly at
+runtime when a class or selector is gone (`DHClass` returns NULL, hooks on missing
+methods log and return NULL).
+
+dependencies:
+
+    <key>depends</key>
+    <array>
+      <string>local.dynject.menuloader &gt;= 1.1.0</string>   <!-- another tweak, optional minimum -->
+      <string>bridge</string>                                  <!-- the bridge agent -->
+      <string>safemode</string>                                <!-- the safe mode watcher -->
+    </array>
+
+declaring `bridge` capabilities implies `bridge`. install refuses while a dependency
+is missing (`--force` overrides) and prints the fix: `dw tweak install <its folder>`,
+`dw bridge agent install`, `dw safemode agent install`. uninstall refuses to remove a
+tweak something else depends on (`--force`). `dw tweak list` and the tweak page show
+each dependency with ✓ or ✗, and which DynjectHook (`DH_SDK_VERSION`) the dylib was
+built with: rebuild when workbench says it's older.
 
 
 hooking with DynjectHook
@@ -312,8 +369,9 @@ replaces every entry. full rules: docs/safe-mode.md.
 installing, uninstalling, listing
 ---------------------------------
 
-    dw tweak install <folder|manifest> [--for <bundleID>]... [--dylib <path>] [--dry-run]
-    dw tweak uninstall <tweakID|manifest> [--keep-file] [--dry-run]
+    dw tweak install <folder|manifest> [--for <bundleID>]... [--dylib <path>]
+                     [--allow-downgrade] [--force] [--dry-run]
+    dw tweak uninstall <tweakID|manifest> [--keep-file] [--force] [--dry-run]
     dw tweak list
 
 install validates the manifest (errors refuse) and the dylib (a mach-o dylib with an
@@ -325,7 +383,9 @@ the config edit is the same minimal edit workbench's switches make and is refuse
 would change any other app. nothing is written if a check fails. then the manifest is
 copied to `~/Library/Application Support/Dynject Workbench/Tweaks/` (no password).
 if only the dylib changed, dynjectd isn't restarted. `--for` repeats or takes a
-comma-separated list.
+comma-separated list. it refuses a downgrade (`--allow-downgrade`), a mac below the
+manifest's `minimumSystemVersion` and unmet `depends` (`--force`); see versions,
+macos and dependencies above.
 
 uninstall removes the tweak's `dylib:` and `dylib-override:` lines and deletes its
 dylib (only a regular `*.dylib` directly in `/opt/dynject/lib/tweaks`, never through a
@@ -334,8 +394,11 @@ mode entries. settings stay. global `allow:<App>` lines added for it stay. it re
 to remove the config's last dylib, because dynjectd won't start without one ("no
 dylibs configured"); turn that tweak off per app instead.
 
-list shows each installed manifest's dylib, whether the file exists, its config policy
-and its safe mode support.
+uninstall also refuses while another installed tweak `depends` on it (`--force`).
+
+list shows each installed manifest's version, dylib, whether the file exists, its config
+policy, its safe mode support, the DynjectHook it was built with, its macos range and
+its dependencies (✓/✗).
 
 more apps later: workbench's apps & injection page, or
 `dw enable /opt/dynject/lib/tweaks/libX.dylib <bundleID>` (and `dw disable`).
@@ -424,7 +487,8 @@ gotchas
 
 - private apis change between macos releases. MenuLoader leans on `_NSAppleMenu`; check
   your tweak on every update and fail quietly when a class or method is missing. declare
-  them in `requires` and `dw doctor --apis` does the checking for your users.
+  them in `requires` and `dw doctor --apis` does the checking for your users, and move
+  `testedSystemVersions` up once you've tried a new release.
 - sandboxed hosts can read global prefs but can't write them. post a notification
   instead, or go through the bridge.
 - inject only where you mean to. a `dylib:...:allow` default means every app, helpers

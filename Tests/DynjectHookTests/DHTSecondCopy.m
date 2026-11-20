@@ -24,4 +24,7 @@
 #define DHShouldLoad DHT2_DHShouldLoad
 #define DHSetPreferencesDomainForTesting DHT2_DHSetPreferencesDomainForTesting
 #define DHSetBundleIdentifierForTesting DHT2_DHSetBundleIdentifierForTesting
+#define DHSystemVersionAtLeast DHT2_DHSystemVersionAtLeast
+#define DHRequireSystemVersion DHT2_DHRequireSystemVersion
+#define DHSetSystemVersionForTesting DHT2_DHSetSystemVersionForTesting
 #include "../../TweakSDK/DynjectHook.m"

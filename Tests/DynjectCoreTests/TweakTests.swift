@@ -21,7 +21,7 @@ final class TweakManifestTests: XCTestCase {
         let m = exampleManifest()
         XCTAssertEqual(m.id, "com.example.windowtweak")
         XCTAssertEqual(m.takesEffect, .live)
-        XCTAssertEqual(m.version, "0.1")
+        XCTAssertEqual(m.version, "0.1.0")
         XCTAssertEqual(Set(m.items.map(\.kind)), Set(TweakItem.Kind.allCases))
         XCTAssertEqual(m.perAppItems.map(\.key), ["enabled", "style", "radius", "accent"])
         XCTAssertEqual(m.item("radius")?.defaultValue, .number(8))

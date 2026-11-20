@@ -6,7 +6,9 @@
 	<key>identifier</key><string>local.dynject.menuloader</string>
 	<key>name</key><string>MenuLoader</string>
 	<key>summary</key><string>Adds the Apple-menu items that tweaks (and Dynject Workbench) declare to the Apple menu of every app it is injected into. Pure infrastructure: it has no items of its own.</string>
-	<key>version</key><string>1.1</string>
+	<key>version</key><string>1.1.0</string>
+	<key>minimumSystemVersion</key><string>27.0</string>
+	<key>testedSystemVersions</key><string>27.2</string>
 	<key>author</key><string>Dynject Workbench</string>
 	<key>dylib</key><string>/opt/dynject/lib/tweaks/libMenuLoader.dylib</string>
 	<key>takesEffect</key><string>live</string>

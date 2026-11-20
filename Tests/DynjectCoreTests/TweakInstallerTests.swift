@@ -355,7 +355,7 @@ final class TweakInstallerTests: XCTestCase {
         let (m, issues) = TweakManifestParser.parse(data: data, path: "x", fileExists: { _ in true })
         XCTAssertEqual(issues, [])
         XCTAssertEqual(m?.dylib, "/opt/dynject/lib/tweaks/libWindowTitles.dylib")
-        XCTAssertEqual(m?.version, "0.1")
+        XCTAssertEqual(m?.version, "0.1.0")
         XCTAssertEqual(m?.takesEffect, .live)
         XCTAssertEqual(m?.item("enabled")?.kind, .switch)
         XCTAssertNil(TweakLocations.live().installPathProblem(m!.dylib))
@@ -386,6 +386,7 @@ final class TweakInstallerTests: XCTestCase {
         XCTAssertEqual(check.warnings, [])
         XCTAssertEqual(Set(check.archs), ["x86_64", "arm64", "arm64e"])
         XCTAssertEqual(SafeModeSupportChecker.dataSupport(built), .perTweakAndPanic)
+        XCTAssertEqual(SDKVersionChecker.version(in: built), WorkbenchInfo.version, "the SDK marker survives a release build")
     }
 
     func testSDKIsFoundInTheAppBundleOrAboveABuildFolder() throws {

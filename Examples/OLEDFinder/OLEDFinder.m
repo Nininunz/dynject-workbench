@@ -289,6 +289,7 @@ static void OLFApplyToWindow(NSWindow *w) {
 @end
 
 DH_CTOR(OLF_ID_C, OLF_BUNDLES) {
+    DH_REQUIRE_SYSTEM("27.0");   // = minimumSystemVersion in OLEDFinder.workbench.plist
     gOLFBrowserWindow = DHClass(kOLFBrowserWindowClass);
     gOLFDesktopWindow = DHClass(kOLFDesktopWindowClass);
     gOLFGlassView = DHClass("NSGlassEffectView");   // macOS 26 and later, like the next one

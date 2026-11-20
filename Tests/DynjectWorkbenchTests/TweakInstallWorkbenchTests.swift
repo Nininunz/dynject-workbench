@@ -84,6 +84,53 @@ final class TweakInstallWorkbenchTests: XCTestCase {
         XCTAssertFalse(wb.tweaks.contains { $0.id == "local.dynject.fixturetweak" })
     }
 
+    /// A downgrade needs the sheet's explicit checkbox; so does removing a tweak another one depends on.
+    func testDowngradeAndDependentsNeedExplicitConfirmation() async throws {
+        let e = AppEnvironment.current(arguments: ["DynjectWorkbench", "-DWConfigPath", dir.appendingPathComponent("dynjectd.conf").path,
+                                                   "-DWSupportDir", dir.path, "-DWLogPath", dir.appendingPathComponent("none.log").path])
+        let wb = WorkbenchModel(env: e)
+        let src = dir.appendingPathComponent("src/Fixture")
+        try FileManager.default.createDirectory(at: src.appendingPathComponent("build"), withIntermediateDirectories: true)
+        let t = try TweakTemplate(name: "Fixture", identifier: "local.dynject.fixturetweak")
+        let manifestURL = src.appendingPathComponent("Fixture.workbench.plist")
+        try t.manifest.replacingOccurrences(of: "<string>0.1.0</string>", with: "<string>1.0.0</string>")
+            .write(to: manifestURL, atomically: true, encoding: .utf8)
+        try fakeDylib().write(to: src.appendingPathComponent("build/libFixture.dylib"))
+        wb.beginInstall(path: src.path)
+        XCTAssertEqual(wb.installReview?.plan?.compatibility.change, .fresh("1.0.0"))
+        wb.confirmInstall()
+        let installed = await waitFor { wb.installReview == nil && !wb.isInstallingTweak }
+        XCTAssertTrue(installed, wb.installReview?.error ?? "")
+
+        try t.manifest.write(to: manifestURL, atomically: true, encoding: .utf8)   // 0.1.0
+        wb.beginInstall(path: src.path)
+        XCTAssertEqual(wb.installReview?.plan?.isRefused, true)
+        XCTAssertEqual(wb.installReview?.plan?.compatibility.refusals.map(\.kind), [.downgrade])
+        wb.confirmInstall()
+        XCTAssertFalse(wb.isInstallingTweak, "a refused plan doesn't run")
+        wb.installReview?.allowDowngrade = true
+        wb.replanInstall()
+        XCTAssertEqual(wb.installReview?.plan?.isRefused, false)
+        wb.installReview = nil
+
+        // Another installed tweak depends on it.
+        let other: [String: Any] = ["formatVersion": 1, "identifier": "local.dynject.needsfixture", "name": "Needs Fixture",
+                                    "dylib": "/opt/dynject/lib/tweaks/libOther.dylib", "depends": ["local.dynject.fixturetweak"],
+                                    "sections": [["items": [["type": "switch", "key": "x"]]]]]
+        try PropertyListSerialization.data(fromPropertyList: other, format: .xml, options: 0)
+            .write(to: dir.appendingPathComponent("Tweaks/NeedsFixture.workbench.plist"))
+        wb.loadTweaks()
+        let manifest = try XCTUnwrap(wb.tweaks.first { $0.id == "local.dynject.fixturetweak" })
+        XCTAssertEqual(wb.dependencyChecker.dependents(of: manifest.id).map(\.id), ["local.dynject.needsfixture"])
+        wb.beginUninstall(manifest)
+        XCTAssertNil(wb.uninstallReview?.plan)
+        XCTAssertTrue(wb.uninstallReview?.error?.contains("Needs Fixture (local.dynject.needsfixture) depends on Fixture") == true,
+                      wb.uninstallReview?.error ?? "")
+        wb.uninstallReview?.force = true
+        wb.replanUninstall()
+        XCTAssertNotNil(wb.uninstallReview?.plan)
+    }
+
     func testUnsavedConfigEditsBlockInstalling() {
         let e = AppEnvironment.current(arguments: ["DynjectWorkbench", "-DWConfigPath", dir.appendingPathComponent("dynjectd.conf").path,
                                                    "-DWSupportDir", dir.path])

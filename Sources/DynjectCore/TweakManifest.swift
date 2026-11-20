@@ -42,6 +42,12 @@ public struct TweakManifest: Identifiable, Sendable {
     public var effectiveRequirements: [TweakRequirement] {
         (requires ?? []) + (bridge.isEmpty ? [] : TweakRequirement.bridgeClient)
     }
+    /// Oldest macOS it works on (manifest key `minimumSystemVersion`); installs refuse below it. TweakCompatibility.swift.
+    public var minimumSystemVersion: SystemVersion?
+    /// macOS versions it was tested on (`testedSystemVersions`); outside them installs and `dw doctor` warn.
+    public var testedSystemVersions: SystemVersionRange?
+    /// Other tweaks and built-in components it needs (`depends`). `allDependencies` adds the implicit ones.
+    public var depends: [TweakDependency] = []
 
     /// The title MenuLoader shows for this tweak's items.
     public var effectiveAppleMenuTitle: String { appleMenuTitle ?? name }
@@ -245,12 +251,13 @@ public enum TweakManifestParser {
             return s
         }
 
-        let manifest = TweakManifest(id: id, name: name, dylib: dylib, summary: root["summary"] as? String,
+        var manifest = TweakManifest(id: id, name: name, dylib: dylib, summary: root["summary"] as? String,
                                      version: root["version"] as? String, author: root["author"] as? String,
                                      takesEffect: takesEffect, applyCommand: apply, sections: sections, sourcePath: path,
                                      appleMenu: appleMenu, appleMenuPlacement: menuGroup.placement,
                                      appleMenuTitle: menuGroup.title, appleMenuSymbol: menuGroup.symbol, bridge: bridge,
                                      requires: requires)
+        parseCompatibility(root, id: id, into: &manifest, error: err, warning: warn)
         return (manifest, issues)
     }
 

@@ -13,6 +13,8 @@ layout
                                   filters), minimal editor, validator, log/ps/lsof/launchctl readers,
                                   writer + privileged helper script, plists, tweak manifests and settings,
                                   apple menu publishing, safe mode, respring, tweak installer and template,
+                                  versions (Versions.swift: semver, macos, sdk marker) and compatibility
+                                  (TweakCompatibility.swift: depends, install checks, dw doctor's per-tweak issues),
                                   the bridge (Bridge.swift: rules, actions, limits, log; BridgeSystem.swift:
                                   xpc, code identity, token, agent), version and notices (WorkbenchInfo.swift),
                                   `dw doctor` (Doctor.swift) and manifests' `requires` + the api canary
@@ -52,7 +54,7 @@ building and tests
 ------------------
 
     swift build
-    swift test                          # 380 tests, ~20 s
+    swift test                          # 404 tests, ~20 s
     swift test --filter DynjectHookTests
     ./scripts/build-app.sh              # build/Dynject Workbench.app, release, ad-hoc unless SIGN_IDENTITY
     ./scripts/ui-smoke-test.sh          # drives the built app against fixtures
@@ -64,11 +66,12 @@ building and tests
     Tweaks/Inspector/build.sh test                # Inspector in an appkit + swiftui test app, screenshots
     open "build/Dynject Workbench.app"
 
-current counts (2026-11-20): 271 DynjectCore (parser, editor, helper script, writer,
+current counts (2026-11-20): 288 DynjectCore (parser, editor, helper script, writer,
 plists, tweaks, apple menu, safe mode, respring, tweak install and template, version
-notice, bridge, doctor, requires), 84 DynjectHook (3 of them the bridge sdk), 25 DynjectWorkbench (launch
-arguments, the respring sheet's model and links, install tweak in fixture mode, bridge
-isolation).
+notice, bridge, doctor, requires, versions and compatibility), 90 DynjectHook (3 of them
+the bridge sdk, 6 the macos guard and sdk marker), 26 DynjectWorkbench (launch arguments,
+the respring sheet's model and links, install tweak in fixture mode incl. downgrade and
+depends confirmation, bridge isolation).
 
 `build-app.sh` builds the app and `dw`, copies `dw` to `Contents/MacOS/dw` (safe mode's
 install watcher copies it from there), copies the sdk to `Contents/Resources/TweakSDK`
@@ -76,8 +79,9 @@ install watcher copies it from there), copies the sdk to `Contents/Resources/Twe
 entitlements. not sandboxed: it has to read /opt/dynject, run ps/lsof/launchctl and
 hand protected writes to osascript.
 
-the version is `WorkbenchInfo.version` in DynjectCore and `CFBundleShortVersionString`
-in Resources/Info.plist; a test fails if they disagree.
+the version is `WorkbenchInfo.version` in DynjectCore, `CFBundleShortVersionString`
+in Resources/Info.plist and `DH_SDK_VERSION` in TweakSDK/include/DynjectHook.h (the sdk
+marker tweaks carry); tests fail if they disagree.
 
 testing notes:
 
@@ -184,7 +188,8 @@ install tweak / uninstall in fixture mode use the fixture config and put dylibs 
 manifests under the support folder (or `SafeModePreview/` in the real one), with a
 simulated restart and no prompt; previewing other manifests, reports or dylibs against
 the live config turns them off. `dw tweak --root DIR` does the same for the cli
-(DIR/etc/dynjectd.conf, DIR/lib/tweaks, DIR/Tweaks, a safe mode file in DIR).
+(DIR/etc/dynjectd.conf, DIR/lib/tweaks, DIR/Tweaks, a safe mode file in DIR, and
+DIR/LaunchAgents as where `depends` looks for the bridge and safe mode agents' plists).
 `dw safemode` takes `--domain`, `--state-dir`, `--reports-dir`, `--tweaks-dir`,
 `--dylib-dir`, `--launch-agents-dir`, `--bin-dir`, `--no-launchctl`.
 
@@ -267,7 +272,8 @@ process
 - branches: work on a branch, merge to `main` when it builds and tests pass. `main`
   stays buildable. no force-pushes to `main`.
 - versions: `0.x` while alpha; bump the minor for anything a tester would notice.
-  `WorkbenchInfo.version` and `Resources/Info.plist` must match (a test checks).
+  `WorkbenchInfo.version`, `Resources/Info.plist` and `DH_SDK_VERSION` must match (tests
+  check).
   tag releases `vX.Y.Z` on `main`.
 - CHANGELOG.md: a few lines per version, newest first, written for testers, not for
   the commit log. add to the `unreleased` section as you go.
