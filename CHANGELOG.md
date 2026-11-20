@@ -11,6 +11,10 @@ unreleased
   tests, the app, each bundled tweak's build and test host, and a fresh `dw new` tweak taken
   through build, install, list and uninstall in a fake root. `--quick`, `--all` (adds the e2e
   scripts and the ui smoke test), `--stop`.
+- `dw doctor`: one line per crash, naming the tweak it happened in apart from the ones that were only
+  loaded; a deleted report isn't offered as the fix.
+- safe mode passed a live crash test (docs/safe-mode.md#live-test): crash in a tweak, disabled at
+  once in that app only, skipped on relaunch, re-enable, panic switch.
 - ci: github actions runs `scripts/test-all.sh` on every push to main and every pull
   request (macos 27, xcode 27). the `--all` extras stay local.
 - `dw doctor`: a read-only health check. engine binaries and launchdaemon, one dynjectd

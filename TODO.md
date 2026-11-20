@@ -13,6 +13,9 @@ todo
   swift functions like SwiftUI's Glass.tint.
 - `dw diagnose`: bundle logs, config, state.json and crash reports for bug reports.
 - reinstall the safe mode watcher automatically when workbench is updated.
+- DynjectHook: log when Safe Mode, the panic switch or Shift keeps a tweak out (it's silent now).
+- `dw tweak uninstall`: offer to remove the `allow:<executable>` rule install added, when no other
+  tweak needs it.
 - test on intel.
 - more `dw new` templates (no hooks, hooks only, menu-only, settings-heavy).
 - settings presets (export/import), image settings, suggested injection targets in the

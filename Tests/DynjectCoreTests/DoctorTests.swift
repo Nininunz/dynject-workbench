@@ -210,6 +210,33 @@ final class DoctorTests: XCTestCase {
         XCTAssertTrue(w.detail.contains("not built on DynjectHook"))
     }
 
+    /// One line per crash: the tweak it happened in apart from those only loaded; a deleted report isn't offered.
+    func testCrashesAreOneLineEachWithTheCulpritNamed() throws {
+        let s = try healthy()
+        try file("Reports/App-1.ips", Data("{}".utf8))
+        let kept = root.appendingPathComponent("Reports/App-1.ips").path
+        let gone = root.appendingPathComponent("Reports/App-0.ips").path
+        func crash(_ id: String, _ path: String, inTweak: Bool, ago: TimeInterval, culprits: [String]) -> SafeModeCrash {
+            SafeModeCrash(tweakID: id, bundleID: "com.example.app", appName: "App", date: now.addingTimeInterval(-ago),
+                          reportPath: path, inTweak: inTweak, frameSummary: "EXC_BREAKPOINT (SIGTRAP) in libBad.dylib: Boom",
+                          incidentID: path, culpritIDs: culprits)
+        }
+        try SafeModeStateStore(directory: root.appendingPathComponent("SafeMode")).update { state in
+            state.recentCrashes = [crash("com.example.quiet", gone, inTweak: false, ago: 600, culprits: []),
+                                   crash("com.example.bad", kept, inTweak: true, ago: 60, culprits: ["com.example.bad"]),
+                                   crash("com.example.good", kept, inTweak: false, ago: 60, culprits: ["com.example.bad"]),
+                                   crash("com.example.other", kept, inTweak: false, ago: 60, culprits: ["com.example.bad"])]
+        }
+        let lines = Doctor.run(s.context).checks.filter { $0.check == "crash" }
+        let text = DoctorReport(checks: lines).text()
+        XCTAssertEqual(lines.count, 2, text)
+        XCTAssertTrue(lines[0].detail.contains("App crashed in com.example.bad (also loaded: com.example.good, com.example.other): EXC_BREAKPOINT"), text)
+        XCTAssertFalse(lines[0].detail.contains("crashed with"), text)
+        XCTAssertEqual(lines[0].fix, "read the report: \(kept)")
+        XCTAssertTrue(lines[1].detail.contains("App crashed with com.example.quiet loaded"), text)
+        XCTAssertTrue(lines[1].fix?.contains("deleted") == true, text)
+    }
+
     /// minimumSystemVersion and depends are problems; an untested macOS, a non-semantic version and an old SDK
     /// build are warnings. A pre-panic-switch DynjectHook build gets the Safe Mode warning, not a second SDK one.
     func testCompatibilityFindings() throws {

@@ -686,12 +686,26 @@ public enum Doctor {
                    fix: "dw safemode enable \(q(d.tweakID)) \(q(d.bundleID))")
         }
         let cutoff = c.now.addingTimeInterval(-c.crashWindow)
-        let recent = snap.recentCrashes.filter { $0.date >= cutoff }
-        for crash in recent.prefix(5) {
-            let tweak = catalog.tweak(crash.tweakID)?.name ?? crash.tweakID
-            s.warn("crash", "\(clock(crash.date)) \(crash.appName ?? crash.bundleID ?? "?") crashed with \(tweak) loaded"
-                   + (crash.inTweak ? ", in the tweak" : "") + ": \(crash.frameSummary)",
-                   fix: "read the report: \(crash.reportPath)")
+        // The watcher keeps one record per (report, loaded tweak); doctor shows one line per crash, naming the tweak
+        // it happened in apart from the ones that were only loaded.
+        var recent: [[SafeModeCrash]] = []
+        for crash in snap.recentCrashes where crash.date >= cutoff {
+            if let i = recent.firstIndex(where: { $0[0].reportPath == crash.reportPath }) { recent[i].append(crash) }
+            else { recent.append([crash]) }
+        }
+        func names(_ ids: [String]) -> String {
+            ids.map { catalog.tweak($0)?.name ?? $0 }.sorted().joined(separator: ", ")
+        }
+        for records in recent.prefix(5) {
+            let first = records[0]
+            let culprits = records.filter(\.inTweak).map(\.tweakID)
+            let bystanders = records.map(\.tweakID).filter { !culprits.contains($0) }
+            var what = culprits.isEmpty ? "crashed with \(names(bystanders)) loaded"
+                                        : "crashed in \(names(culprits))" + (bystanders.isEmpty ? "" : " (also loaded: \(names(bystanders)))")
+            what += ": \(first.frameSummary)"
+            let reportExists = FileManager.default.fileExists(atPath: first.reportPath)
+            s.warn("crash", "\(clock(first.date)) \(first.appName ?? first.bundleID ?? "?") \(what)",
+                   fix: reportExists ? "read the report: \(first.reportPath)" : "its report has been deleted; dw safemode status lists the record")
         }
         if recent.count > 5 {
             s.warn("crash", "\(recent.count - 5) more tweak-related crash(es) in the last \(Int(c.crashWindow / 3600)) h", fix: "dw safemode status")

@@ -186,3 +186,25 @@ Tests never touch the real key or a real LaunchAgent. They use `MemoryTweakBacke
 `local.dynject.safemode.test` (notification `local.dynject.safemode.test.changed`), temporary state and report
 directories, synthetic `.ips` files shaped like real ones (plus `Tests/DynjectCoreTests/Fixtures/safemode/`, a
 trimmed real report), and `RecordingLaunchctlRunner`.
+
+### Live test
+
+Run by hand against the real engine and watcher (last: 2026-11-20, macOS 27.2.1). Everything is throwaway, made
+outside the repo:
+
+1. `dw new SafeModeCrash --app local.dynject.safemodetest`, plus a not-inlined function that runs
+   `__builtin_trap()` 2 s after `DH_CTOR`, so the faulting frame is the tweak's own. Its window-title hook shows
+   whether it loaded.
+2. A one-window app with that bundle ID, ad-hoc signed without the hardened runtime, copied to `~/Applications`
+   (`dw tweak install --for` only enables tweaks for apps it can find). Save a copy of `dynjectd.conf`, then
+   `dw tweak install <folder> --for local.dynject.safemodetest` (it also adds `allow:SafeModeTest`).
+3. `open -g` the app. Expected and seen:
+   - **launch 1:** the tweak loads (title suffix), the app traps after 2 s, and within ~5 s of the report the
+     watcher disables only that tweak, only in that app (`crash in tweak`). The other tweaks that were loaded are
+     recorded but not disabled.
+   - **launch 2:** the dylib is still injected, DynjectHook skips the tweak, and the app stays up.
+   - **re-enable** (`dw safemode enable`): the next launch crashes again and is disabled again.
+   - **panic on**, tweak re-enabled: the app stays up. Then **panic off**.
+4. Clean up: `dw tweak uninstall local.dynject.safemodecrash`, then restore the saved config with
+   `dw config apply` (uninstall keeps the `allow:` line), and delete the app. The watcher's crash records stay in
+   `state.json`; doctor and `dw safemode status` show them for 24 h.
