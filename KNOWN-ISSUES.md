@@ -49,13 +49,13 @@ bridge
   and `xpc_connection_get_audit_token`. a macos update can remove or change them; then
   sandboxed tweaks can't reach the broker (or the broker identifies nobody and denies
   everything). nothing crashes. docs/bridge.md#private-spi.
-- tested end to end only with an ad-hoc test app and `--test` (scripts/bridge-e2e.sh). not
-  yet run live: the real agent, apple's apps (`anchor apple` callers) injected by dynject,
-  developer id and app store apps. the three signing requirements were checked
-  statically against installed apps, not on running injected ones. if dynject's
-  injection leaves an app's code signature dynamically invalid, the broker denies it
-  (`untrusted-caller`, in os_log, not in the decision log); check
-  `log stream --predicate 'subsystem == "local.dynject.bridge"'` on the first live run.
+- verified live 2026-11-20 with the real agent and a test tweak injected by dynject into
+  calculator (sandboxed, `anchor apple`): token consumed (mach-lookup denied before,
+  allowed after), caller identified as com.apple.calculator, ping p50 0.7 ms, settings.set
+  written, notify delivered outside the sandbox, `open file:` denied, rate limit enforced.
+  developer id and app store callers were only checked statically against installed
+  apps, not running injected ones. if an injected app is denied as `untrusted-caller`
+  (os_log only), check `log stream --predicate 'subsystem == "local.dynject.bridge"'`.
 - apple's own apps from the app store (pages, numbers, keynote, xcode) have `com.apple.`
   ids but aren't `anchor apple`, so the bridge refuses them. so does any app without the
   hardened runtime, any app with the dyld-variables, library-validation-off or
