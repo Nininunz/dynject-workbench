@@ -38,6 +38,8 @@ layout
     Resources/Info.plist          app bundle metadata, url scheme dynject-workbench://
     scripts/                      bootstrap.sh, build-app.sh, ui-smoke-test.sh, respring-e2e.sh (+ respring-e2e/),
                                   bridge-e2e.sh (+ bridge-e2e/)
+    tools/live/                   live: drive a real injected app from scripts (window, pointer, keys,
+                                  screenshots, logs). README lists the gotchas. examples/ has worked runs.
     docs/                         reference: workbench.md, tweak-format.md, hooking.md, safe-mode.md, respring.md,
                                   bridge.md
     build/                        output, gitignored

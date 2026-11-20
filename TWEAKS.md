@@ -337,6 +337,8 @@ debugging
   `Examples/TitleBadge/build.sh test`, `Examples/OLEDFinder/build.sh test` (screenshots and
   pixel checks), `Tweaks/MenuLoader/testhost/run.sh` and `Tweaks/Inspector/build.sh test` do this.
 
+- testing in the real app from a script (pointer, keys, screenshots, logs): tools/live/README.md.
+
 
 other dw commands
 -----------------

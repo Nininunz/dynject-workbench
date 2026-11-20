@@ -1,0 +1,104 @@
+#!/bin/sh
+# live: drive and observe a real app with tweaks loaded, from a script. see tools/live/README.md.
+#
+#   live window <app>                    id x y w h of the app's frontmost window (points, top-left origin)
+#   live front <app>                     bring the app to the front (steals focus)
+#   live point <app> <dx> <dy>           move the pointer to a point inside the app's window
+#   live key <name|code> [mods]          one key press (mods: cmd,opt,ctrl,shift); names: tab esc return space
+#                                        left right up down, or a single character
+#   live hold <mods> <seconds>           hold modifiers down for a while (mods released at the end, always)
+#   live release                         release cmd/opt/ctrl/shift (if something got stuck)
+#   live notify <name>                   post a darwin notification
+#   live shot <app> <out.png> [pad]      capture the app's window region, overlays and panels included
+#   live window-shot <app> <out.png>     capture the window alone (no overlays, no menus)
+#   live burst <out-dir> [count] [sec]   full-screen captures every <sec> (default 20 x 2 s), display kept awake
+#   live crop <in> <out> <x> <y> <w> <h> crop in pixels (origin top-left)
+#   live log <subsystem> [seconds]       a subsystem's log lines from the last <seconds> (default 60)
+set -eu
+HERE=$(cd "$(dirname "$0")" && pwd)
+ROOT=$(cd "$HERE/../.." && pwd)
+BIN="$ROOT/.build/live/livetool"
+
+tool() {
+  if [ ! -x "$BIN" ] || [ "$HERE/livetool.swift" -nt "$BIN" ]; then
+    mkdir -p "$(dirname "$BIN")"
+    xcrun swiftc -O -o "$BIN" "$HERE/livetool.swift" 2>&1 | grep -v "^$" | grep -iv warning >&2 || true
+  fi
+  "$BIN" "$@"
+}
+
+# screencapture must never inherit an injection environment (it would load the tweak too).
+capture() { env -u DYLD_INSERT_LIBRARIES /usr/sbin/screencapture -x "$@"; }
+
+mods_using() {   # "cmd,opt" -> "using {command down, option down}"
+  [ -n "${1:-}" ] || return 0
+  out=""
+  for m in $(echo "$1" | tr ',' ' '); do
+    case "$m" in
+      cmd|command) w="command down" ;; opt|option|alt) w="option down" ;;
+      ctrl|control) w="control down" ;; shift) w="shift down" ;;
+      *) echo "live: unknown modifier $m" >&2; exit 2 ;;
+    esac
+    out="${out:+$out, }$w"
+  done
+  printf ' using {%s}' "$out"
+}
+
+mods_list() {    # "cmd,opt" -> "{command, option}"
+  out=""
+  for m in $(echo "$1" | tr ',' ' '); do
+    case "$m" in
+      cmd|command) w=command ;; opt|option|alt) w=option ;; ctrl|control) w=control ;; shift) w=shift ;;
+      *) echo "live: unknown modifier $m" >&2; exit 2 ;;
+    esac
+    out="${out:+$out, }$w"
+  done
+  printf '{%s}' "$out"
+}
+
+se() { osascript -e "tell application \"System Events\" to $1" >/dev/null; }
+
+release() { osascript -e 'tell application "System Events" to key up {command, option, control, shift}' >/dev/null 2>&1 || true; }
+
+cmd=${1:-help}; [ $# -gt 0 ] && shift
+case "$cmd" in
+  window) tool window "$1" ;;
+  front) osascript -e "tell application \"$1\" to activate" >/dev/null; sleep 0.6 ;;
+  point)
+    set -- $(tool window "$1" | cut -d' ' -f2-3) "$2" "$3"
+    tool warp "$(echo "$1 + $3" | bc)" "$(echo "$2 + $4" | bc)" ;;
+  key)
+    k=$1; m=$(mods_using "${2:-}")
+    case "$k" in
+      tab) se "key code 48$m" ;; esc|escape) se "key code 53$m" ;; return|enter) se "key code 36$m" ;;
+      space) se "key code 49$m" ;; left) se "key code 123$m" ;; right) se "key code 124$m" ;;
+      down) se "key code 125$m" ;; up) se "key code 126$m" ;;
+      [0-9]|[0-9][0-9]|[0-9][0-9][0-9]) se "key code $k$m" ;;
+      ?) se "keystroke \"$k\"$m" ;;
+      *) echo "live: unknown key $k" >&2; exit 2 ;;
+    esac ;;
+  hold)
+    trap release EXIT INT TERM
+    se "key down $(mods_list "$1")"
+    sleep "$2"
+    release; trap - EXIT INT TERM ;;
+  release) release ;;
+  notify) notifyutil -p "$1" ;;
+  shot)
+    pad=${3:-40}
+    set -- $(tool window "$1" | cut -d' ' -f2-5) "$2" "$pad"
+    # $1..$4 = x y w h, $5 = out, $6 = pad. A region capture includes overlays, panels and labels drawn outside the window.
+    capture -R"$(( $1 - $6 )),$(( $2 - $6 )),$(( $3 + 2 * $6 )),$(( $4 + 2 * $6 ))" "$5" ;;
+  window-shot)
+    id=$(tool window "$1" | cut -d' ' -f1)
+    capture -o -l "$id" "$2" ;;
+  burst)
+    dir=$1; n=${2:-20}; every=${3:-2}
+    mkdir -p "$dir"
+    caffeinate -d -t $(( n * every + 5 )) &
+    i=1
+    while [ "$i" -le "$n" ]; do capture -C -m "$dir/$(printf %03d "$i").png"; sleep "$every"; i=$((i + 1)); done ;;
+  crop) tool crop "$@" ;;
+  log) /usr/bin/log show --last "${2:-60}s" --style compact --info --predicate "subsystem == \"$1\"" | sed '1d' ;;
+  *) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; [ "$cmd" = help ] || exit 2 ;;
+esac
