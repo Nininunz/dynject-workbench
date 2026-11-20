@@ -124,7 +124,8 @@ extension WorkbenchModel {
         guard var review = uninstallReview, let loc = tweakInstallLocations else { return }
         do {
             review.plan = try TweakInstaller.planUninstall(review.manifest.id, keepFile: review.keepFile, locations: loc,
-                                                           safeMode: safeMode.safeMode, force: review.force)
+                                                           safeMode: safeMode.safeMode, force: review.force,
+                                                           targets: injectionTargets)
             review.error = nil
         } catch {
             review.plan = nil

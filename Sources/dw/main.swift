@@ -158,7 +158,7 @@ default:
     print("""
     usage:
       dw tweak install <folder|manifest> [--for <bundleID>]... [--dylib <path>] [--dry-run]   (dw tweak --help)
-      dw tweak uninstall <tweakID|manifest> [--keep-file] [--dry-run]
+      dw tweak uninstall <tweakID|manifest> [--keep-file] [--keep-rules] [--dry-run]
       dw tweak list
       dw new <Name> [--id <reverse.dns.id>] [--app <bundleID>] [--dir <path>]
       dw install <built.dylib>

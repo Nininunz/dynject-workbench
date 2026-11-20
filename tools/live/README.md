@@ -52,6 +52,8 @@ things that bite
   variable doesn't inject screencapture too.
 - screenshots of your desktop contain your stuff: other windows, the menu bar, your name in
   "log out …", device names in finder's sidebar. crop before you commit or share one.
+- in zsh, `log` is a shell builtin (it prints login records), so `log show ...` typed or scripted there
+  shows nothing. `live log` calls `/usr/bin/log`; do the same in your own scripts.
 - `point` coordinates are relative to the window's top-left in points. screenshots are in
   pixels (2x on retina).
 

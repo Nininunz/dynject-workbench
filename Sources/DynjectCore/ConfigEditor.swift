@@ -48,6 +48,32 @@ public enum InjectionEditError: Error, LocalizedError, Equatable {
 }
 
 public enum ConfigEditor {
+    /// Removes each `allow:<executable>` rule for `apps` (the form setInjection adds) whose removal changes no
+    /// installed app's injected dylibs: the gate let an app through that no dylib injects any more. Returns the
+    /// removed lines' text.
+    static func removeUnneededGates(for apps: [InstalledApp], in doc: inout ConfigDocument, allTargets: [InjectionTarget],
+                                    fileExists: (String) -> Bool) -> [String] {
+        var removed: [String] = []
+        let names = Set(apps.map(\.executableName))
+        let gateLines = EffectiveConfig(document: doc).allowRules.filter { names.contains($0.value) }
+        for rule in gateLines.reversed() {
+            var candidate = doc
+            candidate.removeLine(at: rule.line)
+            let neutral = allTargets.allSatisfy { t in
+                let a = PolicyEvaluator.evaluate(app: t.app, service: t.service,
+                                                 config: EffectiveConfig(document: doc), fileExists: fileExists)
+                let b = PolicyEvaluator.evaluate(app: t.app, service: t.service,
+                                                 config: EffectiveConfig(document: candidate), fileExists: fileExists)
+                return a.injectedDylibs == b.injectedDylibs
+            }
+            if neutral {
+                removed.insert(doc.lines[rule.line].text, at: 0)
+                doc = candidate
+            }
+        }
+        return removed
+    }
+
     public static func setInjection(
         _ enabled: Bool,
         dylib: String,
@@ -149,22 +175,9 @@ public enum ConfigEditor {
 
         // When disabling, drop an `allow:<exe>` gate that no longer changes anything.
         if !enabled {
-            let gateLines = EffectiveConfig(document: doc).allowRules.filter { $0.value == app.executableName }
-            for rule in gateLines.reversed() {
-                var candidate = doc
-                candidate.removeLine(at: rule.line)
-                let neutral = allTargets.allSatisfy { t in
-                    let a = PolicyEvaluator.evaluate(app: t.app, service: t.service,
-                                                     config: EffectiveConfig(document: doc), fileExists: fileExists)
-                    let b = PolicyEvaluator.evaluate(app: t.app, service: t.service,
-                                                     config: EffectiveConfig(document: candidate), fileExists: fileExists)
-                    return a.injectedDylibs == b.injectedDylibs
-                }
-                if neutral {
-                    changes.append(.removed(text: doc.lines[rule.line].text))
-                    doc = candidate
-                    notes.append("Removed allow:\(app.executableName); no installed app depends on it any more.")
-                }
+            for text in removeUnneededGates(for: [app], in: &doc, allTargets: allTargets, fileExists: fileExists) {
+                changes.append(.removed(text: text))
+                notes.append("Removed allow:\(app.executableName); no installed app depends on it any more.")
             }
         }
 

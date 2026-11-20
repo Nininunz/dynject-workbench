@@ -58,7 +58,7 @@ building and tests
     ./scripts/test-all.sh               # everything below that leaves your screen alone, one summary (~2.5 min)
     ./scripts/test-all.sh --quick       # unit tests and builds only
     ./scripts/test-all.sh --all         # plus the e2e scripts and the ui smoke test (they open test apps)
-    swift test                          # 406 tests, ~20 s
+    swift test                          # 407 tests, ~20 s
     swift test --filter DynjectHookTests
     ./scripts/build-app.sh              # build/Dynject Workbench.app, release, ad-hoc unless SIGN_IDENTITY
     ./scripts/ui-smoke-test.sh          # drives the built app against fixtures
@@ -70,7 +70,7 @@ building and tests
     Tweaks/Inspector/build.sh test                # Inspector in an appkit + swiftui test app, screenshots
     open "build/Dynject Workbench.app"
 
-current counts (2026-11-20): 290 DynjectCore (parser, editor, helper script, writer,
+current counts (2026-11-20): 291 DynjectCore (parser, editor, helper script, writer,
 plists, tweaks, apple menu, safe mode, respring, tweak install and template, version
 notice, bridge, doctor, requires, versions and compatibility), 90 DynjectHook (3 of them
 the bridge sdk, 6 the macos guard and sdk marker), 26 DynjectWorkbench (launch arguments,

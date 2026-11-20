@@ -11,6 +11,10 @@ unreleased
   tests, the app, each bundled tweak's build and test host, and a fresh `dw new` tweak taken
   through build, install, list and uninstall in a fake root. `--quick`, `--all` (adds the e2e
   scripts and the ui smoke test), `--stop`.
+- `dw tweak uninstall` (and workbench's uninstall): an `allow:<executable>` rule that only let the
+  tweak's apps through goes with it, so install then uninstall leaves the config as it was.
+  `--keep-rules` keeps it; a rule other tweaks still reach an app through stays, and the plan names
+  them; rules that change nothing are left alone.
 - `tools/bench/launch`: times an app's launch with no tweaks, each installed tweak alone and all of them,
   without touching the config. result: no measurable cost to the first window; the ~23 ms they add
   before main() is the shift-key check opening the window server connection appkit opens anyway.

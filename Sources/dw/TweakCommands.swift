@@ -7,7 +7,7 @@ let tweakUsage = """
 usage:
   dw tweak install <folder|manifest.workbench.plist> [--for <bundleID>]... [--dylib <built.dylib>]
                    [--allow-downgrade] [--force] [--dry-run]
-  dw tweak uninstall <tweakID|manifest.workbench.plist> [--keep-file] [--force] [--dry-run]
+  dw tweak uninstall <tweakID|manifest.workbench.plist> [--keep-file] [--keep-rules] [--force] [--dry-run]
   dw tweak list
   dw new <Name> [--id <reverse.dns.id>] [--app <bundleID>] [--dir <path>] [--sdk <dir>]
 
@@ -20,6 +20,8 @@ usage:
              testedSystemVersions.
   uninstall  removes the tweak's dylib: and dylib-override: lines, deletes the dylib (not with --keep-file),
              restarts dynjectd (one prompt), then deletes its manifest and Safe Mode entries. Its settings stay.
+             An allow:<executable> rule that only let this tweak's apps through goes too (--keep-rules keeps it);
+             one other tweaks still reach an app through stays, and the plan says which.
              Refuses while other installed tweaks depend on it (--force).
   list       installed manifests: version, dylib, whether the file exists, config policy, Safe Mode support,
              SDK build, macOS range, depends.
@@ -37,7 +39,7 @@ struct TweakArguments {
     var flags: Set<String> = []
 
     static let valued: Set<String> = ["--for", "--dylib", "--root", "--id", "--app", "--dir", "--sdk"]
-    static let boolean: Set<String> = ["--dry-run", "--keep-file", "--allow-downgrade", "--force"]
+    static let boolean: Set<String> = ["--dry-run", "--keep-file", "--keep-rules", "--allow-downgrade", "--force"]
 
     init(_ args: [String]) {
         var i = 0
@@ -194,8 +196,13 @@ func tweakInstall(_ path: String, _ a: TweakArguments) {
 func tweakUninstall(_ tweak: String, _ a: TweakArguments) {
     let ctx = TweakContext(a, what: "uninstall \(tweak)")
     do {
+        let log = DynjectLogParser.parse(DynjectLogParser.readTail(path: ctx.logPath) ?? "")
+        let targets = AppDiscovery.scan(roots: AppDiscovery.defaultRoots).map {
+            InjectionTarget(app: $0, service: ServiceNameResolver.resolve($0, log: log).value)
+        }
         let plan = try TweakInstaller.planUninstall(tweak, keepFile: a.flags.contains("--keep-file"), locations: ctx.locations,
-                                                    safeMode: ctx.safeMode, force: a.flags.contains("--force"))
+                                                    safeMode: ctx.safeMode, force: a.flags.contains("--force"),
+                                                    targets: targets, keepRules: a.flags.contains("--keep-rules"))
         print("\(plan.name) (\(plan.tweakID)), dylib \(plan.dylibInstallPath)")
         printLines(plan.summary)
         if a.dryRun { print("Dry run: nothing was changed."); return }

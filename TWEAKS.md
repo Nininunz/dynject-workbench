@@ -371,7 +371,7 @@ installing, uninstalling, listing
 
     dw tweak install <folder|manifest> [--for <bundleID>]... [--dylib <path>]
                      [--allow-downgrade] [--force] [--dry-run]
-    dw tweak uninstall <tweakID|manifest> [--keep-file] [--force] [--dry-run]
+    dw tweak uninstall <tweakID|manifest> [--keep-file] [--keep-rules] [--force] [--dry-run]
     dw tweak list
 
 install validates the manifest (errors refuse) and the dylib (a mach-o dylib with an
@@ -390,7 +390,10 @@ macos and dependencies above.
 uninstall removes the tweak's `dylib:` and `dylib-override:` lines and deletes its
 dylib (only a regular `*.dylib` directly in `/opt/dynject/lib/tweaks`, never through a
 symlink, backed up first), restart included, one prompt; then its manifest and safe
-mode entries. settings stay. global `allow:<App>` lines added for it stay. it refuses
+mode entries. settings stay. an `allow:<App>` line that only let its apps through (install
+adds one for an app outside the applications folders) goes too, unless `--keep-rules`. one
+that other tweaks still reach that app through stays, and the plan names them; one that
+changes nothing is yours and left alone. it refuses
 to remove the config's last dylib, because dynjectd won't start without one ("no
 dylibs configured"); turn that tweak off per app instead.
 

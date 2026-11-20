@@ -176,6 +176,47 @@ final class TweakInstallerTests: XCTestCase {
         XCTAssertFalse(config.contains("libMyTweak"))
     }
 
+    /// The allow:<executable> rule an install added for an app outside the Applications folders goes with the
+    /// tweak, unless --keep-rules, or unless another dylib now reaches that app through it (then the plan says so).
+    func testUninstallRemovesTheAllowRuleItsInstallAdded() throws {
+        let before = config
+        let plan = try planInstall(["com.example.tool"])
+        XCTAssertTrue(plan.notes.contains { $0.contains("Added allow:Tool") }, "\(plan.notes)")
+        _ = try TweakInstaller.execute(plan, writer: writer(), restarter: SimulatedRestarter())
+        XCTAssertTrue(config.contains("allow:Tool\n"))
+
+        let kept = try TweakInstaller.planUninstall("local.mytweak", keepFile: true, locations: loc, safeMode: nil,
+                                                    targets: Apps.targets(), keepRules: true)
+        XCTAssertFalse(kept.removedConfigLines.contains("allow:Tool"))
+        XCTAssertTrue(kept.notes.contains { $0.hasPrefix("Keeping allow:Tool (--keep-rules)") }, "\(kept.notes)")
+        XCTAssertNil(try TweakInstaller.planUninstall("local.mytweak", keepFile: true, locations: loc, safeMode: nil)
+                        .removedConfigLines.first { $0.hasPrefix("allow:") }, "without targets no rule is touched")
+
+        let un = try TweakInstaller.planUninstall("local.mytweak", keepFile: true, locations: loc, safeMode: nil,
+                                                  targets: Apps.targets())
+        XCTAssertTrue(un.removedConfigLines.contains("allow:Tool"), "\(un.removedConfigLines)")
+        XCTAssertTrue(un.notes.contains { $0.hasPrefix("allow:Tool goes too") }, "\(un.notes)")
+        _ = try TweakInstaller.executeUninstall(un, writer: writer(), restarter: SimulatedRestarter(), safeMode: nil)
+        XCTAssertEqual(config, before, "install then uninstall leaves the config as it was")
+
+        // A dylib that injects everywhere by default now reaches Tool through the rule: it stays, and why.
+        try (before + "dylib:/opt/dynject/lib/tweaks/libEverywhere.dylib:allow\n").write(toFile: loc.configPath, atomically: true, encoding: .utf8)
+        _ = try TweakInstaller.execute(try planInstall(["com.example.tool"]), writer: writer(), restarter: SimulatedRestarter())
+        let shared = try TweakInstaller.planUninstall("local.mytweak", keepFile: true, locations: loc, safeMode: nil,
+                                                      targets: Apps.targets())
+        XCTAssertFalse(shared.removedConfigLines.contains("allow:Tool"))
+        XCTAssertTrue(shared.notes.contains { $0.hasPrefix("Keeping allow:Tool: libEverywhere.dylib still reach") }, "\(shared.notes)")
+
+        // A rule that changes nothing (TextEdit passes ui_apps anyway) is the user's; uninstall leaves it alone.
+        try (before.replacingOccurrences(of: "ui_apps:no", with: "ui_apps:yes") + "allow:TextEdit\n")
+            .write(toFile: loc.configPath, atomically: true, encoding: .utf8)
+        _ = try TweakInstaller.execute(try planInstall(["com.apple.TextEdit"]), writer: writer(), restarter: SimulatedRestarter())
+        let redundant = try TweakInstaller.planUninstall("local.mytweak", keepFile: true, locations: loc, safeMode: nil,
+                                                         targets: Apps.targets())
+        XCTAssertFalse(redundant.removedConfigLines.contains("allow:TextEdit"), "\(redundant.removedConfigLines)")
+        XCTAssertFalse(redundant.notes.contains { $0.contains("allow:TextEdit") }, "\(redundant.notes)")
+    }
+
     func testInstallRefusals() throws {
         func refused(_ body: () throws -> Any, _ message: String, file: StaticString = #filePath, line: UInt = #line) {
             XCTAssertThrowsError(try body(), file: file, line: line) { error in

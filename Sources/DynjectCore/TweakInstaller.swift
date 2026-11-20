@@ -579,8 +579,10 @@ public extension ConfigEditor {
 public extension TweakInstaller {
     /// Plans removing a tweak, named by its identifier or a manifest file. `keepFile` leaves the dylib in place.
     /// Refuses when other installed tweaks depend on it (`depends`), unless `force`.
+    /// `targets`: the installed apps, so an `allow:<executable>` rule that only let one of this tweak's apps through
+    /// is removed with it (unless `keepRules`). Without targets no such rule is touched.
     static func planUninstall(_ tweak: String, keepFile: Bool, locations: TweakLocations, safeMode: SafeMode?,
-                              force: Bool = false,
+                              force: Bool = false, targets: [InjectionTarget] = [], keepRules: Bool = false,
                               currentDirectory: String = FileManager.default.currentDirectoryPath) throws -> TweakUninstallPlan {
         let fm = FileManager.default
         var manifest: TweakManifest?
@@ -621,8 +623,48 @@ public extension TweakInstaller {
         // Config.
         guard let configData = fm.contents(atPath: locations.configPath) else { throw TweakInstallError.refused("Can't read \(locations.configPath).") }
         let original = ConfigDocument(text: String(decoding: configData, as: UTF8.self))
-        let (doc, removed) = ConfigEditor.removeDylib(installPath, from: original)
+        var (doc, removed) = ConfigEditor.removeDylib(installPath, from: original)
         if !removed.isEmpty {
+            // The apps this dylib was injected into; a gate added for one of them may now be dead weight.
+            let exists: (String) -> Bool = { _ in true }
+            // Only gates that matter: with the dylib still declared, removing the rule would keep it out of the app.
+            // A rule that changes nothing (the app passes the filters anyway) is the user's to tidy, not ours.
+            let served = targets.filter { t in
+                guard PolicyEvaluator.evaluate(app: t.app, service: t.service, config: EffectiveConfig(document: original),
+                                               fileExists: exists).injectedDylibs.contains(installPath) else { return false }
+                return EffectiveConfig(document: original).allowRules.contains { rule in
+                    guard rule.value == t.app.executableName else { return false }
+                    var without = original
+                    without.removeLine(at: rule.line)
+                    return !PolicyEvaluator.evaluate(app: t.app, service: t.service, config: EffectiveConfig(document: without),
+                                                     fileExists: exists).injectedDylibs.contains(installPath)
+                }
+            }.map(\.app)
+            var candidate = doc
+            let gates = ConfigEditor.removeUnneededGates(for: served, in: &candidate, allTargets: targets, fileExists: exists)
+            if keepRules {
+                notes += gates.map { "Keeping \($0) (--keep-rules); only \(m.name)'s apps needed it" }
+            } else if !gates.isEmpty {
+                doc = candidate
+                removed += gates
+                notes += gates.map { "\($0) goes too: it only let \(m.name)'s apps through, and no other dylib injects into them (--keep-rules keeps it)" }
+            }
+            // Gates that stay because other dylibs now reach these apps through them: say so, since the install
+            // that added one may have been the only reason it exists.
+            let names = Set(served.map(\.executableName))
+            for rule in EffectiveConfig(document: doc).allowRules.filter({ names.contains($0.value) }) {
+                var without = doc
+                without.removeLine(at: rule.line)
+                var users = Set<String>()
+                for t in targets {
+                    let a = PolicyEvaluator.evaluate(app: t.app, service: t.service, config: EffectiveConfig(document: doc), fileExists: exists)
+                    let b = PolicyEvaluator.evaluate(app: t.app, service: t.service, config: EffectiveConfig(document: without), fileExists: exists)
+                    users.formUnion(Set(a.injectedDylibs).subtracting(b.injectedDylibs).map { ($0 as NSString).lastPathComponent })
+                }
+                if !users.isEmpty {
+                    notes.append("Keeping allow:\(rule.value): \(users.sorted().joined(separator: ", ")) still reach \(rule.value) through it. Remove it in Workbench → Raw Config if they shouldn't.")
+                }
+            }
             if EffectiveConfig(document: doc).dylibs.isEmpty {
                 throw TweakInstallError.refused("""
                 \(m.name) is the only dylib in \(locations.configPath). dynjectd refuses to start without a dylib line \

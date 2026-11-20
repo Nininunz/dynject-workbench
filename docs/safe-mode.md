@@ -23,6 +23,11 @@ The tweak decides for itself at load time. `DH_CTOR` calls `DHShouldLoad`, which
 The dylib is still injected; it just doesn't set itself up. Changes apply at the app's next launch. After every change
 the writer posts the Darwin notification `dynject.safemode.changed`.
 
+Each time, the tweak logs why, under its own subsystem (category `hook`):
+`<tweakID>: not loading into <bundleID>: Safe Mode is on for this tweak in this app (dynject.safemode)` (or the
+panic switch, or the Shift key). To see them: `/usr/bin/log show --last 10m --predicate 'eventMessage CONTAINS "not
+loading into"'`. In zsh, plain `log` is a shell builtin that prints nothing useful: use `/usr/bin/log`.
+
 A crash report doesn't say whether a loaded DynjectHook tweak actually started, so the watcher only knows about
 what the key kept out. **Crashes during a Shift launch, or in an app outside a tweak's `DH_CTOR` bundle list, still
 count toward `repeated crashes`** for the tweaks loaded there (never toward `crash in tweak`, since those tweaks
@@ -206,5 +211,6 @@ outside the repo:
    - **re-enable** (`dw safemode enable`): the next launch crashes again and is disabled again.
    - **panic on**, tweak re-enabled: the app stays up. Then **panic off**.
 4. Clean up: `dw tweak uninstall local.dynject.safemodecrash`, then restore the saved config with
-   `dw config apply` (uninstall keeps the `allow:` line), and delete the app. The watcher's crash records stay in
+   `dw config apply`, and delete the app. Uninstall keeps `allow:SafeModeTest` and says why: MenuLoader and
+   Inspector inject everywhere by default, and still reach SafeModeTest through it. The watcher's crash records stay in
    `state.json`; doctor and `dw safemode status` show them for 24 h.
