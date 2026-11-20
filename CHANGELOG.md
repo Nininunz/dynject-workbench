@@ -7,8 +7,7 @@ newest first. for testers; the commit log has the details.
 unreleased
 ----------
 
-- examples: OLEDFinder, pure black finder browser windows (no settings), with an offline
-  screenshot test (`Examples/OLEDFinder/build.sh test`).
+nothing yet.
 
 
 0.1.0 (2026-11-19)
@@ -32,6 +31,8 @@ first alpha. build from source with `./scripts/bootstrap.sh`.
   anything that won't quit.
 - dw: `tweak install/uninstall/list`, `new`, `enable/disable`, `respring`, `safemode`,
   `config apply`, `log`.
-- examples: TitleBadge.
+- examples: TitleBadge (every kind of setting) and OLEDFinder (pure black finder
+  browser windows with the stock glass titlebar, no settings, offline screenshot test:
+  `Examples/OLEDFinder/build.sh test`).
 
 see KNOWN-ISSUES.md before you install anything.
