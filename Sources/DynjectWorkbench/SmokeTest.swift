@@ -154,6 +154,7 @@ struct SmokeTest {
 
         await tweakScenario(finder: finder)
         await safeModeScenario(finder: finder)
+        await respringScenario()
 
         model.section = .dylibs
         _ = check("association shown", await wait { await AXSelf.exists("screen-dylibs") }
@@ -390,6 +391,111 @@ struct SmokeTest {
                   sm.agentStatus?.summary ?? "nil")
         await settle()
         snapshot("safemode-final")
+    }
+
+    // MARK: Respring
+
+    /// The Respring sheet over the made-up running apps of scripts/ui-smoke-test.sh (`-DWRespringFixture`), opened
+    /// through a dynject-workbench://respring Apple Event sent to this process. Relaunches go to
+    /// SimulatedAppController only. By now the fixture config injects Brutalium into TextEdit and not into Finder.
+    func respringScenario() async {
+        let r = model.respring
+        guard check("respring isolated", r.simulated && model.env.respringFixturePath != nil,
+                    "fixture \(model.env.respringFixturePath ?? "none")") else { return }
+        let before = r.planCount
+        r.refresh()
+        let planned = await wait(10) { r.planCount > before && !r.isPlanning }
+        let plan = r.plan
+        func cand(_ id: String) -> RespringCandidate? { plan?.candidate(bundleID: id) }
+        let pendingIDs = Set(plan?.pending.map(\.app.bundleID) ?? [])
+        _ = check("respring plan", planned && pendingIDs == ["com.apple.TextEdit", "com.apple.finder", "com.apple.Terminal",
+                                                             "com.example.stubborn", "local.dynject.workbench"]
+                  && cand("com.apple.TextEdit")?.reasons.map(\.kind) == [.missing]
+                  && cand("com.apple.finder")?.reasons.map(\.kind) == [.unwanted]
+                  && cand("com.apple.calculator")?.isPending == false,
+                  plan?.pending.map { "\($0.app.bundleID): \($0.reasonSummary)" }.joined(separator: " | ") ?? "no plan")
+        model.section = .injection
+        _ = check("respring footer", await wait { await AXSelf.exists("respring-footer") } && r.pendingCount == 5,
+                  "\(r.pendingCount) pending")
+
+        // The link only opens the sheet.
+        let sent = sendLinkToSelf("dynject-workbench://respring")
+        _ = check("respring link opens sheet", await wait {
+                      let sheet = await AXSelf.exists("respring-run")
+                      return sent && sheet && r.showSheet
+                  } && r.linkRequests == 1 && !r.isRunning && r.runList.isEmpty,
+                  "Apple Event sent: \(sent), link requests \(r.linkRequests)")
+        var values: [String: String] = [:]
+        for id in ["com.apple.TextEdit", "com.example.stubborn", "com.apple.finder", "com.apple.Terminal", "local.dynject.workbench"] {
+            values[id] = await AXSelf.value("respring-check-\(id)") ?? "nil"
+        }
+        _ = check("respring default checks", values == ["com.apple.TextEdit": "1", "com.example.stubborn": "1", "com.apple.finder": "0",
+                                                        "com.apple.Terminal": "0", "local.dynject.workbench": "0"],
+                  values.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " "))
+        var notes = true
+        for id in ["com.apple.finder", "com.apple.Terminal", "local.dynject.workbench"] where !(await AXSelf.exists("respring-note-\(id)")) {
+            notes = false
+        }
+        _ = check("respring exclusion notes", notes, r.visibleCandidates.compactMap { r.note(for: $0) }.joined(separator: " | "))
+        await settle()
+        snapshot("respring-sheet", window: NSApp.windows.first { $0.isSheet && $0.isVisible })
+
+        // Check Finder too, then run.
+        _ = check("press respring finder", await pressWhenReady("respring-check-com.apple.finder"), "")
+        _ = check("finder checked", await wait { await AXSelf.value("respring-check-com.apple.finder") == "1" }
+                  && r.selectedCandidates.count == 3, "\(r.selectedCandidates.map(\.app.name))")
+        _ = check("press respring selected", await pressWhenReady("respring-run"), "")
+        let finished = await wait(30) { !r.isRunning && r.results.count == 3 }
+        func result(_ id: String) -> RespringResult? { cand(id).flatMap { r.results[$0.id] } }
+        _ = check("respring results", finished
+                  && result("com.apple.TextEdit")?.succeeded == true && result("com.apple.finder")?.succeeded == true
+                  && result("com.example.stubborn")?.outcome == .didNotQuit(timeout: 15)
+                  && r.runList.map(\.app.bundleID) == ["com.apple.finder", "com.example.stubborn", "com.apple.TextEdit"],
+                  r.runList.map { "\($0.app.name): \(r.result(for: $0).map(r.summary) ?? "-")" }.joined(separator: " | "))
+        let calls = r.simulatedCalls
+        let untouched = ["com.apple.Terminal", "local.dynject.workbench", "com.apple.calculator"].compactMap { cand($0)?.app.pid }
+        let touchedExcluded = calls.contains { call in
+            switch call {
+            case let .terminate(pid, _), let .scheduleReopen(_, pid): return untouched.contains(pid)
+            case .open: return false
+            }
+        }
+        _ = check("respring simulated calls", !touchedExcluded
+                  && calls.contains(.terminate(cand("com.apple.finder")?.app.pid ?? -1, .appleEventQuit))
+                  && calls.filter { if case .open = $0 { return true } else { return false } }.count == 2,
+                  calls.map { "\($0)" }.joined(separator: " | "))
+        _ = check("respring result rows", await wait {
+                      let ok = await AXSelf.exists("respring-result-com.apple.TextEdit")
+                      let skip = await AXSelf.exists("respring-result-com.example.stubborn")
+                      let summary = await AXSelf.exists("respring-summary")
+                      return ok && skip && summary
+                  }, r.runSummary ?? "")
+        await settle()
+        snapshot("respring-results", window: NSApp.windows.first { $0.isSheet && $0.isVisible })
+
+        let after = r.planCount
+        _ = check("press respring done", await pressWhenReady("respring-done"), "")
+        _ = check("respring replanned", await wait(10) { !r.showSheet && r.planCount > after && !r.isPlanning }
+                  && Set(r.plan?.pending.map(\.app.bundleID) ?? []) == ["com.apple.Terminal", "com.example.stubborn", "local.dynject.workbench"],
+                  "pending now: \(r.plan?.pending.map(\.app.name) ?? [])")
+        await settle()
+        snapshot("respring-footer")
+    }
+
+    /// Delivers a GetURL Apple Event to this process, as `open dynject-workbench://…` would (sent to the current
+    /// process, so it never leaves it).
+    func sendLinkToSelf(_ link: String) -> Bool {
+        let event = NSAppleEventDescriptor(eventClass: AEEventClass(kInternetEventClass), eventID: AEEventID(kAEGetURL),
+                                           targetDescriptor: .currentProcess(), returnID: AEReturnID(kAutoGenerateReturnID),
+                                           transactionID: AETransactionID(kAnyTransactionID))
+        event.setParam(NSAppleEventDescriptor(string: link), forKeyword: AEKeyword(keyDirectObject))
+        do {
+            _ = try event.sendEvent(options: [.noReply], timeout: 5)
+            return true
+        } catch {
+            record("send link", false, error.localizedDescription)
+            return false
+        }
     }
 
     /// A minimal macOS 27 style .ips (header line + JSON body) whose faulting thread is inside `tweakPath`,

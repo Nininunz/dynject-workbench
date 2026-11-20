@@ -33,6 +33,29 @@ final class AppleMenuManifestTests: XCTestCase {
         XCTAssertEqual(m.appleMenu[1].apps, ["com.apple.finder"])
     }
 
+    /// MenuLoader's own manifest adds "Respring…", which opens Workbench's Respring sheet through its URL scheme.
+    func testMenuLoaderManifestDeclaresRespring() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let path = root.appendingPathComponent("Tweaks/MenuLoader/MenuLoader.workbench.plist").path
+        let (m, issues) = TweakManifestParser.parse(data: try XCTUnwrap(FileManager.default.contents(atPath: path)), path: path,
+                                                    fileExists: { _ in true })
+        XCTAssertEqual(issues.map(\.message), [], "no errors or warnings")
+        let manifest = try XCTUnwrap(m)
+        XCTAssertEqual(manifest.id, "local.dynject.menuloader")
+        XCTAssertEqual(manifest.appleMenu.count, 1)
+        let item = try XCTUnwrap(manifest.appleMenu.first)
+        XCTAssertEqual(item.id, "respring")
+        XCTAssertEqual(item.title, "Respring…")
+        XCTAssertEqual(item.symbol, "arrow.clockwise")
+        XCTAssertEqual(item.action, .url("dynject-workbench://respring"))
+        XCTAssertNil(item.apps)
+        XCTAssertNil(item.keyEquivalent)
+        XCTAssertEqual(manifest.sections.flatMap { $0.items }.map { $0.key }, ["enabled", "placement", "submenuTitle", "diagnostics"],
+                       "its settings are unchanged")
+        let published = MenuLoaderPublisher.items(for: [manifest], settings: MenuLoaderSettings())
+        XCTAssertEqual(published.map(\.1.id), ["respring"])
+    }
+
     func testManifestWithoutAppleMenuIsUnchanged() {
         let (m, issues) = menuManifest(nil)
         XCTAssertEqual(m?.appleMenu, [])

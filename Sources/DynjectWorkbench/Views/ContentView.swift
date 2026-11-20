@@ -32,9 +32,20 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if model.hasUnsavedConfig { PendingBar(model: model) }
             }
+            .sheet(isPresented: Binding(get: { model.respring.showSheet }, set: { if !$0 { model.respring.close() } })) {
+                RespringSheet(model: model)
+            }
         }
+        .onOpenURL { model.handle(url: $0) }
         .sheet(isPresented: $model.showApplySheet) { ApplySheet(model: model) }
         .toolbar {
+            ToolbarItem {
+                Button { model.openRespring() } label: {
+                    Label("Respring…", systemImage: "arrow.clockwise.circle")
+                }
+                .help("Relaunch running apps whose tweaks don't match the config")
+                .accessibilityIdentifier("toolbar-respring")
+            }
             ToolbarItem {
                 Button { model.reloadConfig(); model.scanApps(); model.refreshRuntime() } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
@@ -79,6 +90,7 @@ struct ContentView: View {
                 let n = model.safeMode.disabledCount
                 Label("Safe Mode: \(n) disabled", systemImage: "cross.case.fill").foregroundStyle(.orange)
             }
+            RespringFooterButton(model: model)
         }
         .font(.caption)
         .frame(maxWidth: .infinity, alignment: .leading)

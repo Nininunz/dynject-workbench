@@ -29,6 +29,9 @@ struct AppEnvironment {
     var overridesTweakDylibDirectory = false
     /// The `dw` binary the Safe Mode agent installs (`-DWDwBinary`; default: next to Workbench's executable).
     var dwBinaryOverride: String?
+    /// Running apps the Respring sheet shows instead of the real ones (`-DWRespringFixture <json>`; see
+    /// RespringFixture).
+    var respringFixturePath: String?
 
     var fixtureMode: Bool { configPath != Self.liveConfigPath }
 
@@ -47,6 +50,12 @@ struct AppEnvironment {
 
     /// Workbench's own MenuLoader preferences in fixture mode (live mode uses the app's user defaults).
     var menuLoaderSettingsFile: URL { supportDirectory.appendingPathComponent("menuloader-settings.json") }
+
+    // MARK: Respring
+
+    /// The Respring sheet never quits or opens a real app in fixture mode, in a smoke test, or with a respring
+    /// fixture: it plans over made-up running apps and relaunches them with SimulatedAppController.
+    var isolatesRespring: Bool { fixtureMode || smokeTestReportDirectory != nil || respringFixturePath != nil }
 
     // MARK: Safe Mode
 
@@ -95,8 +104,8 @@ struct AppEnvironment {
     }
 
     /// Reads `-DWConfigPath`, `-DWLogPath`, `-DWErrorLogPath`, `-DWAppRoots` (colon-separated), `-DWSupportDir`,
-    /// `-DWTweaksDir`, `-DWReportsDir`, `-DWTweakDylibDir`, `-DWDwBinary` and `-DWSmokeTest <report-dir>` from the
-    /// launch arguments.
+    /// `-DWTweaksDir`, `-DWReportsDir`, `-DWTweakDylibDir`, `-DWDwBinary`, `-DWRespringFixture` and `-DWSmokeTest <report-dir>`
+    /// from the launch arguments.
     static func current(arguments: [String] = ProcessInfo.processInfo.arguments) -> AppEnvironment {
         func value(_ flag: String) -> String? {
             guard let i = arguments.firstIndex(of: flag), i + 1 < arguments.count else { return nil }
@@ -122,7 +131,8 @@ struct AppEnvironment {
             reportsDirectoryOverride: value("-DWReportsDir"),
             tweakDylibDirectory: value("-DWTweakDylibDir") ?? SafeModeCatalog.defaultDylibDirectory,
             overridesTweakDylibDirectory: value("-DWTweakDylibDir") != nil,
-            dwBinaryOverride: value("-DWDwBinary")
+            dwBinaryOverride: value("-DWDwBinary"),
+            respringFixturePath: value("-DWRespringFixture")
         )
     }
 }

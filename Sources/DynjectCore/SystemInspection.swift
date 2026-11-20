@@ -159,10 +159,11 @@ public struct DaemonStatus: Equatable, Sendable {
 
     public var isDuplicated: Bool { processes.count > 1 }
 
-    /// Daemons started before the config was last written (they run an older config).
+    /// Daemons started before the config was last written (they run an older config). ps gives start times to the
+    /// second, so a daemon started in the same second as the write (the restart right after a save) counts as current.
     public var staleProcesses: [DaemonProcess] {
         guard let configModified else { return [] }
-        return processes.filter { ($0.started ?? .distantPast) < configModified }
+        return processes.filter { ($0.started ?? .distantPast).addingTimeInterval(1) <= configModified }
     }
 
     public var needsRestart: Bool { !staleProcesses.isEmpty || isDuplicated }

@@ -83,7 +83,12 @@ Since macOS 27 AppKit hides menu-item images by default; MenuLoader marks items 
 
 ## MenuLoader's own settings
 
-`MenuLoader.workbench.plist` (identifier `local.dynject.menuloader`, takes effect live):
+`MenuLoader.workbench.plist` (identifier `local.dynject.menuloader`, takes effect live). It also declares one
+Apple-menu item of its own, **Respring…** (`arrow.clockwise`, action `url:dynject-workbench://respring`), which opens
+Workbench's Respring sheet: the running apps that still lack a tweak update, ready to relaunch (see
+[docs/respring.md](../../docs/respring.md)). It is published like any tweak's item, so its tweak page's
+**Show in Apple menu** switch hides it. Copy the updated manifest to `~/Library/Application Support/Dynject Workbench/Tweaks/`
+(`./build.sh install` prints the command) for Workbench to publish it.
 
 | Key | Type | Meaning |
 | --- | --- | --- |

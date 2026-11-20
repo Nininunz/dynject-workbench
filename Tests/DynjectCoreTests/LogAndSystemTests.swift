@@ -55,6 +55,11 @@ final class LogAndSystemTests: XCTestCase {
         XCTAssertTrue(status.isDuplicated)
         XCTAssertEqual(status.staleProcesses.map(\.pid), [7237])
         XCTAssertTrue(status.needsRestart)
+        // ps truncates to the second: a daemon restarted in the same second as the save is current.
+        let restart = DaemonInspector.parsePS(" 78263     1 Thu Nov 19 18:49:39 2026     /opt/dynject/bin/dynjectd\n", pids: [78263])
+        let saved = DaemonInspector.lstartFormatter.date(from: "Thu Nov 19 18:49:39 2026")!.addingTimeInterval(0.43)
+        XCTAssertEqual(DaemonStatus(processes: restart, job: nil, configModified: saved).staleProcesses, [])
+        XCTAssertEqual(DaemonStatus(processes: restart, job: nil, configModified: saved + 1).staleProcesses.map(\.pid), [78263])
     }
 
     func testLaunchctlPrintParsing() {

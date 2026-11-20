@@ -103,7 +103,18 @@ final class WorkbenchModel {
     private(set) var isRefreshingRuntime = false
 
     // MARK: Apply
-    var showApplySheet = false
+    var showApplySheet = false {
+        didSet {
+            // A Respring link that arrived while the save review was up opens its sheet once that one closes.
+            if !showApplySheet, oldValue, respringQueued {
+                respringQueued = false
+                Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: 400_000_000)
+                    self?.respring.present(fromLink: true)
+                }
+            }
+        }
+    }
     private(set) var isWriting = false
     private(set) var lastOutcome: WriteOutcome?
     /// Running apps whose injection changed with the last save.
@@ -133,6 +144,10 @@ final class WorkbenchModel {
     private(set) var menuSettings: MenuLoaderSettings
     private(set) var menuStatus: String?
     @ObservationIgnored private var menuPublishTask: Task<Void, Never>?
+
+    // MARK: Respring
+    let respring: RespringModel
+    @ObservationIgnored private var respringQueued = false
 
     // MARK: Safe Mode
     let safeMode: SafeModeModel
@@ -164,9 +179,13 @@ final class WorkbenchModel {
         }
         menuSettings = menuSettingsStore.load()
         safeMode = SafeModeModel(env: env, tweakBackend: tweakBackend)
+        respring = RespringModel(env: env)
         associations = associationStore.load()
         reloadConfig()
         loadTweaks()
+        respring.inputs = { [unowned self] in self.respringInputs() }
+        respring.onFinished = { [weak self] in self?.refreshRuntime() }
+        safeMode.onRefresh = { [weak self] in self?.respring.scheduleRefresh() }
     }
 
     // MARK: Loading
@@ -175,6 +194,7 @@ final class WorkbenchModel {
         scanApps()
         refreshRuntime()
         safeMode.start()
+        respring.start()
     }
 
     func reloadConfig() {
@@ -255,6 +275,8 @@ final class WorkbenchModel {
         for app in apps { map[app.id] = ServiceNameResolver.resolve(app, log: log) }
         services = map
         recomputeEvaluations()
+        // After a scan or a runtime check (Refresh, a save, a restart): recheck what running apps are missing.
+        respring.scheduleRefresh()
     }
 
     private func recomputeConfig() {
@@ -471,6 +493,41 @@ final class WorkbenchModel {
         }
     }
 
+    // MARK: Respring
+
+    /// The saved config (not unsaved edits: dynjectd only sees what is on disk) and what else the planner reads.
+    func respringInputs() -> RespringInputs {
+        RespringInputs(configText: diskText, configPath: env.configPath, logPath: env.logPath, manifests: tweaks,
+                       dylibDirectory: env.tweakDylibDirectory, safeModeStateDirectory: env.safeModeStateDirectory,
+                       daemon: daemon, installedApps: apps,
+                       injectedApps: apps.filter { !(diskEvals[$0.id]?.injectedDylibs.isEmpty ?? true) },
+                       appsScanned: !isScanning && !apps.isEmpty)
+    }
+
+    /// The Respring sheet, from the toolbar, the sidebar or a dynject-workbench://respring link. It only shows the
+    /// plan; nothing is relaunched until the user presses Respring Selected.
+    func openRespring(fromLink: Bool = false) {
+        if showApplySheet {
+            respringQueued = true
+            banner = Banner(kind: .info, title: "Respring opens after this review",
+                            detail: "Save or cancel the config review first; the Respring sheet follows.")
+            return
+        }
+        respring.present(fromLink: fromLink)
+    }
+
+    /// Links to dynject-workbench:// (Info.plist registers the scheme; MenuLoader's "Respring…" item opens one).
+    /// SwiftUI delivers them to ContentView's onOpenURL, also when the link launches the app. A custom GetURL
+    /// Apple Event handler is avoided: installing one left the window out of the accessibility tree.
+    func handle(url: URL) {
+        switch WorkbenchLink(url: url) {
+        case .respring?:
+            openRespring(fromLink: true)
+        case nil:
+            banner = Banner(kind: .warning, title: "Unknown link", detail: "Workbench doesn't handle \(url.absoluteString).")
+        }
+    }
+
     // MARK: Tweaks
 
     func loadTweaks() {
@@ -486,6 +543,7 @@ final class WorkbenchModel {
         }
         publishAppleMenu()
         safeMode.manifests = manifests
+        respring.scheduleRefresh()
     }
 
     var tweaksFolder: String { env.tweakDirectories.first ?? env.supportDirectory.appendingPathComponent("Tweaks").path }

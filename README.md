@@ -10,6 +10,8 @@ A native macOS app for managing the installed [Dynject](#how-dynject-decides) in
 - Give tweaks a settings page (similar to iOS's PreferenceLoader): a tweak ships a small manifest, and Workbench
   draws its settings, with per-app overrides. See [Tweak settings](#tweak-settings).
 - Let tweaks add items to the Apple menu by declaring them in that manifest (MenuLoader). See [Apple menu](#apple-menu-menuloader).
+- Respring: relaunch the running apps whose tweaks no longer match the config, then check them with `lsof`, from
+  `dw respring`, Workbench's Respring sheet or MenuLoader's "Respring…" Apple-menu item. See [Respring](#respring).
 
 It manages the existing engine at `/opt/dynject`. It is not an injector, not a theme UI, and not a binary/hex editor.
 
@@ -27,16 +29,19 @@ Version 0.1. Tested against fixtures, and the privileged write and restart paths
 | Privileged helper (atomic install, single-daemon restart) | Done. Tested with stubs, then live as root. |
 | UI smoke test | Done. Drives the built app through accessibility against fixtures. |
 | Tweak settings (manifest, settings UI, per-app overrides, SDK header) | Done. Verified live with the Title Badge example in sandboxed Calculator. |
+| Respring (pending detection, relaunch engine, `dw respring`, Workbench sheet, `dynject-workbench://respring`) | Done. Unit-tested with fakes and covered by the smoke test with simulated apps; the real controller was checked on a test app only. |
 
 ## Getting started
 
 Requires macOS 14+ and Xcode / Swift 6 command-line tools.
 
 ```sh
-swift test                    # 95 DynjectCore tests (parser, editor, helper script, writer, plists, tweaks, Apple menu),
-                              # 75 DynjectHook tests and 5 DynjectWorkbench tests (launch arguments)
+swift test                    # 176 DynjectCore tests (parser, editor, helper script, writer, plists, tweaks, Apple menu,
+                              # Safe Mode, respring), 81 DynjectHook tests and 19 DynjectWorkbench tests (launch
+                              # arguments, the Respring sheet's model and links)
 ./scripts/build-app.sh        # → build/Dynject Workbench.app (release, ad-hoc signed)
 ./scripts/ui-smoke-test.sh    # UI smoke test against config fixtures
+./scripts/respring-e2e.sh     # respring engine end to end, against test apps it builds (~25 s)
 open "build/Dynject Workbench.app"
 ```
 
@@ -56,6 +61,10 @@ LaunchAgent plist and the `dw` copy go under the support folder (under `SafeMode
 `-DWSupportDir` isn't given, so they never share the real `SafeMode/state.json` or `bin/dw`), and launchctl is
 simulated. `-DWDwBinary` picks the
 `dw` that Install Watcher copies (default: `Contents/MacOS/dw`, which `scripts/build-app.sh` bundles).
+In fixture mode, in the smoke test and with `-DWRespringFixture <json>`, the Respring sheet lists made-up running apps
+(from that file, or a few scanned apps the config injects into, plus Finder, a terminal and Workbench) and relaunches
+them with a simulated controller: no real app is quit, opened or inspected. The file format is documented on
+`RespringFixture` in `Sources/DynjectWorkbench/RespringModel.swift`.
 
 ```sh
 "build/Dynject Workbench.app/Contents/MacOS/DynjectWorkbench" \
@@ -209,20 +218,43 @@ dw safemode watch [--once]                      the watcher
 dw safemode agent install|uninstall|status      LaunchAgent; install copies dw to Application Support/Dynject Workbench/bin
 ```
 
+## Respring
+
+Tweaks are injected only at launch, so after a config change, a tweak update or a Safe Mode change, running apps
+keep their old set until they are relaunched. `dw respring` lists every running app whose loaded tweaks (from
+`lsof`) differ from what the config gives it now. The reasons are `missing`, `unwanted`, `updated` (the file changed
+after launch) and Safe Mode changes since launch. It then relaunches them one at a time: it quits each app
+politely, skips it if it is still running after 15 s, reopens it in the background and verifies its tweaks. By
+default it leaves out the terminal or editor running it, other terminals and editors, Workbench and Finder; name them
+with `--include`. `--all` relaunches every running app, Finder included. Details: [docs/respring.md](docs/respring.md).
+
+In Workbench, the sidebar footer shows how many running apps are pending; it and the toolbar's **Respring…** open a
+sheet listing them with their reasons and checkboxes (excluded apps start unchecked, with a note), a quit timeout,
+**Respring Selected**, live progress and a result per app. The count refreshes when the config is saved, dynjectd is
+restarted, Safe Mode changes, apps launch or quit, the config or a tweak dylib changes on disk, and on demand.
+The link `dynject-workbench://respring` (registered in `Resources/Info.plist`) opens the same sheet. MenuLoader's
+manifest adds it to the Apple menu as **Respring…**. A link never relaunches anything: only the button does.
+
+```
+dw respring --dry-run                         the plan with reasons; nothing is quit
+dw respring [--all] [--include ID]... [--exclude ID]... [--timeout S]
+dw respring --only ID                         just this app
+```
+
 ## Repository layout
 
 ```
-Sources/DynjectCore/       Parser, evaluator, editor, log/ps/lsof/launchctl readers, writer, helper script, plists, Safe Mode
-Sources/DynjectWorkbench/  SwiftUI app and the smoke-test runner (SmokeTest.swift)
+Sources/DynjectCore/       Parser, evaluator, editor, log/ps/lsof/launchctl readers, writer, helper script, plists, Safe Mode, respring
+Sources/DynjectWorkbench/  SwiftUI app (RespringModel.swift: the Respring sheet) and the smoke-test runner (SmokeTest.swift)
 Sources/DynjectLiveTrial/  Live privileged trial runner (run only with approval)
-Sources/dw/                dw CLI for the tweak build loop (install, enable/disable, relaunch, log) and Safe Mode
+Sources/dw/                dw CLI for the tweak build loop (install, enable/disable, relaunch, log), Safe Mode and respring
 TweakSDK/                  Tweak SDK: settings (DynjectTweak.h) and hooking (DynjectHook.h/.m)
 Examples/, docs/           Example manifest and TitleBadge tweak; tweak format and hooking guides
 Tests/DynjectCoreTests/    Unit tests and fixtures (live.conf is a byte copy of the live config)
 Tests/DynjectHookTests/    Objective-C tests for DynjectHook
-Tests/DynjectWorkbenchTests/ Tests of the app's launch arguments (AppEnvironment)
+Tests/DynjectWorkbenchTests/ Tests of the app's launch arguments (AppEnvironment) and the Respring sheet's model
 Resources/Info.plist       App bundle metadata
-scripts/                   build-app.sh, ui-smoke-test.sh
+scripts/                   build-app.sh, ui-smoke-test.sh, respring-e2e.sh (+ respring-e2e/ sources)
 ```
 
 ## Testing notes
@@ -233,8 +265,13 @@ scripts/                   build-app.sh, ui-smoke-test.sh
   its own process (no Accessibility permission needed): it flips the TextEdit switch, reviews and saves, toggles
   back to the original bytes, checks diagnostics, edits and saves a binary plist, switches the example tweak's
   Apple-menu items off and on again (published to the fixture file under the test key), and checks every result on disk.
-  The script then confirms that the live config hash, the real `dynject.menuloader` key and the set of `dynjectd`
-  PIDs did not change.
+  It then opens the Respring sheet with a `dynject-workbench://respring` Apple Event sent to itself, checks the
+  default checkboxes and exclusion notes over the made-up apps of `-DWRespringFixture`, includes Finder, runs the
+  simulated respring (one app never quits, so the timeout path is covered) and checks the results and the new plan.
+  The script then confirms that the live config hash, the real `dynject.menuloader` key, the set of `dynjectd`
+  PIDs and the running regular apps (from `lsappinfo`) did not change.
+  Accessibility is sometimes slow to expose the window, and then a run fails its first steps with "apps-table
+  missing" (the app's own model checks still run). Rerun it.
   Screenshots in `build/smoke-report/` are approximate, because `cacheDisplay` can't render vibrancy layers.
 
 ## Live trial

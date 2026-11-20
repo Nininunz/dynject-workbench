@@ -29,6 +29,21 @@ plutil -insert formatVersion -integer 1 "$SAFE"
 plutil -insert identifier -string com.example.safetweak "$SAFE"
 plutil -insert name -string "Safe Tweak" "$SAFE"
 plutil -insert dylib -string "$WORK/dylibs/libSafeTweak.dylib" "$SAFE"
+# Respring: made-up running apps (nothing real is listed, quit or opened). TextEdit lacks the tweak the config gives
+# it, Stubborn never quits (the timeout path), Finder, Terminal and Workbench itself are excluded by default.
+BRUT=/opt/dynject/lib/tweaks/libBrutalium.dylib
+cat > "$WORK/respring.json" <<EOF
+{"apps": [
+  {"bundleID": "com.apple.TextEdit", "launchedMinutesAgo": 90, "loaded": []},
+  {"bundleID": "com.apple.finder", "launchedMinutesAgo": 120, "loaded": ["$BRUT"]},
+  {"bundleID": "com.apple.Terminal", "launchedMinutesAgo": 300, "loaded": ["$BRUT"]},
+  {"bundleID": "com.example.stubborn", "name": "Stubborn", "bundlePath": "/Applications/Stubborn.app",
+   "launchedMinutesAgo": 60, "loaded": ["$BRUT"], "refusesToQuit": true},
+  {"bundleID": "com.apple.calculator", "launchedMinutesAgo": 10, "loaded": []},
+  {"bundleID": "local.dynject.workbench", "name": "Dynject Workbench", "launchedMinutesAgo": 5, "loaded": ["$BRUT"],
+   "hostsCaller": true}
+]}
+EOF
 rm -rf "$REPORT"; mkdir -p "$REPORT"
 
 # Real Safe Mode state that must not change: the global key, state.json, the LaunchAgent, its dw copy, launchd.
@@ -48,6 +63,10 @@ live_before=$( [ -f "$LIVE" ] && shasum -a 256 "$LIVE" || echo none)
 global_before=$(defaults read -g 2>/dev/null | grep -c "dynject.tweak" || true)
 menu_before=$(defaults read -g dynject.menuloader 2>/dev/null | shasum -a 256 || true)
 daemons_before=$(pgrep -x dynjectd | sort | tr '\n' ' ' || true)
+# Pids of the running regular (Foreground) apps, from Launch Services (read only). None may quit during the test:
+# the Respring sheet only simulates.
+real_apps() { lsappinfo list 2>/dev/null | awk '/pid = [0-9]+ .*type="Foreground"/ { for (i = 1; i <= NF; i++) if ($i == "pid") print $(i + 2) }' | sort; }
+apps_before=$(real_apps)
 
 "$APP/Contents/MacOS/DynjectWorkbench" \
   -DWConfigPath "$WORK/dynjectd.conf" \
@@ -57,6 +76,7 @@ daemons_before=$(pgrep -x dynjectd | sort | tr '\n' ' ' || true)
   -DWTweaksDir "$WORK/tweaks" \
   -DWReportsDir "$WORK/reports" \
   -DWTweakDylibDir "$WORK/dylibs" \
+  -DWRespringFixture "$WORK/respring.json" \
   -DWSmokeTest "$REPORT" &
 pid=$!
 
@@ -77,9 +97,13 @@ if [ "$global_before" != "$global_after" ]; then echo "FAIL: global preferences 
 menu_after=$(defaults read -g dynject.menuloader 2>/dev/null | shasum -a 256 || true)
 if [ "$menu_before" != "$menu_after" ]; then echo "FAIL: the real dynject.menuloader key changed"; status=1; fi
 if [ "$(safemode_fingerprint)" != "$safemode_before" ]; then echo "FAIL: real Safe Mode state changed (key, state.json, LaunchAgent, bin/dw or launchd)"; status=1; fi
+real_apps > "$WORK/apps-after"
+gone=$(printf '%s\n' "$apps_before" | comm -23 - "$WORK/apps-after" | tr '\n' ' ' | sed 's/ *$//')
+if [ -n "$gone" ]; then echo "FAIL: app processes quit during the test: $gone"; status=1; fi
 if [ "$daemons_before" != "$daemons_after" ]; then echo "FAIL: dynjectd processes changed ($daemons_before -> $daemons_after)"; status=1; fi
 echo "live config unchanged: $([ "$live_before" = "$live_after" ] && echo yes || echo NO)"
 echo "dynjectd pids unchanged: $daemons_after"
+echo "app processes unchanged: $([ -z "$gone" ] && echo yes || echo "NO ($gone)")"
 echo "real Safe Mode unchanged: $([ "$(safemode_fingerprint)" = "$safemode_before" ] && echo yes || echo NO)"
 echo "report: $REPORT/report.json"
 exit "$status"

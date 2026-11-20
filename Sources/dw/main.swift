@@ -4,6 +4,7 @@
 //   dw enable  <installed.dylib> <bundleID>  declare if needed, enable for one app, restart dynjectd (admin prompt)
 //   dw disable <installed.dylib> <bundleID>  the reverse
 //   dw relaunch <bundleID>                 quit (if running) and open the app
+//   dw respring [--dry-run] [--all] ...    relaunch running apps whose tweaks are out of date (RespringCommand.swift)
 //   dw config apply <new.conf> [--yes]     replace the config (diff + validation; writes only with --yes)
 //   dw log <subsystem> [minutes]           show a tweak's unified-log lines
 //   dw safemode ...                        Safe Mode: status, disable/enable, panic, watch, agent (SafeModeCommands.swift)
@@ -133,6 +134,7 @@ func applyConfig(_ newPath: String, confirmed: Bool) {
 let a = Array(CommandLine.arguments.dropFirst())
 switch (a.first, a.count) {
 case ("safemode", _): safeModeCommand(Array(a.dropFirst()))
+case ("respring", _): respringCommand(Array(a.dropFirst()))
 case ("install", 2): install(a[1])
 case ("enable", 3): setEnabled(true, dylib: a[1], bundleID: a[2])
 case ("disable", 3): setEnabled(false, dylib: a[1], bundleID: a[2])
@@ -148,6 +150,7 @@ default:
       dw enable  <installed.dylib> <bundleID>
       dw disable <installed.dylib> <bundleID>
       dw relaunch <bundleID>
+      dw respring [--dry-run] [--all] [--include ID]... [--exclude ID]... [--timeout S]   (dw respring --help)
       dw config apply <new.conf> [--yes]
       dw log <subsystem> [minutes]
       dw safemode ...   (dw safemode help)

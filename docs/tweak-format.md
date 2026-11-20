@@ -97,7 +97,7 @@ Actions:
 | Action | Effect |
 | --- | --- |
 | `notify:<name>` | Posts the Darwin notification `<name>` (allowed from sandboxed apps). Observe it in your tweak or a helper. |
-| `url:<absolute URL>` | Opens the URL with NSWorkspace. |
+| `url:<absolute URL>` | Opens the URL with NSWorkspace. Any scheme, e.g. `url:dynject-workbench://respring` (MenuLoader's own **Respring…** item). |
 | `shortcut:<Shortcut name>` | Opens `shortcuts://run-shortcut?name=<percent-encoded name>`. |
 | `app:<bundle ID>` | Launches or activates that app. |
 

@@ -10,6 +10,15 @@
 	<key>author</key><string>Dynject Workbench</string>
 	<key>dylib</key><string>/opt/dynject/lib/tweaks/libMenuLoader.dylib</string>
 	<key>takesEffect</key><string>live</string>
+	<key>appleMenu</key>
+	<array>
+		<dict>
+			<key>id</key><string>respring</string>
+			<key>title</key><string>Respring…</string>
+			<key>symbol</key><string>arrow.clockwise</string>
+			<key>action</key><string>url:dynject-workbench://respring</string>
+		</dict>
+	</array>
 	<key>sections</key>
 	<array>
 		<dict>

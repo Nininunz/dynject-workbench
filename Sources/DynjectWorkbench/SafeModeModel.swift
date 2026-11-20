@@ -100,7 +100,11 @@ final class SafeModeModel {
         snapshot = safeMode.snapshot(catalog: catalog, support: support)
         refreshedAt = Date()
         refreshCount += 1
+        onRefresh?()
     }
+
+    /// Called after every refresh (Respring rechecks which running apps predate a Safe Mode change).
+    @ObservationIgnored var onRefresh: (() -> Void)?
 
     private func rebuildCatalog() {
         catalog = SafeModeCatalog(manifests: manifests, dylibDirectory: dylibDirectory)
