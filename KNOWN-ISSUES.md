@@ -28,7 +28,8 @@ safe mode
   (2 within 10 minutes).
 - crashes during a shift launch, or in an app outside a tweak's `DH_CTOR` bundle list, still
   count toward "repeated crashes" for tweaks that were loaded but didn't run.
-- the watcher's notifications and the shift bypass have not been verified on a real launch.
+- the watcher's notifications have not been seen on a real crash yet. the shift bypass was
+  verified on a real launch (MenuLoader in AppCleaner, 2026-11-19).
 - the watcher runs a copy of dw in `~/Library/Application Support/Dynject Workbench/bin/`.
   after updating workbench, reinstall the watcher (safe mode -> reinstall) or it keeps
   running the old one.
