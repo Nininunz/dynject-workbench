@@ -33,7 +33,22 @@ Version 0.1. Tested against fixtures, and the privileged write and restart paths
 
 ## Getting started
 
-Requires macOS 14+ and Xcode / Swift 6 command-line tools.
+Requires macOS 14+ (only macOS 27 on Apple Silicon is tested), Xcode or the Command Line Tools with Swift 6, and the
+Dynject engine installed in `/opt/dynject` (installed separately; Workbench only manages it).
+
+Build from source and install in one step:
+
+```sh
+./scripts/bootstrap.sh          # checks prerequisites, builds the app, dw and the tweaks, installs to ~/Applications
+./scripts/bootstrap.sh --check  # prerequisites only; --no-install, --no-tweaks, --dest DIR, --help
+```
+
+It signs ad-hoc, which is all a locally built app needs. To use your own certificate, set `SIGN_IDENTITY`
+(e.g. `SIGN_IDENTITY="Apple Development: Jane Doe (ABCDE12345)"`; `security find-identity -v -p codesigning`
+lists yours); `scripts/build-app.sh` and the tweaks' `build.sh` honour it too. Nothing in it needs administrator
+rights or touches the engine; installing a tweak is a separate step (it prints how).
+
+Development:
 
 ```sh
 swift test                    # 178 DynjectCore tests (parser, editor, helper script, writer, plists, tweaks, Apple menu,

@@ -36,7 +36,8 @@ mkdir -p "$OUT"
   -install_name @rpath/libMenuLoader.dylib \
   -framework AppKit -framework Foundation -framework CoreGraphics \
   "$DIR/MenuLoader.m" "$SDKDIR/DynjectHook.m" -o "$OUT/libMenuLoader.dylib"
-codesign --force --sign - --timestamp=none "$OUT/libMenuLoader.dylib"
+if [ "${SIGN_IDENTITY:--}" = "-" ]; then codesign --force --sign - --timestamp=none "$OUT/libMenuLoader.dylib"
+    else codesign --force --sign "$SIGN_IDENTITY" --timestamp "$OUT/libMenuLoader.dylib"; fi
 
 exported=$(nm -gU "$OUT/libMenuLoader.dylib" 2>/dev/null | grep -cv -e '^$' -e ':$' || true)
 echo "Built $OUT/libMenuLoader.dylib ($(lipo -archs "$OUT/libMenuLoader.dylib"); exported symbols: $exported)"

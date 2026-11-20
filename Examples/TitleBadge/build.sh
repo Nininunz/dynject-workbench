@@ -13,7 +13,8 @@ mkdir -p "$OUT"
   -arch x86_64 -arch arm64 -arch arm64e -dynamiclib -install_name @rpath/libTitleBadge.dylib \
   -framework AppKit -framework Foundation -framework CoreGraphics \
   "$DIR/TitleBadge.m" "$DIR/../../TweakSDK/DynjectHook.m" -o "$OUT/libTitleBadge.dylib"
-codesign --force --sign - --timestamp=none "$OUT/libTitleBadge.dylib"
+if [ "${SIGN_IDENTITY:--}" = "-" ]; then codesign --force --sign - --timestamp=none "$OUT/libTitleBadge.dylib"
+  else codesign --force --sign "$SIGN_IDENTITY" --timestamp "$OUT/libTitleBadge.dylib"; fi
 echo "Built $OUT/libTitleBadge.dylib ($(lipo -archs "$OUT/libTitleBadge.dylib"))"
 
 [ "${1:-}" = "test" ] || exit 0

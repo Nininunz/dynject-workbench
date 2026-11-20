@@ -1,9 +1,13 @@
 #!/bin/sh
-# Builds "build/Dynject Workbench.app" (release, ad-hoc signed).
+# Builds "build/Dynject Workbench.app" (release). Signed ad-hoc by default; set SIGN_IDENTITY to a codesigning
+# identity (e.g. "Developer ID Application: Your Name (TEAMID)" or "Apple Development: …") to sign with your own.
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 CONFIG=${CONFIG:-release}
 APP="$ROOT/build/Dynject Workbench.app"
+SIGN_IDENTITY=${SIGN_IDENTITY:--}
+# A real identity gets a secure timestamp; ad-hoc signatures can't have one.
+if [ "$SIGN_IDENTITY" = "-" ]; then TS=--timestamp=none; else TS=--timestamp; fi
 
 cd "$ROOT"
 swift build -c "$CONFIG" --product DynjectWorkbench
@@ -22,10 +26,10 @@ if [ -f "$ROOT/Resources/AppIcon.icns" ]; then
 fi
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
-# Ad-hoc signature with the hardened runtime. No entitlements: not sandboxed, because the app has to
+# Signature with the hardened runtime. No entitlements: not sandboxed, because the app has to
 # read /opt/dynject, run ps/lsof/launchctl, and hand protected writes to osascript.
 # Nested code first: the bundle's signature seals the already-signed dw.
-codesign --force --sign - --options runtime --timestamp=none --identifier local.dynject.dw "$APP/Contents/MacOS/dw"
-codesign --force --sign - --options runtime --timestamp=none "$APP"
+codesign --force --sign "$SIGN_IDENTITY" --options runtime "$TS" --identifier local.dynject.dw "$APP/Contents/MacOS/dw"
+codesign --force --sign "$SIGN_IDENTITY" --options runtime "$TS" "$APP"
 codesign --verify --strict "$APP"
 echo "Built $APP"
