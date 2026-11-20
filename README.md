@@ -13,6 +13,22 @@ same goes for paid tweaks built with this sdk.
 this is alpha. it injects code into your apps. if that worries you, stop here.
 
 
+screenshots
+-----------
+
+OLEDFinder, the example tweak: pure black finder, stock glass titlebar.
+
+![OLEDFinder](docs/screenshots/oledfinder.png)
+
+MenuLoader: tweaks put items in the apple menu. this is the dynject group.
+
+![MenuLoader](docs/screenshots/applemenu.png)
+
+workbench: what's configured for an app, what actually loaded, and why.
+
+![Workbench](docs/screenshots/workbench.png)
+
+
 requirements
 ------------
 
