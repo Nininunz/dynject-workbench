@@ -4,6 +4,9 @@ known issues
 alpha. this list is honest, not complete.
 
 platform
+- the engine needs SIP relaxed (`--without fs --without debug`). that weakens the whole
+  machine, not just injected apps; see README "what you're giving up". macOS updates may
+  re-enable SIP or break the engine.
 - only tested on macOS 27 on apple silicon. the package says 14+; nobody has run it there.
 - x86_64 slices of the tweaks are built but have never been run.
 - MenuLoader relies on the private `_NSAppleMenu` and two of its methods. if a macOS update

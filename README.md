@@ -19,6 +19,8 @@ requirements
 - macOS 27 on apple silicon. the package says macOS 14+ and other setups might
   build; nobody has tried.
 - xcode or the command line tools, swift 6.
+- SIP relaxed, because the engine needs it: `csrutil enable --without fs --without debug`
+  from recovery. see "what you're giving up" below and the engine's README.
 - dynject in `/opt/dynject` (`bin/dynjectd`, `etc/dynjectd.conf`, and
   `/Library/LaunchDaemons/com.dynject.dynjectd.plist` if you want it at boot).
   we don't ship it. workbench edits its config and restarts its daemon when you
@@ -31,6 +33,23 @@ the engine
 the injection itself is dynject by ut0mt8: https://github.com/ut0mt8/dynject (MIT).
 install the engine from there. this project is a separate set of tools on top of it
 and is not affiliated with or endorsed by its author.
+
+
+what you're giving up
+---------------------
+
+the engine patches amfid at boot so its daemon can use restricted entitlements
+(endpoint security, task_for_pid). that needs two parts of SIP turned off:
+
+- debugging restrictions: any root process can attach to any process, apple's
+  included. malware running as root gets the same power dynject has.
+- filesystem protections: root can write to protected system locations (the sealed
+  system volume stays sealed; authenticated root is still on).
+
+code signing (amfi), kext signing, nvram and kernel integrity protections stay on.
+apple calls this an unsupported configuration; a macOS update can break the engine or
+quietly re-enable SIP. turn it back on with `csrutil enable` from recovery when you're
+done. none of the tools here need SIP changes beyond what the engine asks for.
 
 
 build
