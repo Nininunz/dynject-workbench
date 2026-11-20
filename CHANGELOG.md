@@ -11,6 +11,9 @@ unreleased
   tests, the app, each bundled tweak's build and test host, and a fresh `dw new` tweak taken
   through build, install, list and uninstall in a fake root. `--quick`, `--all` (adds the e2e
   scripts and the ui smoke test), `--stop`.
+- `tools/bench/launch`: times an app's launch with no tweaks, each installed tweak alone and all of them,
+  without touching the config. result: no measurable cost to the first window; the ~23 ms they add
+  before main() is the shift-key check opening the window server connection appkit opens anyway.
 - `dw doctor`: one line per crash, naming the tweak it happened in apart from the ones that were only
   loaded; a deleted report isn't offered as the fix.
 - safe mode passed a live crash test (docs/safe-mode.md#live-test): crash in a tweak, disabled at

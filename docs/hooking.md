@@ -430,7 +430,9 @@ The body runs while dyld loads your dylib, before the app's `main`. Install hook
 
 - **Shift bypass.** Shift is held down when the tweak loads. Hold Shift while launching an app to start it without any
   DynjectHook tweaks, which helps if a tweak crashes the app at launch. Set the environment variable
-  `DH_DISABLE_SHIFT_BYPASS` (any value) to turn this check off.
+  `DH_DISABLE_SHIFT_BYPASS` (any value) to turn this check off. Cost: reading the keyboard state opens the process's
+  window server connection, ~20 ms before `main()`, once per process however many tweaks check. An AppKit app opens
+  that connection on its way to its first window anyway, so its launch doesn't get longer (tools/bench/README.md).
 
 ### macOS version guard: `DH_REQUIRE_SYSTEM`
 

@@ -45,6 +45,7 @@ layout
                                   bridge-e2e.sh (+ bridge-e2e/)
     tools/live/                   live: drive a real injected app from scripts (window, pointer, keys,
                                   screenshots, logs). README lists the gotchas. examples/ has worked runs.
+    tools/bench/                  launch: what tweaks add to an app's launch (no config changes). README has results.
     docs/                         reference: workbench.md, tweak-format.md, hooking.md, safe-mode.md, respring.md,
                                   bridge.md
     build/                        output, gitignored

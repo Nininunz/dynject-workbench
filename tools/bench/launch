@@ -1,0 +1,91 @@
+#!/bin/sh
+# launch: what tweaks add to an app's launch. see tools/bench/README.md.
+#
+#   tools/bench/launch                  every dylib in /opt/dynject/lib/tweaks: none, each alone, all together
+#   tools/bench/launch a.dylib b.dylib  these dylibs instead
+#   -n N                                launches per scenario (default 40), after 3 warm-up launches each
+#
+# Runs a minimal app (launchbench.m) directly, not through launchd, so dynjectd never injects it; each scenario
+# injects its dylibs with DYLD_INSERT_LIBRARIES. Nothing is installed, configured or written outside .build/bench.
+set -eu
+HERE=$(cd "$(dirname "$0")" && pwd)
+ROOT=$(cd "$HERE/../.." && pwd)
+OUT="$ROOT/.build/bench"
+N=40 WARMUP=3
+while getopts n: o; do case $o in n) N=$OPTARG ;; *) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;; esac; done
+shift $((OPTIND - 1))
+
+if [ $# -gt 0 ]; then dylibs="$*"; else dylibs=$(ls /opt/dynject/lib/tweaks/*.dylib 2>/dev/null || true); fi
+[ -n "$dylibs" ] || { echo "launch: no dylibs (none in /opt/dynject/lib/tweaks; pass some)" >&2; exit 2; }
+
+APP="$OUT/LaunchBench.app" EXE="$OUT/LaunchBench.app/Contents/MacOS/LaunchBench"
+if [ ! -x "$EXE" ] || [ "$HERE/launchbench.m" -nt "$EXE" ]; then
+  rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS"
+  cat > "$APP/Contents/Info.plist" <<'PL'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>local.dynject.launchbench</string>
+  <key>CFBundleExecutable</key><string>LaunchBench</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>LSUIElement</key><true/>
+</dict></plist>
+PL
+  xcrun clang -O2 -Wall -Werror -fobjc-arc -framework AppKit -framework QuartzCore "$HERE/launchbench.m" -o "$EXE"
+  # Plain ad-hoc signature, no hardened runtime: DYLD_INSERT_LIBRARIES is honoured for this app.
+  codesign --force --sign - --timestamp=none "$APP" 2>/dev/null
+fi
+
+# Scenarios: name|dylibs (colon-separated)|expected loaded set
+RES="$OUT/results"; rm -rf "$RES"; mkdir -p "$RES"
+scen="none||-"
+all="" expect_all=""
+for d in $dylibs; do
+  b=$(basename "$d" .dylib)
+  scen="$scen
+$b|$d|$(basename "$d")"
+  all="${all:+$all:}$d"; expect_all="${expect_all:+$expect_all,}$(basename "$d")"
+done
+[ "$(echo "$dylibs" | wc -w)" -gt 1 ] && scen="$scen
+all|$all|$expect_all"
+
+run() {  # run <dylibs>
+  if [ -n "$1" ]; then env DYLD_INSERT_LIBRARIES="$1" "$EXE"; else env -u DYLD_INSERT_LIBRARIES "$EXE"; fi
+}
+
+count=$(echo "$scen" | wc -l | tr -d ' ')
+echo "launchbench: $count scenarios x $N launches (+$WARMUP warm-up), round robin"
+i=0
+while [ $i -lt $((N + WARMUP)) ]; do
+  echo "$scen" | while IFS='|' read -r name libs expect; do
+    rc=0; line=$(run "$libs") || rc=$?
+    if [ "$rc" -ne 0 ]; then
+      echo "launch: $name: the app didn't finish launching (exit status $rc; crash report in ~/Library/Logs/DiagnosticReports)" >&2
+      exit 1
+    fi
+    loaded=$(echo "$line" | cut -d' ' -f3)
+    # dyld lists inserted images in insertion order; compare as sets.
+    if [ "$(echo "$loaded" | tr ',' '\n' | sort | tr '\n' ',')" != "$(echo "$expect" | tr ',' '\n' | sort | tr '\n' ',')" ]; then
+      echo "launch: $name loaded \"$loaded\", expected \"$expect\"" >&2; exit 1
+    fi
+    [ $i -lt $WARMUP ] || echo "$line" | cut -d' ' -f1-2 >> "$RES/$name.txt"
+  done || exit 1
+  i=$((i + 1))
+  [ $((i % 10)) -eq 0 ] && printf '  %s/%s\n' "$i" "$((N + WARMUP))" >&2
+done
+
+stats() {  # stats <file> <column>: median p90
+  cut -d' ' -f"$2" "$1" | sort -n | awk '{a[NR]=$1} END{m=(NR%2)?a[(NR+1)/2]:(a[NR/2]+a[NR/2+1])/2; p=a[int(NR*0.9+0.5)]; printf "%.1f %.1f", m, p}'
+}
+echo
+printf '%-18s %18s   %22s   %s\n' "" "to main() (ms)" "to first window (ms)" "added vs none"
+printf '%-18s %8s %8s   %10s %10s   %s\n' scenario median p90 median p90 "(median, first window)"
+base=$(stats "$RES/none.txt" 2 | cut -d' ' -f1)
+echo "$scen" | while IFS='|' read -r name libs expect; do
+  set -- $(stats "$RES/$name.txt" 1) $(stats "$RES/$name.txt" 2)
+  d=$(echo "$3 $base" | awk '{printf "%+.1f ms", $1 - $2}')
+  [ "$name" = none ] && d=""
+  printf '%-18s %8s %8s   %10s %10s   %s\n' "$name" "$1" "$2" "$3" "$4" "$d"
+done
+echo
+echo "raw: ${RES#"$ROOT"/}/<scenario>.txt (to-main ms, to-first-window ms per launch)"
