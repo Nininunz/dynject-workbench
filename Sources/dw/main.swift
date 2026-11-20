@@ -147,6 +147,7 @@ case ("install", 2): install(a[1])
 case ("enable", 3): setEnabled(true, dylib: a[1], bundleID: a[2])
 case ("disable", 3): setEnabled(false, dylib: a[1], bundleID: a[2])
 case ("relaunch", 2): relaunch(a[1])
+case ("menu", 2) where a[1] == "publish": republishAppleMenu(.live())
 case ("config", 3) where a[1] == "apply": applyConfig(a[2], confirmed: false)
 case ("config", 4) where a[1] == "apply" && a[3] == "--yes": applyConfig(a[2], confirmed: true)
 case ("log", 2): showLog(a[1], minutes: 5)
@@ -164,6 +165,7 @@ default:
       dw relaunch <bundleID>
       dw respring [--dry-run] [--all] [--include ID]... [--exclude ID]... [--timeout S]   (dw respring --help)
       dw config apply <new.conf> [--yes]
+      dw menu publish                   republish MenuLoader's list from the installed manifests
       dw log <subsystem> [minutes]
       dw safemode ...   (dw safemode help)
       dw bridge ...     (dw bridge help)

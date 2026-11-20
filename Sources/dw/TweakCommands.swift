@@ -156,6 +156,7 @@ func tweakInstall(_ path: String, _ a: TweakArguments) {
         }
         if result.manifestWritten { print("manifest installed: \(plan.manifestDestination)") }
         printLines(result.problems, prefix: "warning: ")
+        if ctx.locations.isLive { republishAppleMenu(ctx.locations) }
         let apps = plan.enabledFor + plan.alreadyEnabledFor
         print("""
         Installed \(plan.manifest.name). Apps load tweaks only at launch: relaunch \(apps.isEmpty ? "the apps you enable it for" : apps.map(\.displayName).joined(separator: ", ")) \
@@ -186,6 +187,7 @@ func tweakUninstall(_ tweak: String, _ a: TweakArguments) {
             }
         }
         printLines(result.problems, prefix: "warning: ")
+        if ctx.locations.isLive { republishAppleMenu(ctx.locations) }
         print("Uninstalled \(plan.name). Apps that loaded it keep it until they quit: `dw respring` relaunches them. Its settings (dynject.tweak.\(plan.tweakID)) are kept.")
     } catch {
         fail(error.localizedDescription)
@@ -248,5 +250,22 @@ func newTweak(_ args: [String]) {
         """)
     } catch {
         fail(error.localizedDescription)
+    }
+}
+
+
+/// Republishes MenuLoader's list after an install or uninstall, as Workbench would on Reload: the same manifests,
+/// the same publisher, and Workbench's saved Apple-menu preferences (per-tweak "Show in Apple menu", placement).
+/// Without this a tweak installed from the terminal gets no Apple-menu items until Workbench next reloads.
+func republishAppleMenu(_ locations: TweakLocations) {
+    let saved = UserDefaults(suiteName: "local.dynject.workbench")?.data(forKey: "MenuLoaderSettings")
+    let settings = saved.flatMap { try? JSONDecoder().decode(MenuLoaderSettings.self, from: $0) } ?? MenuLoaderSettings()
+    let (manifests, _) = TweakManifestLoader.load(directories: locations.manifestSearchDirectories)
+    do {
+        if try MenuLoaderPublisher(store: CFPreferencesTweakBackend(), names: .production).publish(manifests, settings: settings) {
+            print("apple menu: published the updated list (apps with MenuLoader update live)")
+        }
+    } catch {
+        print("warning: apple menu not republished: \(error.localizedDescription); press Reload in Workbench")
     }
 }
