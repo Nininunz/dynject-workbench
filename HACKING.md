@@ -27,6 +27,7 @@ layout
                                   (hooking), DynjectBridge.h + DynjectBridge.m (the bridge client). also the
                                   DynjectTweakSDK target, so tests can compile against it.
     Tweaks/MenuLoader/            the apple-menu loader tweak, its build.sh and testhost/
+    Tweaks/Inspector/             the in-app inspector tweak, its build.sh (`test` runs testhost/)
     Examples/                     ExampleTweak.workbench.plist (every item type), TitleBadge/ and
                                   OLEDFinder/ (example tweaks)
     Tests/DynjectCoreTests/       unit tests + Fixtures/ (live.conf is a byte copy of a real config)
@@ -46,7 +47,7 @@ building and tests
 ------------------
 
     swift build
-    swift test                          # 353 tests, ~20 s
+    swift test                          # 354 tests, ~20 s
     swift test --filter DynjectHookTests
     ./scripts/build-app.sh              # build/Dynject Workbench.app, release, ad-hoc unless SIGN_IDENTITY
     ./scripts/ui-smoke-test.sh          # drives the built app against fixtures
@@ -55,9 +56,10 @@ building and tests
     Tweaks/MenuLoader/testhost/run.sh   # MenuLoader in an appkit test host, sandboxed copy included
     (cd Examples/TitleBadge && ./build.sh test)   # TitleBadge in a local test app
     Examples/OLEDFinder/build.sh test             # OLEDFinder in a finder-like test app, screenshots
+    Tweaks/Inspector/build.sh test                # Inspector in an appkit + swiftui test app, screenshots
     open "build/Dynject Workbench.app"
 
-current counts (2026-11-20): 244 DynjectCore (parser, editor, helper script, writer,
+current counts (2026-11-20): 245 DynjectCore (parser, editor, helper script, writer,
 plists, tweaks, apple menu, safe mode, respring, tweak install and template, version
 notice, bridge), 84 DynjectHook (3 of them the bridge sdk), 25 DynjectWorkbench (launch
 arguments, the respring sheet's model and links, install tweak in fixture mode, bridge

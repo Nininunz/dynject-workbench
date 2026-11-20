@@ -15,6 +15,9 @@ platform
   re-enable SIP or break the engine.
 - only tested on macOS 27 on apple silicon. the package says 14+; nobody has run it there.
 - x86_64 slices of the tweaks are built but have never been run.
+- Inspector has only run in its own test host (`Tweaks/Inspector/build.sh test`), not
+  in a real app through dynject yet. while ⌃⌥⌘ are held it takes L and clicks, so apps
+  with ⌃⌥⌘L or ⌃⌥⌘-click shortcuts lose them (turn off its hotkey for those apps).
 - MenuLoader relies on the private `_NSAppleMenu` and two of its methods. if a macOS update
   changes them it logs one line and does nothing. since macOS 27 appkit hides menu-item
   images by default; MenuLoader forces them visible for items with a symbol.

@@ -143,6 +143,9 @@ what's in the box
 - settings sdk: `DynjectTweak.h` plus a manifest gives your tweak a settings page.
   docs/tweak-format.md.
 - MenuLoader: tweaks declare apple-menu items, it adds them. Tweaks/MenuLoader.
+- Inspector: flex-style in-app inspector. hold ⌃⌥⌘, point at a view or layer, click: class,
+  hierarchy, properties, methods, ivars, runtime browser, copy a hook skeleton. read-only.
+  Tweaks/Inspector.
 - safe mode: crash watcher, per-app auto-disable, panic switch. docs/safe-mode.md.
 - respring: relaunch running apps whose tweaks are out of date. docs/respring.md.
 - DynjectBridge: tweaks in sandboxed apps ask a user agent to set their settings, post

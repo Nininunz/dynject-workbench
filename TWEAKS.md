@@ -6,7 +6,7 @@ references: docs/hooking.md, docs/tweak-format.md, docs/safe-mode.md, docs/respr
 docs/bridge.md.
 working examples: Examples/TitleBadge (settings, no swizzling), Examples/OLEDFinder (hook
 classes on appkit views, one app, no settings) and Tweaks/MenuLoader (hooks a private appkit
-class, listens for notifications).
+class, listens for notifications). Tweaks/Inspector looks inside an app while you write one.
 
 
 the loop
@@ -329,9 +329,13 @@ debugging
   recent tweak-related ones and what got disabled.
 - `dw respring --dry-run` says which running apps are out of date and why
   (missing, unwanted, updated, safe mode changed).
+- what's in there? Tweaks/Inspector: enable it for the app (`dw tweak install
+  Tweaks/Inspector --for <bundleID>`, respring), hold ⌃⌥⌘ and point at a view, L for
+  layers, click. class, image, hierarchy, properties, methods with readable signatures,
+  ivars, a runtime class search, and copy hook for a DynjectHook skeleton with exact types.
 - test without dynject: `DYLD_INSERT_LIBRARIES` into a test app you built.
   `Examples/TitleBadge/build.sh test`, `Examples/OLEDFinder/build.sh test` (screenshots and
-  pixel checks) and `Tweaks/MenuLoader/testhost/run.sh` do this.
+  pixel checks), `Tweaks/MenuLoader/testhost/run.sh` and `Tweaks/Inspector/build.sh test` do this.
 
 
 other dw commands

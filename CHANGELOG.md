@@ -12,6 +12,11 @@ unreleased
   declared kinds of links or write the clipboard. declared per tweak in the manifest
   (`bridge`), allowed only inside apps the config injects the tweak into, rate-limited
   and logged. sdk: `DynjectBridge.h`. docs/bridge.md.
+- Inspector: a flex-style in-app inspector tweak. hold ⌃⌥⌘ in an app it's enabled for,
+  point at a view (L: a layer, swiftui and liquid glass layers included), click: class,
+  image, superclass chain, hierarchy, safe properties (others on click), methods with
+  readable signatures, ivars, a runtime class search. copy hook writes a DynjectHook
+  skeleton with exact types. read-only. Tweaks/Inspector.
 
 
 0.1.0 (2026-11-19)

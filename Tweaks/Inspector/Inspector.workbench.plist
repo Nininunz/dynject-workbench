@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>formatVersion</key><integer>1</integer>
+	<key>identifier</key><string>local.dynject.inspector</string>
+	<key>name</key><string>Inspector</string>
+	<key>summary</key><string>In-app inspector: hold Control-Option-Command and point at a view or layer, click to see its class, hierarchy, properties, methods and ivars, and copy a DynjectHook skeleton for any method. Read-only. Enable it only for the apps you want to look inside.</string>
+	<key>version</key><string>0.1</string>
+	<key>author</key><string>Dynject Workbench</string>
+	<key>dylib</key><string>/opt/dynject/lib/tweaks/libInspector.dylib</string>
+	<key>takesEffect</key><string>live</string>
+	<key>sections</key>
+	<array>
+		<dict>
+			<key>title</key><string>Inspector</string>
+			<key>items</key>
+			<array>
+				<dict>
+					<key>type</key><string>switch</string>
+					<key>key</key><string>enabled</string>
+					<key>title</key><string>Enabled</string>
+					<key>footer</key><string>Off: no pick mode, the panel closes, the Apple-menu item does nothing.</string>
+					<key>default</key><true/>
+					<key>perApp</key><true/>
+				</dict>
+				<dict>
+					<key>type</key><string>switch</string>
+					<key>key</key><string>hotkeyEnabled</string>
+					<key>title</key><string>Hold ⌃⌥⌘ to pick</string>
+					<key>footer</key><string>Off: start picking from the Apple menu (Inspect This App) only. Turn it off in apps that use ⌃⌥⌘ shortcuts.</string>
+					<key>default</key><true/>
+					<key>perApp</key><true/>
+					<key>enabledIf</key><string>enabled</string>
+				</dict>
+			</array>
+		</dict>
+	</array>
+	<key>appleMenuPlacement</key><string>shared</string>
+	<key>appleMenu</key>
+	<array>
+		<dict>
+			<key>id</key><string>inspect</string>
+			<key>title</key><string>Inspect This App</string>
+			<key>action</key><string>notify:local.dynject.inspector.toggle</string>
+			<key>symbol</key><string>scope</string>
+		</dict>
+	</array>
+</dict>
+</plist>

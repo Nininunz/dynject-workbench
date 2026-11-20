@@ -51,6 +51,22 @@ final class TweakManifestTests: XCTestCase {
         XCTAssertEqual(m?.takesEffect, .relaunch)
     }
 
+    /// Inspector: two live switches and one shared Apple-menu item that posts its toggle.
+    func testInspectorManifestParses() throws {
+        let path = repoRoot.appendingPathComponent("Tweaks/Inspector/Inspector.workbench.plist").path
+        let (m, issues) = TweakManifestParser.parse(data: try XCTUnwrap(FileManager.default.contents(atPath: path)), path: path,
+                                                    fileExists: { _ in true })
+        XCTAssertEqual(issues.map(\.message), [])
+        let manifest = try XCTUnwrap(m)
+        XCTAssertEqual(manifest.id, "local.dynject.inspector")
+        XCTAssertEqual(manifest.dylib, "/opt/dynject/lib/tweaks/libInspector.dylib")
+        XCTAssertEqual(manifest.perAppItems.map(\.key), ["enabled", "hotkeyEnabled"])
+        XCTAssertEqual(manifest.takesEffect, .live)
+        XCTAssertEqual(manifest.appleMenuPlacement, .shared)
+        XCTAssertEqual(manifest.appleMenu.map(\.action), [.notify("local.dynject.inspector.toggle")])
+        XCTAssertEqual(manifest.appleMenu.first?.symbol, "scope")
+    }
+
     func testRejectsUnusableManifests() {
         func errors(_ d: [String: Any]) -> [String] {
             TweakManifestParser.parse(data: manifestData(d), path: "/x", fileExists: { _ in true }).1.map(\.message)
