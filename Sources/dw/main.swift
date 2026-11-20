@@ -4,6 +4,7 @@
 //   dw enable  <installed.dylib> <bundleID>  declare if needed, enable for one app, restart dynjectd (admin prompt)
 //   dw disable <installed.dylib> <bundleID>  the reverse
 //   dw relaunch <bundleID>                 quit (if running) and open the app
+//   dw config apply <new.conf> [--yes]     replace the config (diff + validation; writes only with --yes)
 //   dw log <subsystem> [minutes]           show a tweak's unified-log lines
 //   dw safemode ...                        Safe Mode: status, disable/enable, panic, watch, agent (SafeModeCommands.swift)
 //
@@ -103,6 +104,32 @@ func showLog(_ subsystem: String, minutes: Int) {
     print(out?.stdout ?? "")
 }
 
+
+/// Replaces the whole config with `newPath`'s text: shows the diff and the validator's findings, refuses errors,
+/// and writes only with --yes (backup, conflict check against what was read, single-daemon restart).
+func applyConfig(_ newPath: String, confirmed: Bool) {
+    guard let original = FileManager.default.contents(atPath: configPath) else { fail("can't read \(configPath)") }
+    guard let newData = FileManager.default.contents(atPath: newPath) else { fail("can't read \(newPath)") }
+    let old = String(decoding: original, as: UTF8.self), new = String(decoding: newData, as: UTF8.self)
+    guard old != new else { print("no change"); return }
+    for op in LineDiff.diff(old, new) {
+        if case let .added(l) = op { print("  + \(l)") }
+        if case let .removed(l) = op { print("  - \(l)") }
+    }
+    let diagnostics = ConfigValidator.diagnose(ConfigDocument(text: new))
+    for d in diagnostics { print("  \(d.severity) \(d.line.map { "line \($0 + 1): " } ?? "")\(d.message)") }
+    if diagnostics.contains(where: { $0.severity == .error }) { fail("the new config has errors; not applied") }
+    guard confirmed else { print("dry run; add --yes to write it and restart dynjectd"); return }
+    let (w, exec) = writer("apply config from \((newPath as NSString).lastPathComponent) + restart dynjectd")
+    do {
+        let out = try w.write(newData, to: configPath, expectedCurrent: original, category: "config",
+                              restartWith: PrivilegedRestarter(executor: exec))
+        print("saved; dynjectd now: \(out.restart?.after.map(String.init).joined(separator: " ") ?? "?"). Relaunch apps to apply.")
+    } catch {
+        fail(error.localizedDescription)
+    }
+}
+
 let a = Array(CommandLine.arguments.dropFirst())
 switch (a.first, a.count) {
 case ("safemode", _): safeModeCommand(Array(a.dropFirst()))
@@ -110,6 +137,8 @@ case ("install", 2): install(a[1])
 case ("enable", 3): setEnabled(true, dylib: a[1], bundleID: a[2])
 case ("disable", 3): setEnabled(false, dylib: a[1], bundleID: a[2])
 case ("relaunch", 2): relaunch(a[1])
+case ("config", 3) where a[1] == "apply": applyConfig(a[2], confirmed: false)
+case ("config", 4) where a[1] == "apply" && a[3] == "--yes": applyConfig(a[2], confirmed: true)
 case ("log", 2): showLog(a[1], minutes: 5)
 case ("log", 3): showLog(a[1], minutes: Int(a[2]) ?? 5)
 default:
@@ -119,6 +148,7 @@ default:
       dw enable  <installed.dylib> <bundleID>
       dw disable <installed.dylib> <bundleID>
       dw relaunch <bundleID>
+      dw config apply <new.conf> [--yes]
       dw log <subsystem> [minutes]
       dw safemode ...   (dw safemode help)
     """)
