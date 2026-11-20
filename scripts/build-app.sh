@@ -20,6 +20,9 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/DynjectWorkbench"
 # The dw CLI, which Safe Mode's "Install Watcher" copies to ~/Library/Application Support/Dynject Workbench/bin.
 cp "$BINDIR/dw" "$APP/Contents/MacOS/dw"
+# The tweak SDK `dw new` vendors into new tweak folders (it looks in ../Resources/TweakSDK next to itself).
+mkdir -p "$APP/Contents/Resources/TweakSDK"
+cp "$ROOT"/TweakSDK/include/*.h "$ROOT/TweakSDK/DynjectHook.m" "$APP/Contents/Resources/TweakSDK/"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 if [ -f "$ROOT/Resources/AppIcon.icns" ]; then
   cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"

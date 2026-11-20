@@ -191,6 +191,163 @@ final class HelperScriptTests: XCTestCase {
         XCTAssertEqual(PrivilegedRestarter.report(from: out).after, [50000])
     }
 
+    // MARK: transactions (tweak install / uninstall)
+
+    /// A tweaks folder given by its real path (the helper refuses a folder reached through a symlink, and the
+    /// temporary directory is under /var -> /private/var).
+    func tweaksFolder() throws -> URL {
+        let url = dir.appendingPathComponent("tweaks")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let real = realpath(url.path, nil)!
+        defer { free(real) }
+        return URL(fileURLWithPath: String(cString: real))
+    }
+
+    func executor(tweaks: URL) -> LocalShellExecutor {
+        var env = executor.environment
+        env["DW_TEST_TWEAKS_DIR"] = tweaks.path
+        return LocalShellExecutor(environment: env)
+    }
+
+    func file(_ url: URL, _ text: String) throws { try text.write(to: url, atomically: true, encoding: .utf8) }
+    func sha(_ text: String) -> String { sha256Hex(Data(text.utf8)) }
+    func leftovers(_ dirs: URL...) -> [String] {
+        dirs.flatMap { (try? FileManager.default.contentsOfDirectory(atPath: $0.path)) ?? [] }.filter { $0.contains(".dw.") }
+    }
+
+    func testTwoInstallsAndRestartInOneInvocation() throws {
+        write("dynjectd.pids", "7237\n")
+        let tweaks = try tweaksFolder()
+        let dylib = tweaks.appendingPathComponent("libNew.dylib")
+        let conf = dir.appendingPathComponent("dynjectd.conf")
+        try file(conf, "old\n")
+        let s1 = dir.appendingPathComponent("s1"), s2 = dir.appendingPathComponent("s2")
+        try file(s1, "DYLIB"); try file(s2, "new\n")
+        let out = try executor(tweaks: tweaks).run(["install", dylib.path, s1.path, sha("DYLIB"), "-",
+                                                    "install", conf.path, s2.path, sha("new\n"), sha("old\n"), "restart"], prompt: "")
+        XCTAssertEqual(out.components(separatedBy: "DW installed ").count - 1, 2)
+        XCTAssertEqual(try String(contentsOf: dylib, encoding: .utf8), "DYLIB")
+        XCTAssertEqual(try String(contentsOf: conf, encoding: .utf8), "new\n")
+        XCTAssertEqual(PrivilegedRestarter.report(from: out).after, [50000])
+        XCTAssertEqual(leftovers(tweaks, dir), [])
+        // Both files were in place before the restart began.
+        let installedAt = out.range(of: "DW installed \(conf.path)")!.lowerBound
+        XCTAssertLessThan(installedAt, out.range(of: "DW running-before")!.lowerBound)
+    }
+
+    func testConflictOnTheSecondFileWritesNeither() throws {
+        let tweaks = try tweaksFolder()
+        let dylib = tweaks.appendingPathComponent("libNew.dylib")
+        let conf = dir.appendingPathComponent("dynjectd.conf")
+        try file(conf, "edited meanwhile\n")
+        let s1 = dir.appendingPathComponent("s1"), s2 = dir.appendingPathComponent("s2")
+        try file(s1, "DYLIB"); try file(s2, "new\n")
+        XCTAssertThrowsError(try executor(tweaks: tweaks).run(["install", dylib.path, s1.path, sha("DYLIB"), "-",
+                                                               "install", conf.path, s2.path, sha("new\n"), sha("old\n"), "restart"],
+                                                              prompt: "")) { error in
+            XCTAssertTrue(error.localizedDescription.contains("changed on disk"))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dylib.path))
+        XCTAssertEqual(try String(contentsOf: conf, encoding: .utf8), "edited meanwhile\n")
+        XCTAssertTrue(calls.isEmpty, "no restart")
+    }
+
+    func testSwappedSecondStagedFileWritesNeitherAndLeavesNoTemporaries() throws {
+        let tweaks = try tweaksFolder()
+        let dylib = tweaks.appendingPathComponent("libNew.dylib")
+        let conf = dir.appendingPathComponent("dynjectd.conf")
+        try file(conf, "old\n")
+        let s1 = dir.appendingPathComponent("s1"), s2 = dir.appendingPathComponent("s2")
+        try file(s1, "DYLIB"); try file(s2, "evil\n")
+        XCTAssertThrowsError(try executor(tweaks: tweaks).run(["install", dylib.path, s1.path, sha("DYLIB"), "-",
+                                                               "install", conf.path, s2.path, sha("new\n"), sha("old\n")], prompt: "")) { error in
+            XCTAssertTrue(error.localizedDescription.contains("staged content changed"))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dylib.path))
+        XCTAssertEqual(try String(contentsOf: conf, encoding: .utf8), "old\n")
+        XCTAssertEqual(leftovers(tweaks, dir), [])
+    }
+
+    func testConfigEditRemoveAndRestartInOneInvocation() throws {
+        write("dynjectd.pids", "7237\n")
+        let tweaks = try tweaksFolder()
+        let dylib = tweaks.appendingPathComponent("libOld.dylib")
+        try file(dylib, "OLD")
+        let conf = dir.appendingPathComponent("dynjectd.conf")
+        try file(conf, "old\n")
+        let s = dir.appendingPathComponent("s")
+        try file(s, "new\n")
+        let out = try executor(tweaks: tweaks).run(["install", conf.path, s.path, sha("new\n"), sha("old\n"),
+                                                    "remove", dylib.path, sha("OLD"), "restart"], prompt: "")
+        XCTAssertTrue(out.contains("DW removed \(dylib.path)"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dylib.path))
+        XCTAssertEqual(try String(contentsOf: conf, encoding: .utf8), "new\n")
+        XCTAssertEqual(PrivilegedRestarter.report(from: out).after, [50000])
+    }
+
+    func testRemoveRefusesAnythingButAPlainDylibInTheTweaksFolder() throws {
+        let tweaks = try tweaksFolder()
+        let outside = dir.appendingPathComponent("libOutside.dylib")
+        try file(outside, "X")
+        let sub = tweaks.appendingPathComponent("sub")
+        try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+        try file(sub.appendingPathComponent("libSub.dylib"), "X")
+        try file(tweaks.appendingPathComponent("notes.txt"), "X")
+        try file(tweaks.appendingPathComponent(".libHidden.dylib"), "X")
+        try FileManager.default.createSymbolicLink(atPath: tweaks.appendingPathComponent("libLink.dylib").path, withDestinationPath: outside.path)
+        try FileManager.default.createDirectory(at: tweaks.appendingPathComponent("libDir.dylib"), withIntermediateDirectories: true)
+        try file(tweaks.appendingPathComponent("libReal.dylib"), "REAL")
+
+        let cases: [(String, String, String)] = [
+            (outside.path, sha("X"), "only *.dylib files"),
+            (tweaks.path + "/../libOutside.dylib", sha("X"), "not a plain file name"),
+            (sub.appendingPathComponent("libSub.dylib").path, sha("X"), "not a plain file name"),
+            (tweaks.appendingPathComponent("notes.txt").path, sha("X"), "only *.dylib files"),
+            (tweaks.appendingPathComponent(".libHidden.dylib").path, sha("X"), "not a plain file name"),
+            (tweaks.appendingPathComponent("libLink.dylib").path, sha("X"), "symbolic link"),
+            (tweaks.appendingPathComponent("libDir.dylib").path, sha("X"), "not a regular file"),
+            (tweaks.appendingPathComponent("libReal.dylib").path, sha("OTHER"), "changed on disk"),
+            ("relative/libReal.dylib", sha("REAL"), "only *.dylib files"),
+        ]
+        for (target, hash, message) in cases {
+            XCTAssertThrowsError(try executor(tweaks: tweaks).run(["remove", target, hash], prompt: ""), target) { error in
+                XCTAssertTrue(error.localizedDescription.contains(message), "\(target): \(error.localizedDescription)")
+            }
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outside.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tweaks.appendingPathComponent("libReal.dylib").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tweaks.appendingPathComponent(".libHidden.dylib").path))
+
+        // A tweaks folder reached through a symlink is refused as a whole.
+        let link = dir.appendingPathComponent("tweaks-link")
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: tweaks.path)
+        XCTAssertThrowsError(try executor(tweaks: link).run(["remove", link.path + "/libReal.dylib", sha("REAL")], prompt: "")) { error in
+            XCTAssertTrue(error.localizedDescription.contains("symbolic link"), error.localizedDescription)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tweaks.appendingPathComponent("libReal.dylib").path))
+    }
+
+    func testFailedInstallCheckKeepsTheFileARemovalWouldDelete() throws {
+        let tweaks = try tweaksFolder()
+        let dylib = tweaks.appendingPathComponent("libOld.dylib")
+        try file(dylib, "OLD")
+        let conf = dir.appendingPathComponent("dynjectd.conf")
+        try file(conf, "edited meanwhile\n")
+        let s = dir.appendingPathComponent("s")
+        try file(s, "new\n")
+        XCTAssertThrowsError(try executor(tweaks: tweaks).run(["install", conf.path, s.path, sha("new\n"), sha("old\n"),
+                                                               "remove", dylib.path, sha("OLD"), "restart"], prompt: ""))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dylib.path))
+    }
+
+    func testRestartMustComeLast() {
+        XCTAssertThrowsError(try executor.run(["restart", "restart"], prompt: "")) { error in
+            XCTAssertTrue(error.localizedDescription.contains("restart must come last"))
+        }
+        XCTAssertThrowsError(try executor.run(["frobnicate"], prompt: ""))
+        XCTAssertTrue(calls.isEmpty)
+    }
+
     func testOsascriptCommandQuoting() {
         let cmd = OsascriptExecutor.command(for: ["install", "/tmp/it's here", "x"])
         XCTAssertTrue(cmd.hasPrefix("'/bin/sh' '-c' '"))

@@ -12,6 +12,9 @@ A native macOS app for managing the installed [Dynject](#how-dynject-decides) in
 - Let tweaks add items to the Apple menu by declaring them in that manifest (MenuLoader). See [Apple menu](#apple-menu-menuloader).
 - Respring: relaunch the running apps whose tweaks no longer match the config, then check them with `lsof`, from
   `dw respring`, Workbench's Respring sheet or the Apple menu's **Dynject ▸ Respring…**. See [Respring](#respring).
+- Install a built tweak folder in one step (dylib, config, restart: one password prompt), uninstall it again, and start
+  a new tweak from a template: `dw tweak install|uninstall|list`, `dw new`, or **Tweaks → Install Tweak…**. See
+  [Installing tweaks](#installing-tweaks-and-starting-a-new-one).
 
 It manages the existing engine at `/opt/dynject`. It is not an injector, not a theme UI, and not a binary/hex editor.
 
@@ -30,6 +33,7 @@ Version 0.1. Tested against fixtures, and the privileged write and restart paths
 | UI smoke test | Done. Drives the built app through accessibility against fixtures. |
 | Tweak settings (manifest, settings UI, per-app overrides, SDK header) | Done. Verified live with the Title Badge example in sandboxed Calculator. |
 | Respring (pending detection, relaunch engine, `dw respring`, Workbench sheet, `dynject-workbench://respring`) | Done. Unit-tested with fakes and covered by the smoke test with simulated apps; the real controller was checked on a test app only. |
+| Tweak install/uninstall (`dw tweak`, Install Tweak… / Uninstall…) and `dw new` | Done. Unit-tested against temporary folders, with the real helper script run as the user; not yet run against the live engine. The template was built and injected into a test app. |
 
 ## Getting started
 
@@ -46,14 +50,15 @@ Build from source and install in one step:
 It signs ad-hoc, which is all a locally built app needs. To use your own certificate, set `SIGN_IDENTITY`
 (e.g. `SIGN_IDENTITY="Apple Development: Jane Doe (ABCDE12345)"`; `security find-identity -v -p codesigning`
 lists yours); `scripts/build-app.sh` and the tweaks' `build.sh` honour it too. Nothing in it needs administrator
-rights or touches the engine; installing a tweak is a separate step (it prints how).
+rights or touches the engine; installing a tweak is a separate step, `dw tweak install` (it prints how).
 
 Development:
 
 ```sh
-swift test                    # 178 DynjectCore tests (parser, editor, helper script, writer, plists, tweaks, Apple menu,
-                              # Safe Mode, respring), 81 DynjectHook tests and 19 DynjectWorkbench tests (launch
-                              # arguments, the Respring sheet's model and links)
+swift test                    # 200 DynjectCore tests (parser, editor, helper script, writer, plists, tweaks, Apple menu,
+                              # Safe Mode, respring, tweak install and template), 81 DynjectHook tests and 22
+                              # DynjectWorkbench tests (launch arguments, the Respring sheet's model and links,
+                              # Install Tweak in fixture mode)
 ./scripts/build-app.sh        # → build/Dynject Workbench.app (release, ad-hoc signed)
 ./scripts/ui-smoke-test.sh    # UI smoke test against config fixtures
 ./scripts/respring-e2e.sh     # respring engine end to end, against test apps it builds (~25 s)
@@ -158,6 +163,11 @@ that shows the diff and which installed apps change.
   (SIGKILL after 5 s), aborts if any survive, starts the job **once** (`kickstart` without `-k`, or `bootstrap`
   if it isn't loaded), confirms that exactly one daemon is running, and stops extras if two appeared.
   Save & Restart does the write and the restart under a single password prompt.
+- **Several files, one prompt.** The helper takes a list of operations (`install` a file, `remove` a tweak dylib)
+  and an optional `restart`. It checks all of them first (conflict hashes; a removal must be a regular `*.dylib`
+  directly in a real, root-owned `/opt/dynject/lib/tweaks`, not a symlink), stages and verifies every new file next
+  to its target, and only then renames and removes, so a failed check writes nothing. Tweak install and uninstall use
+  this.
 
 ## Plist editor
 
@@ -185,7 +195,8 @@ Full format and SDK: [docs/tweak-format.md](docs/tweak-format.md). Example manif
 [Examples/TitleBadge](Examples/TitleBadge), which adds a titlebar badge. On 2026-11-19 it was injected by Dynject into
 sandboxed Calculator, and its own log lines confirmed that it read settings written by Workbench, picked up live
 changes and a per-app override, and returned to defaults on revert (`swift run DynjectLiveTrial --titlebadge …`).
-**Dylibs → Add Dylib…** declares a newly installed dylib in the config (deny by default).
+**Dylibs → Add Dylib…** declares a newly installed dylib in the config (deny by default); **Tweaks → Install Tweak…**
+(or `dw tweak install`) does the whole install. See [Installing tweaks](#installing-tweaks-and-starting-a-new-one).
 
 ## Apple menu (MenuLoader)
 
@@ -208,7 +219,53 @@ item already has. Format: [docs/tweak-format.md](docs/tweak-format.md#apple-menu
 library tweaks compile in (in the spirit of Logos and Substrate): hook classes, `DH_ORIG`, hook groups that can be
 switched off at runtime, a bundle filter and Safe Mode check in `DH_CTOR`. Its symbols are hidden, so several tweaks in
 one app can each include it. Guide: [docs/hooking.md](docs/hooking.md). For the build loop, the `dw` CLI
-(`swift build -c release --product dw`) installs a dylib, enables it for one app, relaunches the app and shows logs.
+(`swift build -c release --product dw`, also inside the app as `Contents/MacOS/dw`) installs a tweak folder, enables it
+for an app, relaunches apps and shows logs; `dw new` starts a tweak with the SDK vendored in.
+
+## Installing tweaks and starting a new one
+
+A **tweak folder** holds a manifest (`*.workbench.plist`) whose `dylib` is the install path (a `*.dylib` directly in
+`/opt/dynject/lib/tweaks`) and the built dylib, in `build/` or next to the manifest (or name it with `--dylib`).
+
+```
+dw tweak install <folder|manifest> [--for <bundleID>]... [--dylib <path>] [--dry-run]
+dw tweak uninstall <tweakID|manifest> [--keep-file] [--dry-run]
+dw tweak list
+dw new <Name> [--id <reverse.dns.id>] [--app <bundleID>] [--dir <path>]
+```
+
+- **install** validates the manifest (errors refuse) and the dylib (a Mach-O dylib with an arm64e slice; a warning if
+  x86_64 or arm64 is missing or a slice is unsigned), then shows the plan and asks for your password **once**: the
+  helper copies the dylib into place (hash-checked, the previous file backed up), writes the config with the dylib
+  declared (`deny` by default) and enabled for each `--for` app, and restarts dynjectd, all in one invocation. The
+  config edit is the same minimal edit as the app's switches and is refused if it would change any other app. Nothing
+  is written if a check fails. The manifest is then copied to `~/Library/Application Support/Dynject Workbench/Tweaks/`
+  (no password). If only the dylib changed (a rebuild), dynjectd isn't restarted. Apps load tweaks only at launch:
+  run `dw respring` afterwards.
+- **uninstall** removes the tweak's `dylib:` and `dylib-override:` lines and deletes its dylib (only a regular `*.dylib`
+  directly in `/opt/dynject/lib/tweaks`, never through a symlink; backed up first), with the restart, under one
+  prompt; then its manifest and its Safe Mode entries. Its settings stay. It refuses to remove the config's last dylib,
+  because dynjectd won't start without one ("no dylibs configured"); turn that tweak off per app instead.
+  Global `allow:<app>` rules that were added for it stay.
+- **list** shows each installed manifest's dylib, whether the file exists, its config policy and its Safe Mode support.
+- **new** creates `<Name>/` with `<Name>.m` (a `DH_CTOR` entry point with the `--app` bundle filter, a hook class on
+  `-[NSWindow setTitle:]` using `DH_ORIG`, an **Enabled** setting bound to a hook group through `DTPrefBool` and
+  `DTPrefObserve` so it applies live, `os_log` logging), the manifest (install path
+  `/opt/dynject/lib/tweaks/lib<Name>.dylib`, version 0.1), `build.sh` (universal, signed ad-hoc or with
+  `SIGN_IDENTITY`, fails on exported symbols), a README, and copies of the SDK in `sdk/`, so the folder builds on its
+  own. dw takes the SDK from the app bundle (`Contents/Resources/TweakSDK`, put there by `scripts/build-app.sh`) or,
+  run from `.build`, from this repository's `TweakSDK/` (`--sdk <dir>` otherwise).
+
+```sh
+dw new WindowTitles --app com.apple.TextEdit && cd WindowTitles && ./build.sh
+dw tweak install . --for com.apple.TextEdit && dw respring
+```
+
+In Workbench, **Tweaks → Install Tweak…** (choose a folder or manifest, pick apps, review the changes, then one
+prompt) and **Uninstall…** in a tweak's header (lists what will be removed; option to keep the file) use the same
+code. In fixture mode they use the fixture config and put dylibs and manifests under the support folder (or
+`SafeModePreview/` in the real one), with a simulated restart and no prompt; previewing other manifests, reports or
+dylibs against the live config turns them off. `--root DIR` does the same for `dw tweak` (for testing).
 
 ## Safe Mode
 
@@ -266,7 +323,7 @@ dw respring --only ID                         just this app
 Sources/DynjectCore/       Parser, evaluator, editor, log/ps/lsof/launchctl readers, writer, helper script, plists, Safe Mode, respring
 Sources/DynjectWorkbench/  SwiftUI app (RespringModel.swift: the Respring sheet) and the smoke-test runner (SmokeTest.swift)
 Sources/DynjectLiveTrial/  Live privileged trial runner (run only with approval)
-Sources/dw/                dw CLI for the tweak build loop (install, enable/disable, relaunch, log), Safe Mode and respring
+Sources/dw/                dw CLI for the tweak build loop (tweak install/uninstall/list, new, enable/disable, relaunch, log), Safe Mode and respring
 TweakSDK/                  Tweak SDK: settings (DynjectTweak.h) and hooking (DynjectHook.h/.m)
 Examples/, docs/           Example manifest and TitleBadge tweak; tweak format and hooking guides
 Tests/DynjectCoreTests/    Unit tests and fixtures (live.conf is a byte copy of the live config)
@@ -279,7 +336,12 @@ scripts/                   build-app.sh, ui-smoke-test.sh, respring-e2e.sh (+ re
 ## Testing notes
 
 - The helper script tests run the **real** script as your user, with stub `pgrep`/`kill`/`launchctl`/`sleep`. The
-  script honours stubs only when it is not running as root. One test reproduces this machine's two-daemon state.
+  script honours stubs (and `DW_TEST_TWEAKS_DIR` in place of `/opt/dynject/lib/tweaks`) only when it is not running as
+  root. One test reproduces this machine's two-daemon state; others cover multi-file transactions and every refused
+  removal (symlinks, other folders, hidden files, `..`, changed contents).
+- The tweak installer tests work in temporary folders with made-up Mach-O files; one runs the helper script for the
+  files (not the restart) to check that install and uninstall each take one invocation. One test generates a tweak
+  with `TweakTemplate` and compiles it with its own `build.sh` (no warnings, no exported symbols).
 - The UI smoke test launches the built app on copies of the fixtures. It drives it as an accessibility client of
   its own process (no Accessibility permission needed): it flips the TextEdit switch, reviews and saves, toggles
   back to the original bytes, checks diagnostics, edits and saves a binary plist, switches the example tweak's

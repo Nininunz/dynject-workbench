@@ -96,6 +96,24 @@ struct AppEnvironment {
         isolatesSafeMode ? safeModeIsolationRoot.appendingPathComponent("bin", isDirectory: true) : SafeModeAgent.defaultBinDirectory
     }
 
+    // MARK: Installing tweaks
+
+    /// Where Install Tweak… and Uninstall… work. A plain live launch uses the real config, /opt/dynject/lib/tweaks and
+    /// the Tweaks folder (one administrator prompt per install). Fixture mode keeps the fixture config but puts dylib
+    /// files and manifests under the isolation root (the support folder `-DWSupportDir` names, or SafeModePreview/ in
+    /// the real one), never in /opt/dynject or the real Tweaks folder; restarts are simulated and privileges refused.
+    /// Any other isolating launch (previewing manifests, reports or dylibs against the live config, a smoke test
+    /// without fixtures) gets nil: the buttons are disabled.
+    var tweakInstallLocations: TweakLocations? {
+        if fixtureMode {
+            return TweakLocations(configPath: configPath,
+                                  dylibFileDirectory: safeModeIsolationRoot.appendingPathComponent("lib/tweaks").path,
+                                  manifestsDirectory: safeModeIsolationRoot.appendingPathComponent("Tweaks").path)
+        }
+        if isolatesSafeMode || smokeTestReportDirectory != nil { return nil }
+        return .live(supportDirectory: supportDirectory)
+    }
+
     /// The bundled `dw` (Contents/MacOS/dw, put there by scripts/build-app.sh; in a SwiftPM build, the sibling
     /// product).
     var dwBinaryPath: String {

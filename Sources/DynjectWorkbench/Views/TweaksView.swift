@@ -22,6 +22,11 @@ struct TweaksView: View {
             .frame(minWidth: 180, idealWidth: 220, maxWidth: 300)
             .safeAreaInset(edge: .bottom) {
                 HStack {
+                    Button("Install Tweak…") { chooseTweak() }
+                        .disabled(!model.canInstallTweaks)
+                        .help(model.canInstallTweaks ? "Install a built tweak folder: dylib, config and restart in one step"
+                                                     : (model.installBlocker ?? ""))
+                        .accessibilityIdentifier("tweak-install")
                     Button("Reload") { model.loadTweaks() }
                     Button("Open Tweaks Folder") { openFolder() }
                     Button { showAppleMenuOptions.toggle() } label: { Image(systemName: "apple.logo") }
@@ -44,6 +49,22 @@ struct TweaksView: View {
             .frame(minWidth: 460, maxWidth: .infinity, maxHeight: .infinity)
         }
         .axContainer("screen-tweaks")
+        .sheet(item: Binding(get: { model.installReview }, set: { model.installReview = $0 })) { r in
+            InstallTweakSheet(model: model, review: r)
+        }
+        .sheet(item: Binding(get: { model.uninstallReview }, set: { model.uninstallReview = $0 })) { r in
+            UninstallTweakSheet(model: model, review: r)
+        }
+    }
+
+    func chooseTweak() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a built tweak folder, or its *\(TweakManifest.fileSuffix) manifest"
+        panel.prompt = "Review"
+        if panel.runModal() == .OK, let url = panel.url { model.beginInstall(path: url.path) }
     }
 
     var emptyState: some View {
@@ -132,7 +153,7 @@ struct TweakDetail: View {
 
     var header: some View {
         let configured = model.workingConfig.dylibPaths.contains(m.dylib)
-        let exists = FileManager.default.fileExists(atPath: m.dylib)
+        let exists = FileManager.default.fileExists(atPath: model.tweakFilePath(m.dylib))
         let loadedIn = model.appsWithTweakLoaded(m)
         return VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
@@ -144,6 +165,10 @@ struct TweakDetail: View {
                     .disabled(!settings.hasSessionChanges)
                     .help("Restore this tweak's settings to how they were when you opened Workbench")
                     .accessibilityIdentifier("tweak-revert")
+                Button("Uninstall…") { model.beginUninstall(m) }
+                    .disabled(!model.canInstallTweaks)
+                    .help("Remove its config lines, the dylib and the manifest (reviewed first)")
+                    .accessibilityIdentifier("tweak-uninstall")
                 Button { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: m.sourcePath)]) } label: {
                     Image(systemName: "doc.text.magnifyingglass")
                 }

@@ -26,8 +26,9 @@ It saves and restores any existing settings for this tweak.
 
 ## Install (live; needs administrator rights)
 
-1. Copy `build/libTitleBadge.dylib` to `/opt/dynject/lib/tweaks/`.
-2. Copy `TitleBadge.workbench.plist` to `~/Library/Application Support/Dynject Workbench/Tweaks/`.
-3. In Workbench → Raw Config, add `dylib:/opt/dynject/lib/tweaks/libTitleBadge.dylib:deny`. Then turn it on
-   for an app on the Apps & Injection page → Save & Restart → relaunch that app.
-4. Change its settings under **Tweaks → Title Badge**, or per app in the app's detail pane. Changes apply live.
+1. `dw tweak install Examples/TitleBadge --for com.apple.calculator` (or Workbench → Tweaks → Install Tweak…): one
+   password prompt copies `build/libTitleBadge.dylib` to `/opt/dynject/lib/tweaks/`, adds
+   `dylib:/opt/dynject/lib/tweaks/libTitleBadge.dylib:deny` and an override for that app to the config and restarts
+   dynjectd; the manifest goes to `~/Library/Application Support/Dynject Workbench/Tweaks/`.
+2. Relaunch the app (`dw respring`).
+3. Change its settings under **Tweaks → Title Badge**, or per app in the app's detail pane. Changes apply live.

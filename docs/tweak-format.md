@@ -24,6 +24,11 @@ Workbench loads `*.workbench.plist` from, in order:
 If two manifests use the same identifier, the first one found wins and the other is reported as a problem.
 Use **Tweaks → Reload** after editing a manifest.
 
+`dw tweak install <folder>` (or **Tweaks → Install Tweak…**) puts the manifest in the first folder and the dylib at
+its `dylib` path, declares it in the config and enables it for the apps you name, with one password prompt.
+`dw new <Name>` starts a tweak folder with a manifest, a source file, `build.sh` and the SDK. See the README's
+[Installing tweaks](../README.md#installing-tweaks-and-starting-a-new-one).
+
 ## Manifest
 
 A property list with a dictionary at the top level. See [`Examples/ExampleTweak.workbench.plist`](../Examples/ExampleTweak.workbench.plist)
@@ -33,7 +38,7 @@ A property list with a dictionary at the top level. See [`Examples/ExampleTweak.
 | --- | --- | --- |
 | `formatVersion` | yes | `1` |
 | `identifier` | yes | Reverse-DNS ID, e.g. `com.you.mytweak`. Letters, digits, `.`, `-`. Also names the storage key. |
-| `dylib` | yes | Absolute path of the dylib, matching its `dylib:` line in `dynjectd.conf`. |
+| `dylib` | yes | Absolute path of the dylib, matching its `dylib:` line in `dynjectd.conf`. For `dw tweak install`, a `*.dylib` directly in `/opt/dynject/lib/tweaks/` without `:` or spaces. |
 | `name` | no | Display name. Defaults to the identifier. |
 | `summary`, `version`, `author` | no | Shown in the header. |
 | `takesEffect` | no | `live` (the tweak observes changes) or `relaunch` (default). Workbench uses it to tell the user what to do, and offers to relaunch the apps that have the tweak loaded. |
@@ -225,7 +230,7 @@ then `defaults[key]`, then the fallback the tweak passes. Bundle IDs are the rea
 (`[[NSBundle mainBundle] bundleIdentifier]`, e.g. `com.apple.finder`), *not* Dynject's XPC service names.
 
 Keys Workbench doesn't recognise are left alone, so a tweak can rename settings across versions without losing data.
-Uninstalling a tweak only requires deleting its one key.
+Removing a tweak's settings only requires deleting its one key (`dw tweak uninstall` keeps it).
 
 ## SDK
 
@@ -264,6 +269,7 @@ are best-effort; a relaunch always picks up the latest values.
 
 ## Not in version 1
 
-The format leaves room for these later: suggested injection targets, tweak install/uninstall (dylib + manifest
-into `/opt/dynject/lib/tweaks/`), settings presets (export/import), and image settings. Safe mode after crashes
+The format leaves room for these later: suggested injection targets, settings presets (export/import), and image
+settings. (Installing and uninstalling tweaks needs nothing in the format: `dw tweak install|uninstall` use the
+`identifier` and `dylib` keys.) Safe mode after crashes
 exists outside the format: see [safe-mode.md](safe-mode.md).

@@ -118,7 +118,7 @@ Since macOS 27 AppKit hides menu-item images by default; MenuLoader marks items 
 
 `MenuLoader.workbench.plist` (identifier `local.dynject.menuloader`, takes effect live). It declares no Apple-menu
 items (up to version 1.0 it carried **Respring…**, now in Workbench's Dynject group). Copy the updated manifest to
-`~/Library/Application Support/Dynject Workbench/Tweaks/` (`./build.sh install` prints the command) so Workbench
+`~/Library/Application Support/Dynject Workbench/Tweaks/` (`dw tweak install Tweaks/MenuLoader` does it) so Workbench
 stops publishing the old item.
 
 | Key | Type | Meaning |
@@ -194,7 +194,9 @@ nothing, and capture it.
 
 ## Install
 
-Not automatic. `./build.sh install` prints the steps: copy the dylib to `/opt/dynject/lib/tweaks/` (admin), the
-manifest to `~/Library/Application Support/Dynject Workbench/Tweaks/`, declare the dylib in `dynjectd.conf`
-(`dylib:/opt/dynject/lib/tweaks/libMenuLoader.dylib:deny`, then turn it on per app on the Apps & Injection page,
-or `:allow` for every app), Save & Restart, and relaunch the apps.
+`dw tweak install Tweaks/MenuLoader --for <bundleID>` (or Workbench → Tweaks → Install Tweak…) copies the dylib to
+`/opt/dynject/lib/tweaks/`, declares it in `dynjectd.conf` (`dylib:/opt/dynject/lib/tweaks/libMenuLoader.dylib:deny`),
+enables it for each `--for` app and restarts dynjectd under one password prompt, then copies the manifest to
+`~/Library/Application Support/Dynject Workbench/Tweaks/`. Turn it on for more apps on the Apps & Injection page (or
+make it `:allow` for every app in the raw config), and relaunch the apps (`dw respring`). `./build.sh install` prints
+the manual steps.

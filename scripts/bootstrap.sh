@@ -117,12 +117,13 @@ Next steps:
   1. Open the app:            open "$APP"
   2. Turn on Safe Mode:       Workbench → Safe Mode → Install Watcher (no password; macOS may ask you to
                               allow a background item). It switches a tweak off for an app that it crashes.
-  3. Try a tweak, e.g. MenuLoader (adds a "Dynject" submenu to the Apple menu):
-       "$DW" install "$ROOT/Tweaks/MenuLoader/build/libMenuLoader.dylib"      (asks for your password)
-       cp "$ROOT/Tweaks/MenuLoader/MenuLoader.workbench.plist" ~/Library/Application\\ Support/Dynject\\ Workbench/Tweaks/
-       then in Workbench: Dylibs → Add Dylib… and turn it on for an app under Apps & Injection, Save & Restart,
-       and relaunch that app (or use Respring…).
-  4. If an app misbehaves: hold Shift while launching it to skip tweaks for that launch, or use the panic
+  3. Try a tweak, e.g. MenuLoader (adds a "Dynject" submenu to the Apple menu) in TextEdit:
+       "$DW" tweak install "$ROOT/Tweaks/MenuLoader" --for com.apple.TextEdit
+     One password prompt copies the dylib, declares and enables it in the config and restarts dynjectd; the
+     manifest goes to Workbench's Tweaks folder. Add --dry-run to see the plan first. (Or Workbench → Tweaks →
+     Install Tweak….) Then relaunch the app: "$DW" respring
+  4. Write your own:  "$DW" new MyTweak --app com.apple.TextEdit   (a folder with build.sh and the SDK)
+  5. If an app misbehaves: hold Shift while launching it to skip tweaks for that launch, or use the panic
      switch in Workbench → Safe Mode.
 
   dw is inside the app; to use it from a terminal:  ln -s "$DW" /usr/local/bin/dw   (or add it to your PATH)

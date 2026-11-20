@@ -1,5 +1,8 @@
 // dw — command-line companion to Dynject Workbench for tweak development (think Theos `make do`).
 //
+//   dw tweak install <folder> [--for ID]   install a built tweak folder: dylib, config, restart in one admin prompt,
+//                                          then its manifest (TweakCommands.swift); also uninstall, list
+//   dw new <Name> [--app ID]               a ready-to-build tweak folder with the SDK vendored in
 //   dw install <built.dylib>               copy into /opt/dynject/lib/tweaks/ (admin prompt, hash-checked)
 //   dw enable  <installed.dylib> <bundleID>  declare if needed, enable for one app, restart dynjectd (admin prompt)
 //   dw disable <installed.dylib> <bundleID>  the reverse
@@ -135,6 +138,8 @@ let a = Array(CommandLine.arguments.dropFirst())
 switch (a.first, a.count) {
 case ("safemode", _): safeModeCommand(Array(a.dropFirst()))
 case ("respring", _): respringCommand(Array(a.dropFirst()))
+case ("tweak", _): tweakCommand(Array(a.dropFirst()))
+case ("new", _): newTweak(Array(a.dropFirst()))
 case ("install", 2): install(a[1])
 case ("enable", 3): setEnabled(true, dylib: a[1], bundleID: a[2])
 case ("disable", 3): setEnabled(false, dylib: a[1], bundleID: a[2])
@@ -146,6 +151,10 @@ case ("log", 3): showLog(a[1], minutes: Int(a[2]) ?? 5)
 default:
     print("""
     usage:
+      dw tweak install <folder|manifest> [--for <bundleID>]... [--dylib <path>] [--dry-run]   (dw tweak --help)
+      dw tweak uninstall <tweakID|manifest> [--keep-file] [--dry-run]
+      dw tweak list
+      dw new <Name> [--id <reverse.dns.id>] [--app <bundleID>] [--dir <path>]
       dw install <built.dylib>
       dw enable  <installed.dylib> <bundleID>
       dw disable <installed.dylib> <bundleID>

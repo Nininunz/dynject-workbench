@@ -227,13 +227,142 @@ public struct WriteOutcome: Equatable, Sendable {
     public var restart: RestartReport?
 }
 
+/// One file change in a `ProtectedFileWriter.apply` transaction.
+public enum ProtectedChange: Sendable, Equatable {
+    /// Write `data` to `path`. `expectedCurrent` is what the caller last saw there (nil: no file); the write is
+    /// refused if the file differs.
+    case write(Data, to: String, expectedCurrent: Data?, category: String)
+    /// Delete `path`, a regular `*.dylib` file directly in the writer's `removableDirectory`, if it still holds
+    /// `expectedCurrent`. The current bytes are backed up first.
+    case remove(String, expectedCurrent: Data, category: String)
+
+    public var path: String {
+        switch self {
+        case let .write(_, path, _, _), let .remove(path, _, _): return path
+        }
+    }
+}
+
+public struct BatchOutcome: Equatable, Sendable {
+    /// path → backup of the bytes it held before (only for files that existed).
+    public var backups: [String: URL]
+    public var usedAdministratorRights: Bool
+    public var restart: RestartReport?
+    /// The helper's transcript ("" when the files were written directly).
+    public var transcript: String
+}
+
 public struct ProtectedFileWriter: Sendable {
     public var backups: BackupStore
     public var executor: PrivilegedExecutor
+    /// The only folder `.remove` changes may delete from (the helper script enforces /opt/dynject/lib/tweaks on
+    /// its own). Tests and fixture mode point it at a temporary folder.
+    public var removableDirectory: String
 
-    public init(backups: BackupStore, executor: PrivilegedExecutor) {
+    public init(backups: BackupStore, executor: PrivilegedExecutor,
+                removableDirectory: String = TweakLocations.liveTweaksDirectory) {
         self.backups = backups
         self.executor = executor
+        self.removableDirectory = removableDirectory
+    }
+
+    /// Checks that `path` is a regular `*.dylib` file directly inside `directory` (no symlinks, no hidden files,
+    /// no other folder, and the folder itself is not reached through a symlink). Returns why not, or nil.
+    public static func removalProblem(_ path: String, directory: String) -> String? {
+        // Not standardizingPath: it turns /private/var into /var, which realpath below would then reject.
+        var dir = directory
+        while dir.count > 1 && dir.hasSuffix("/") { dir.removeLast() }
+        guard path.hasPrefix(dir + "/"), path.hasSuffix(".dylib") else {
+            return "only *.dylib files in \(dir) can be removed"
+        }
+        let name = String(path.dropFirst(dir.count + 1))
+        guard !name.isEmpty, !name.contains("/"), !name.hasPrefix("."), !name.contains("\n") else {
+            return "\(path) is not a plain file name directly in \(dir)"
+        }
+        guard let real = realpath(dir, nil) else { return "\(dir) is missing" }
+        defer { free(real) }
+        guard String(cString: real) == dir else { return "\(dir) resolves to \(String(cString: real)); not removing anything" }
+        var st = stat()
+        guard lstat(path, &st) == 0 else { return "\(path) does not exist" }
+        if (st.st_mode & S_IFMT) == S_IFLNK { return "refusing to remove a symbolic link: \(path)" }
+        guard (st.st_mode & S_IFMT) == S_IFREG else { return "\(path) is not a regular file" }
+        return nil
+    }
+
+    /// Applies several changes as one transaction, with at most one administrator prompt: every file is checked
+    /// against what the caller expects and backed up first, then the changes are made, directly when every path
+    /// is writable, otherwise all of them through one helper invocation, with the restart folded in when
+    /// `restartWith` is live. Nothing is written if any check fails.
+    public func apply(_ changes: [ProtectedChange], restartWith restarter: DaemonRestarter? = nil) throws -> BatchOutcome {
+        precondition(!changes.isEmpty || restarter != nil, "nothing to do")
+        let fm = FileManager.default
+        for change in changes {
+            let current = fm.contents(atPath: change.path)
+            switch change {
+            case let .write(_, path, expected, _):
+                if current != expected { throw WriteError.changedOnDisk(path) }
+                var isDir: ObjCBool = false
+                if fm.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue { throw WriteError.io("\(path) is a folder.") }
+            case let .remove(path, expected, _):
+                if let problem = Self.removalProblem(path, directory: removableDirectory) { throw WriteError.io("Refusing to remove: \(problem).") }
+                if current != expected { throw WriteError.changedOnDisk(path) }
+            }
+        }
+        var backupURLs: [String: URL] = [:]
+        for change in changes {
+            let category: String
+            switch change { case let .write(_, _, _, c), let .remove(_, _, c): category = c }
+            if let current = fm.contents(atPath: change.path) {
+                backupURLs[change.path] = try backups.backup(current, originalPath: change.path, category: category)
+            }
+        }
+
+        let direct = changes.allSatisfy { change in
+            switch change {
+            case let .write(_, path, _, _): return AtomicFile.canWriteDirectly(path)
+            case let .remove(path, _, _): return fm.isWritableFile(atPath: (path as NSString).deletingLastPathComponent)
+            }
+        }
+        if direct {
+            for change in changes {
+                switch change {
+                case let .write(data, path, _, _): try AtomicFile.write(data, to: path)
+                case let .remove(path, _, _):
+                    do { try fm.removeItem(atPath: path) } catch { throw WriteError.io("Could not remove \(path): \(error.localizedDescription)") }
+                }
+            }
+            let report = try restarter?.restart()
+            return BatchOutcome(backups: backupURLs, usedAdministratorRights: false, restart: report, transcript: "")
+        }
+
+        var staged: [URL] = []
+        defer { staged.forEach { try? fm.removeItem(at: $0) } }
+        var args: [String] = []
+        for change in changes {
+            switch change {
+            case let .write(data, path, expected, _):
+                let url = fm.temporaryDirectory.appendingPathComponent("dw-staged-\(UUID().uuidString)")
+                guard fm.createFile(atPath: url.path, contents: data, attributes: [.posixPermissions: 0o600]) else {
+                    throw WriteError.io("Could not stage the new file.")
+                }
+                staged.append(url)
+                args += ["install", path, url.path, sha256Hex(data), expected.map(sha256Hex) ?? "-"]
+            case let .remove(path, expected, _):
+                args += ["remove", path, sha256Hex(expected)]
+            }
+        }
+        let folded = restarter?.isLive == true
+        if folded { args.append("restart") }
+        let names = changes.map { ($0.path as NSString).lastPathComponent }.joined(separator: ", ")
+        let prompt = "Dynject Workbench needs to change \(names)" + (folded ? " and restart dynjectd." : ".")
+        let out = try executor.run(args, prompt: prompt)
+        var report: RestartReport?
+        if folded {
+            report = PrivilegedRestarter.report(from: out)
+        } else if let restarter {
+            report = try restarter.restart()
+        }
+        return BatchOutcome(backups: backupURLs, usedAdministratorRights: true, restart: report, transcript: out)
     }
 
     /// Backs up the current file, then writes `data` atomically: directly if we can, otherwise via the

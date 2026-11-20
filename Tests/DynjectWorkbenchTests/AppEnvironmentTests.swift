@@ -35,6 +35,37 @@ final class AppEnvironmentTests: XCTestCase {
         XCTAssertEqual(e.menuLoaderPreviewFile, "/tmp/dw-support/menuloader-preview.plist")
     }
 
+    func testTweakInstallUsesRealPathsOnlyInAPlainLiveLaunch() {
+        let live = env([]).tweakInstallLocations
+        XCTAssertEqual(live?.isLive, true)
+        XCTAssertTrue(live?.manifestsDirectory.hasSuffix("/Dynject Workbench/Tweaks") ?? false)
+
+        // Fixture mode: fixture config; dylib files and manifests in the isolation root, never /opt/dynject or the
+        // real Tweaks folder (even when -DWTweakDylibDir names the real dylib folder for reading).
+        for args in [["-DWConfigPath", "/tmp/dw.conf", "-DWSupportDir", "/tmp/dw-support"],
+                     ["-DWConfigPath", "/tmp/dw.conf"],
+                     ["-DWConfigPath", "/tmp/dw.conf", "-DWTweakDylibDir", "/opt/dynject/lib/tweaks"],
+                     ["-DWConfigPath", "/tmp/dw.conf", "-DWSmokeTest", "/tmp/dw-report", "-DWSupportDir", "/tmp/dw-support"]] {
+            let e = env(args)
+            let loc = e.tweakInstallLocations
+            XCTAssertEqual(loc?.configPath, "/tmp/dw.conf", "\(args)")
+            XCTAssertEqual(loc?.tweaksDirectory, "/opt/dynject/lib/tweaks", "the config still names the real paths")
+            XCTAssertEqual(loc?.dylibFileDirectory, e.safeModeIsolationRoot.appendingPathComponent("lib/tweaks").path)
+            XCTAssertFalse(loc?.dylibFileDirectory.hasPrefix("/opt/") ?? true)
+            XCTAssertEqual(loc?.manifestsDirectory, e.safeModeIsolationRoot.appendingPathComponent("Tweaks").path)
+            XCTAssertNotEqual(loc?.manifestsDirectory, live?.manifestsDirectory)
+            XCTAssertEqual(loc?.isLive, false)
+        }
+        XCTAssertEqual(env(["-DWConfigPath", "/tmp/dw.conf", "-DWSupportDir", "/tmp/dw-support"]).tweakInstallLocations?.manifestsDirectory,
+                       "/tmp/dw-support/Tweaks")
+
+        // Previewing against the live config: no installs at all.
+        for args in [["-DWTweaksDir", "/tmp/dw-tweaks"], ["-DWSupportDir", "/tmp/dw-support"], ["-DWReportsDir", "/tmp/r"],
+                     ["-DWTweakDylibDir", "/tmp/d"], ["-DWSmokeTest", "/tmp/dw-report"]] {
+            XCTAssertNil(env(args).tweakInstallLocations, "\(args)")
+        }
+    }
+
     func testFlagWithoutValueIsIgnored() {
         XCTAssertFalse(env(["-DWTweaksDir"]).isolatesMenuLoader)
     }

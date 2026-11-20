@@ -138,6 +138,14 @@ final class WorkbenchModel {
     @ObservationIgnored private var tweakPersistTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var tweakSnapshotsSaved: Set<String> = []
 
+    // MARK: Installing tweaks (TweakInstallModel.swift)
+    /// nil: installing is unavailable in this launch (see AppEnvironment.tweakInstallLocations).
+    let tweakInstallLocations: TweakLocations?
+    let tweakInstallWriter: ProtectedFileWriter
+    var installReview: TweakInstallReview?
+    var uninstallReview: TweakUninstallReview?
+    var isInstallingTweak = false
+
     // MARK: Apple menu (MenuLoader)
     let menuPublisher: MenuLoaderPublisher
     let menuSettingsStore: MenuLoaderSettingsStore
@@ -168,6 +176,11 @@ final class WorkbenchModel {
             restarter = PrivilegedRestarter(executor: exec)
             writer = ProtectedFileWriter(backups: backups, executor: exec)
         }
+        tweakInstallLocations = env.tweakInstallLocations
+        tweakInstallWriter = env.fixtureMode
+            ? ProtectedFileWriter(backups: BackupStore(root: env.safeModeIsolationRoot.appendingPathComponent("Backups", isDirectory: true)),
+                                  executor: RefusingExecutor(), removableDirectory: env.tweakInstallLocations!.dylibFileDirectory)
+            : writer
         if env.isolatesMenuLoader {
             // Never the real key: the fixture file (shared with tweak settings) and the test names.
             let store = (tweakBackend as? FileTweakBackend) ?? FileTweakBackend(path: env.menuLoaderPreviewFile)
@@ -533,7 +546,10 @@ final class WorkbenchModel {
     // MARK: Tweaks
 
     func loadTweaks() {
-        let (manifests, issues) = TweakManifestLoader.load(directories: env.tweakDirectories)
+        var dirs = env.tweakDirectories
+        // Fixture mode installs manifests into its own Tweaks folder; show them too.
+        if let d = tweakInstallLocations?.manifestsDirectory, !dirs.contains(d) { dirs.insert(d, at: 0) }
+        let (manifests, issues) = TweakManifestLoader.load(directories: dirs)
         tweaks = manifests
         tweakIssues = issues
         var settings: [String: TweakSettings] = [:]
