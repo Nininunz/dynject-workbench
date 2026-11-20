@@ -6,7 +6,9 @@
 	<key>identifier</key><string>local.dynject.oledfinder</string>
 	<key>name</key><string>OLED Finder</string>
 	<key>summary</key><string>Pure black Finder browser windows. No settings: the colours are constants in OLEDFinder.m.</string>
-	<key>version</key><string>0.1</string>
+	<key>version</key><string>0.1.0</string>
+	<key>minimumSystemVersion</key><string>27.0</string>
+	<key>testedSystemVersions</key><string>27.2</string>
 	<key>author</key><string>Dynject Workbench example</string>
 	<key>dylib</key><string>/opt/dynject/lib/tweaks/libOLEDFinder.dylib</string>
 	<key>takesEffect</key><string>relaunch</string>

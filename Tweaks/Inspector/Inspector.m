@@ -144,6 +144,7 @@ static void DYIHandleTestCommand(NSNotification *note) {
 #endif
 
 DH_CTOR(DYI_ID_C) {
+    DH_REQUIRE_SYSTEM("27.0");   // = minimumSystemVersion in Inspector.workbench.plist
     // Nothing at load time: settings, the event monitor and the notification are set up once AppKit is running.
     dispatch_async(dispatch_get_main_queue(), ^{
         if (!NSApp || NSApp.activationPolicy == NSApplicationActivationPolicyProhibited) return;   // not an app with windows

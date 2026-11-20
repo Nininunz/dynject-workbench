@@ -7,6 +7,10 @@ struct TweakInstallReview: Identifiable {
     var path: String
     var source: TweakSource?
     var bundleIDs: [String] = []
+    /// Install an older version over a newer one (an explicit checkbox in the sheet).
+    var allowDowngrade = false
+    /// Install below the minimum macOS or with unmet depends (an explicit checkbox in the sheet).
+    var force = false
     var plan: TweakInstallPlan?
     var error: String?
 }
@@ -16,6 +20,8 @@ struct TweakUninstallReview: Identifiable {
     let id = UUID()
     var manifest: TweakManifest
     var keepFile = false
+    /// Uninstall even though other installed tweaks depend on it.
+    var force = false
     var plan: TweakUninstallPlan?
     var error: String?
 }
@@ -35,6 +41,18 @@ extension WorkbenchModel {
 
     var injectionTargets: [InjectionTarget] { apps.map { InjectionTarget(app: $0, service: service(for: $0).value) } }
 
+    /// Which agents are installed, as the Bridge and Safe Mode pages see them (isolated like them); unknown until
+    /// their status has been read.
+    var componentStatus: [BuiltInComponent: Bool] {
+        var out: [BuiltInComponent: Bool] = [:]
+        if let s = bridge.agentStatus { out[.bridge] = s.plistInstalled }
+        if let s = safeMode.agentStatus { out[.safemode] = s.plistInstalled }
+        return out
+    }
+
+    /// `depends` of the loaded tweaks against each other and the agents.
+    var dependencyChecker: DependencyChecker { DependencyChecker(installed: tweaks, components: componentStatus) }
+
     /// The dylib file a manifest names (in fixture mode it lives under the isolation root).
     func tweakFilePath(_ dylib: String) -> String { tweakInstallLocations?.filePath(forDylib: dylib) ?? dylib }
 
@@ -48,7 +66,9 @@ extension WorkbenchModel {
     func replanInstall() {
         guard var review = installReview, let source = review.source, let loc = tweakInstallLocations else { return }
         do {
-            review.plan = try TweakInstaller.plan(source: source, enableFor: review.bundleIDs, targets: injectionTargets, locations: loc)
+            let options = TweakInstallOptions(allowDowngrade: review.allowDowngrade, force: review.force, components: componentStatus)
+            review.plan = try TweakInstaller.plan(source: source, enableFor: review.bundleIDs, targets: injectionTargets, locations: loc,
+                                                  options: options)
             review.error = nil
         } catch {
             review.plan = nil
@@ -63,7 +83,7 @@ extension WorkbenchModel {
     }
 
     func confirmInstall() {
-        guard let plan = installReview?.plan, !isInstallingTweak else { return }
+        guard let plan = installReview?.plan, !plan.isRefused, !isInstallingTweak else { return }
         if let blocker = installBlocker { installReview?.error = blocker; return }
         isInstallingTweak = true
         let writer = tweakInstallWriter, restarter = self.restarter
@@ -104,7 +124,7 @@ extension WorkbenchModel {
         guard var review = uninstallReview, let loc = tweakInstallLocations else { return }
         do {
             review.plan = try TweakInstaller.planUninstall(review.manifest.id, keepFile: review.keepFile, locations: loc,
-                                                           safeMode: safeMode.safeMode)
+                                                           safeMode: safeMode.safeMode, force: review.force)
             review.error = nil
         } catch {
             review.plan = nil

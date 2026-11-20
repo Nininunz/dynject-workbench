@@ -6,7 +6,7 @@
 	<key>identifier</key><string>local.dynject.titlebadge</string>
 	<key>name</key><string>Title Badge</string>
 	<key>summary</key><string>Proof-of-concept tweak: a badge in every window's titlebar. Uses only public AppKit API.</string>
-	<key>version</key><string>0.1</string>
+	<key>version</key><string>0.1.0</string>
 	<key>author</key><string>Dynject Workbench example</string>
 	<key>dylib</key><string>/opt/dynject/lib/tweaks/libTitleBadge.dylib</string>
 	<key>takesEffect</key><string>live</string>

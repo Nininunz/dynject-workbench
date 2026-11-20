@@ -180,6 +180,7 @@ static uint64_t sPendingSerial;
 static BOOL sImageCallbackRegistered;
 static char *sTestPreferencesDomain;
 static char *sTestBundleIdentifier;
+static char *sTestSystemVersion;
 
 static const CFIndex kDHParsedFunctionLimit = 4096;
 
@@ -1251,4 +1252,88 @@ BOOL DHShouldLoad(const char *tweakID, const char *const *bundleIDs) {
     }
     if (bundleID) CFRelease(bundleID);
     return reason ? NO : YES;
+}
+
+#pragma mark - SDK version
+
+// Read by Dynject Workbench's SDK version check (SDKVersionChecker): which DynjectHook built this dylib.
+// DH_SDK_VERSION equals WorkbenchInfo.version (a test checks). Keep the "dynject.sdk:" prefix exactly as it is.
+__attribute__((used)) static const char *const DHSDKVersionMarker = "dynject.sdk:" DH_SDK_VERSION;
+
+#pragma mark - System version
+
+// Parses "27", "27.0" or "27.2.1" into three numbers (missing ones 0). NO for anything else.
+static BOOL DHParseSystemVersion(const char *string, NSInteger out[3]) {
+    if (!string || !string[0]) return NO;
+    out[0] = out[1] = out[2] = 0;
+    int index = 0;
+    const char *p = string;
+    while (1) {
+        if (*p < '0' || *p > '9') return NO;
+        NSInteger value = 0;
+        int digits = 0;
+        while (*p >= '0' && *p <= '9') {
+            if (++digits > 6) return NO;
+            value = value * 10 + (*p - '0');
+            p++;
+        }
+        out[index++] = value;
+        if (*p == '\0') return YES;
+        if (*p != '.' || index == 3) return NO;
+        p++;
+    }
+}
+
+void DHSetSystemVersionForTesting(const char *version) {
+    char *copy = version ? strdup(version) : NULL;
+    os_unfair_lock_lock(&sLock);
+    char *previous = sTestSystemVersion;
+    sTestSystemVersion = copy;
+    os_unfair_lock_unlock(&sLock);
+    free(previous);
+}
+
+// The running macOS (or the testing override) into `out`. NO when it can't be known: the 10.16 an app
+// built against an old SDK is told, or a malformed override.
+static BOOL DHRunningSystemVersion(NSInteger out[3]) {
+    char *override = DHCopyOverride(&sTestSystemVersion);
+    if (override) {
+        BOOL ok = DHParseSystemVersion(override, out);
+        free(override);
+        if (!ok) return NO;
+    } else {
+        NSOperatingSystemVersion v = NSProcessInfo.processInfo.operatingSystemVersion;
+        out[0] = v.majorVersion;
+        out[1] = v.minorVersion;
+        out[2] = v.patchVersion;
+    }
+    return (out[0] == 10 && out[1] == 16) ? NO : YES;
+}
+
+static NSComparisonResult DHCompareSystemVersions(const NSInteger a[3], const NSInteger b[3]) {
+    for (int i = 0; i < 3; i++) {
+        if (a[i] < b[i]) return NSOrderedAscending;
+        if (a[i] > b[i]) return NSOrderedDescending;
+    }
+    return NSOrderedSame;
+}
+
+BOOL DHSystemVersionAtLeast(const char *version) {
+    NSInteger wanted[3];
+    if (!DHParseSystemVersion(version, wanted)) {
+        DHLog(@"DHSystemVersionAtLeast: \"%s\" is not a macOS version such as \"27.0\"", version ?: "(NULL)");
+        return NO;
+    }
+    NSInteger running[3];
+    if (!DHRunningSystemVersion(running)) return YES;
+    return DHCompareSystemVersions(running, wanted) != NSOrderedAscending ? YES : NO;
+}
+
+BOOL DHRequireSystemVersion(const char *version) {
+    if (DHSystemVersionAtLeast(version)) return YES;
+    NSInteger running[3] = {0, 0, 0};
+    DHRunningSystemVersion(running);
+    DHLog(@"requires macOS %s or later, this is %ld.%ld.%ld: not loading", version ?: "(NULL)",
+          (long)running[0], (long)running[1], (long)running[2]);
+    return NO;
 }

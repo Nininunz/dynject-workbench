@@ -40,7 +40,11 @@ A property list with a dictionary at the top level. See [`Examples/ExampleTweak.
 | `identifier` | yes | Reverse-DNS ID, e.g. `com.you.mytweak`. Letters, digits, `.`, `-`. Also names the storage key. |
 | `dylib` | yes | Absolute path of the dylib, matching its `dylib:` line in `dynjectd.conf`. For `dw tweak install`, a `*.dylib` directly in `/opt/dynject/lib/tweaks/` without `:` or spaces. |
 | `name` | no | Display name. Defaults to the identifier. |
-| `summary`, `version`, `author` | no | Shown in the header. |
+| `summary`, `author` | no | Shown in the header. |
+| `version` | no | Semantic version, `MAJOR.MINOR.PATCH` with an optional `-prerelease` (`1.2.0`, `2.0.0-beta.1`). Anything else is a warning, and installs can't tell an upgrade from a downgrade. See [Versions and dependencies](#versions-and-dependencies). |
+| `minimumSystemVersion` | no | Oldest macOS it works on, e.g. `"27.0"`. Installs refuse below it. |
+| `testedSystemVersions` | no | macOS versions it was tested on: `"27.0 - 27.2"` or one version (`"27.2"`). Outside them installs and `dw doctor` warn. |
+| `depends` | no | Array of strings: `"<tweak id>"`, `"<tweak id> >= <version>"`, `"bridge"` or `"safemode"`. Installs refuse while one isn't met. |
 | `takesEffect` | no | `live` (the tweak observes changes) or `relaunch` (default). Workbench uses it to tell the user what to do, and offers to relaunch the apps that have the tweak loaded. |
 | `applyCommand` | no | Array: absolute executable path plus arguments. Run as the user, with no shell and a 10 s timeout, after each change. Only needed if the tweak must do extra work beyond the notification. |
 | `sections` | yes | Array of `{ title?, footer?, items: [item] }`. May be empty when the manifest only declares `appleMenu` items or `bridge` capabilities. |
@@ -70,6 +74,59 @@ Value types: `switch` → boolean; `slider`/`number` → number; `color` → `"#
 `choice` → one option's value; `text` → string; `appList` → array of bundle IDs.
 
 Invalid items are skipped and reported. The rest of the manifest still loads.
+
+## Versions and dependencies
+
+```xml
+<key>version</key><string>1.2.0</string>
+<key>minimumSystemVersion</key><string>27.0</string>
+<key>testedSystemVersions</key><string>27.0 - 27.2</string>
+<key>depends</key>
+<array>
+  <string>local.dynject.menuloader &gt;= 1.1.0</string>
+  <string>bridge</string>
+</array>
+```
+
+**`version`.** `MAJOR.MINOR.PATCH[-prerelease]`, compared by [semver](https://semver.org) precedence (a prerelease
+sorts before its release; no `+build`). Installing compares it with the installed manifest of the same identifier:
+
+| Installed → new | Install |
+| --- | --- |
+| not installed | goes ahead ("New install") |
+| older → newer | goes ahead ("upgrade") |
+| same version, same dylib | nothing to do, unless the config or manifest changed |
+| same version, different dylib | goes ahead ("rebuilt") |
+| newer → older | refused unless `dw tweak install --allow-downgrade`, or the **Install the older version** checkbox in Workbench's review |
+| either isn't semantic | goes ahead, with a warning that it can't tell |
+
+The plan says "Installed X → new Y" in its first line.
+
+**`minimumSystemVersion`** (`"27"`, `"27.0"`, `"27.2.1"`; missing components are 0). Below it, installs refuse unless
+`--force` (Workbench: **Install anyway**). Declare the real minimum: the first macOS with the classes and methods your
+tweak needs. Since installs aren't the only way a dylib reaches a Mac, check it at load time too with
+`DH_REQUIRE_SYSTEM("27.0")` at the top of `DH_CTOR` (see [hooking.md](hooking.md#macos-version-guard-dh_require_system)).
+
+**`testedSystemVersions`** (`"27.0 - 27.2"`, lowest first, or one version). The upper end counts at the precision it is
+written with: `27.2` covers 27.2.x. Outside the range installs warn and `dw doctor` flags it with `!`; nothing refuses.
+There is no maximum version: a tweak that works on the next macOS shouldn't need a new release to say so.
+
+**`depends`**. Each entry is one of:
+
+- `"<tweak id>"`: that tweak's manifest is installed;
+- `"<tweak id> >= <version>"`: installed, with a semantic `version` at least that (an installed version that isn't
+  semantic doesn't count);
+- `"bridge"`: the bridge agent is installed (`dw bridge agent install`, Workbench → Bridge);
+- `"safemode"`: the Safe Mode watcher is installed (`dw safemode agent install`, Workbench → Safe Mode).
+
+A manifest with `bridge` capabilities depends on `"bridge"` without listing it. Installs refuse while a dependency
+isn't met, unless `--force`, and print what to run (`dw tweak install <its folder>`, `dw bridge agent install`, ...).
+Uninstalling a tweak that another installed tweak depends on is refused unless `dw tweak uninstall --force` (Workbench:
+**Uninstall anyway**). Malformed entries, a tweak depending on itself, and a version on `bridge`/`safemode` are errors;
+the entry is skipped (the version ignored).
+
+Workbench's tweak page shows the version, the DynjectHook version the dylib was built with, the macOS range and each
+dependency with ✓ or ✗. `dw tweak list` shows the same.
 
 ## Apple menu items (MenuLoader)
 

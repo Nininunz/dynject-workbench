@@ -69,6 +69,7 @@ struct InstallTweakSheet: View {
             }
 
             if let plan = review.plan {
+                InstallCompatibilityBox(model: model, review: review, plan: plan)
                 GroupBox("Changes") {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 2) {
@@ -101,7 +102,8 @@ struct InstallTweakSheet: View {
                 Button("Cancel") { model.installReview = nil }.keyboardShortcut(.cancelAction)
                 Button("Install") { model.confirmInstall() }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(review.plan == nil || review.plan?.changesNothing == true || model.isInstallingTweak || model.installBlocker != nil)
+                    .disabled(review.plan == nil || review.plan?.changesNothing == true || review.plan?.isRefused == true
+                              || model.isInstallingTweak || model.installBlocker != nil)
             }
         }
         .padding(20)
@@ -149,6 +151,15 @@ struct UninstallTweakSheet: View {
                 model.uninstallReview?.keepFile = on
                 model.replanUninstall()
             }))
+            let dependents = model.dependencyChecker.dependents(of: review.manifest.id)
+            if !dependents.isEmpty {
+                Toggle("Uninstall anyway: \(dependents.map(\.name).joined(separator: ", ")) depend\(dependents.count == 1 ? "s" : "") on it and will stop working",
+                       isOn: Binding(get: { review.force }, set: { on in
+                           model.uninstallReview?.force = on
+                           model.replanUninstall()
+                       }))
+                    .accessibilityIdentifier("uninstall-force")
+            }
             if let error = review.error {
                 Label(error, systemImage: "xmark.octagon.fill").foregroundStyle(.red).textSelection(.enabled)
             }
@@ -165,5 +176,145 @@ struct UninstallTweakSheet: View {
         }
         .padding(20)
         .frame(width: 560)
+    }
+}
+
+/// The install sheet's version, macOS and dependency checks, with the explicit checkboxes that override a refusal.
+struct InstallCompatibilityBox: View {
+    var model: WorkbenchModel
+    var review: TweakInstallReview
+    var plan: TweakInstallPlan
+
+    var check: TweakInstallCheck { plan.compatibility }
+    var all: [TweakInstallRefusal] { check.refusals + check.overridden }
+
+    var body: some View {
+        GroupBox("Version and compatibility") {
+            VStack(alignment: .leading, spacing: 6) {
+                Label(check.change.summary, systemImage: symbol)
+                    .foregroundStyle(check.change.isDowngrade ? .orange : .primary)
+                    .accessibilityIdentifier("install-version-change")
+                if let os = TweakCompatibilityInfo.systemText(plan.manifest) {
+                    Text("macOS: \(os). This Mac runs \(SystemVersion.current.description).").font(.callout).foregroundStyle(.secondary)
+                }
+                let deps = plan.manifest.allDependencies
+                if !deps.isEmpty {
+                    TweakDependencyList(dependencies: deps,
+                                        checker: DependencyChecker(installed: model.tweaks.filter { $0.id != plan.manifest.id },
+                                                                   components: model.componentStatus))
+                }
+                ForEach(check.refusals) { r in
+                    VStack(alignment: .leading, spacing: 1) {
+                        Label(r.message, systemImage: "xmark.octagon.fill").foregroundStyle(.red)
+                        if let fix = r.fix { Text("Fix: \(fix)").font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+                    }
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                if all.contains(where: { $0.kind == .downgrade }) {
+                    Toggle("Install the older version (downgrade)", isOn: Binding(get: { review.allowDowngrade }, set: { on in
+                        model.installReview?.allowDowngrade = on
+                        model.replanInstall()
+                    }))
+                    .accessibilityIdentifier("install-allow-downgrade")
+                }
+                if all.contains(where: { $0.kind != .downgrade }) {
+                    Toggle("Install anyway (\(forceReasons)); it may not load or work", isOn: Binding(get: { review.force }, set: { on in
+                        model.installReview?.force = on
+                        model.replanInstall()
+                    }))
+                    .accessibilityIdentifier("install-force")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    var symbol: String {
+        switch check.change {
+        case .fresh: return "plus.circle"
+        case .upgrade: return "arrow.up.circle"
+        case .downgrade: return "arrow.down.circle.fill"
+        case .rebuilt: return "hammer"
+        case .same: return "equal.circle"
+        case .changed: return "arrow.left.arrow.right.circle"
+        }
+    }
+
+    var forceReasons: String {
+        var parts: [String] = []
+        if all.contains(where: { $0.kind == .systemTooOld }) { parts.append("macOS older than it needs") }
+        if all.contains(where: { $0.kind == .unmetDependency }) { parts.append("missing dependencies") }
+        return parts.joined(separator: ", ")
+    }
+}
+
+/// `depends` with ✓ (met) or ✗ (and how to fix it).
+struct TweakDependencyList: View {
+    var dependencies: [TweakDependency]
+    var checker: DependencyChecker
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Depends on").font(.caption).foregroundStyle(.secondary)
+            ForEach(dependencies, id: \.self) { d in
+                let problem = checker.problem(d)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(problem == nil ? "✓" : "✗").foregroundStyle(problem == nil ? .green : .red)
+                    Text(d.description + (d.implicit ? " (it declares bridge capabilities)" : ""))
+                    if let problem {
+                        Text("— \(problem.message). Fix: \(problem.fix)").foregroundStyle(.secondary).textSelection(.enabled)
+                    }
+                }
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("tweak-depends-\(d.description)")
+            }
+        }
+    }
+}
+
+/// The tweak page's version, SDK build, macOS range and dependencies, and what `dw doctor` would say about them.
+struct TweakCompatibilityInfo: View {
+    var model: WorkbenchModel
+    var manifest: TweakManifest
+
+    static func systemText(_ m: TweakManifest) -> String? {
+        let parts = [m.minimumSystemVersion.map { "\($0) or later" }, m.testedSystemVersions.map { "tested on \($0)" }].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
+    var body: some View {
+        let build = DylibBuildInfo.read(dylibAt: model.tweakFilePath(manifest.dylib))
+        let env = TweakCompatibility.Environment(components: model.componentStatus, dylib: { _ in build })
+        // The dependency list shows unmet dependencies itself.
+        let issues = TweakCompatibility.issues(for: manifest, installed: model.tweaks, environment: env)
+            .filter { $0.kind != .unmetDependency }
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 14) {
+                if let v = manifest.version {
+                    Text("Version \(v)\(manifest.semanticVersion == nil ? " (not semantic)" : "")")
+                }
+                if let build {
+                    if let sdk = build.sdkVersion {
+                        Text("Built with DynjectHook \(sdk)")
+                    } else {
+                        Text(build.usesDynjectHook ? "Built with DynjectHook before \(WorkbenchInfo.version)" : "Not built with DynjectHook")
+                    }
+                }
+                if let os = Self.systemText(manifest) { Text("macOS \(os)") }
+            }
+            .font(.caption).foregroundStyle(.secondary)
+            .accessibilityIdentifier("tweak-compat-\(manifest.id)")
+            if !manifest.allDependencies.isEmpty {
+                TweakDependencyList(dependencies: manifest.allDependencies, checker: model.dependencyChecker)
+            }
+            ForEach(issues) { i in
+                Label(i.message + (i.fix.map { ". \($0)." } ?? "."),
+                      systemImage: i.severity == .error ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(i.severity == .error ? .red : .orange)
+                    .textSelection(.enabled)
+            }
+        }
     }
 }

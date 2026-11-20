@@ -174,7 +174,7 @@ public struct TweakTemplate: Sendable {
         \t<key>identifier</key><string>\(identifier)</string>
         \t<key>name</key><string>\(name)</string>
         \t<key>summary</key><string>Appends [\(name)] to window titles.</string>
-        \t<key>version</key><string>0.1</string>
+        \t<key>version</key><string>0.1.0</string>
         \t<key>dylib</key><string>\(installPath)</string>
         \t<key>takesEffect</key><string>live</string>
         \t<key>sections</key>

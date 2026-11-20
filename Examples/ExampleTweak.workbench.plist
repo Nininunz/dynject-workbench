@@ -13,7 +13,15 @@
 	<key>summary</key>
 	<string>Example tweak showing every setting type.</string>
 	<key>version</key>
-	<string>0.1</string>
+	<string>0.1.0</string>
+	<key>minimumSystemVersion</key>
+	<string>27.0</string>
+	<key>testedSystemVersions</key>
+	<string>27.0 - 27.2</string>
+	<key>depends</key>
+	<array>
+		<string>local.dynject.menuloader &gt;= 1.1.0</string>
+	</array>
 	<key>author</key>
 	<string>Example</string>
 	<key>dylib</key>

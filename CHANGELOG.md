@@ -17,6 +17,18 @@ unreleased
   image, superclass chain, hierarchy, safe properties (others on click), methods with
   readable signatures, ivars, a runtime class search. copy hook writes a DynjectHook
   skeleton with exact types. read-only. Tweaks/Inspector.
+- tweak versions: manifests' `version` is semver now (others get a warning). install
+  says "installed X → new Y", lets upgrades and rebuilds through and refuses a
+  downgrade unless you ask (`--allow-downgrade`, a checkbox in workbench).
+- macos limits: `minimumSystemVersion` (install refuses below it, `--force`),
+  `testedSystemVersions` (warns outside it). `DH_REQUIRE_SYSTEM("27.0")` checks the
+  same at load time. MenuLoader, Inspector and OLEDFinder need 27.0, tested on 27.2.
+- `depends`: other tweaks (with a minimum version), the bridge or the safe mode
+  watcher. install refuses while one is missing and says what to run; uninstall
+  refuses to pull one out from under another tweak (`--force`).
+- the sdk stamps its version into every dylib (`DH_SDK_VERSION`, "dynject.sdk:0.1.0").
+  the tweak page and `dw tweak list` show it with the version, macos range and
+  dependencies (✓/✗).
 
 
 0.1.0 (2026-11-19)

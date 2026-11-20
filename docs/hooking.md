@@ -432,8 +432,31 @@ The body runs while dyld loads your dylib, before the app's `main`. Install hook
   DynjectHook tweaks, which helps if a tweak crashes the app at launch. Set the environment variable
   `DH_DISABLE_SHIFT_BYPASS` (any value) to turn this check off.
 
-Test-only overrides: `DHSetPreferencesDomainForTesting(CFStringRef)` and `DHSetBundleIdentifierForTesting(const char *)`.
-Passing `NULL` restores the defaults. Don't call them in shipping tweaks.
+### macOS version guard: `DH_REQUIRE_SYSTEM`
+
+```objc
+DH_CTOR("com.you.tweak", "com.apple.finder") {
+    DH_REQUIRE_SYSTEM("27.0");   // the manifest's minimumSystemVersion
+    ...
+}
+```
+
+At the top of a `DH_CTOR` body it returns from the body, logging "requires macOS 27.0 or later, this is …: not
+loading", when the running macOS is older. Installs already refuse a tweak below its manifest's
+`minimumSystemVersion` ([tweak-format.md](tweak-format.md#versions-and-dependencies)), but a sandboxed tweak can't read
+its manifest, and a copied dylib or a macOS downgrade never sees that check. `DHSystemVersionAtLeast("27.2")` is the
+same test as a function. Versions are "27", "27.0" or "27.2.1"; anything else is logged and counts as too old. An app
+linked against a macOS 10.15 or older SDK is told "10.16"; that counts as unknown and the guard lets the tweak load.
+
+### SDK version
+
+`DH_SDK_VERSION` is this copy's version (Workbench's). DynjectHook.m puts `dynject.sdk:<version>` into every dylib it is
+compiled into; `dw tweak list`, Workbench's tweak page and `dw doctor` read it and suggest a rebuild when it is older
+than theirs, or missing (a build from before the marker).
+
+Test-only overrides: `DHSetPreferencesDomainForTesting(CFStringRef)`, `DHSetBundleIdentifierForTesting(const char *)`
+and `DHSetSystemVersionForTesting(const char *)`. Passing `NULL` restores the defaults. Don't call them in shipping
+tweaks.
 
 ## Logging
 

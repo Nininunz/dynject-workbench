@@ -661,6 +661,7 @@ static void MLPerform(DMLR_Entry *e) {
 @end
 
 DH_CTOR(ML_TWEAK_ID) {
+    DH_REQUIRE_SYSTEM("27.0");   // = minimumSystemVersion in MenuLoader.workbench.plist
     Class appleMenu = DHClass("_NSAppleMenu");
     SEL add = NSSelectorFromString(@"_addAppleMenuItems");
     SEL update = NSSelectorFromString(@"updateMenu:withEvent:withFlags:");

@@ -6,7 +6,9 @@
 	<key>identifier</key><string>local.dynject.inspector</string>
 	<key>name</key><string>Inspector</string>
 	<key>summary</key><string>In-app inspector: hold Control-Option-Command and point at a view or layer, click to see its class, hierarchy, properties, methods and ivars, and copy a DynjectHook skeleton for any method. Read-only. Enable it only for the apps you want to look inside.</string>
-	<key>version</key><string>0.1</string>
+	<key>version</key><string>0.1.0</string>
+	<key>minimumSystemVersion</key><string>27.0</string>
+	<key>testedSystemVersions</key><string>27.2</string>
 	<key>author</key><string>Dynject Workbench</string>
 	<key>dylib</key><string>/opt/dynject/lib/tweaks/libInspector.dylib</string>
 	<key>takesEffect</key><string>live</string>

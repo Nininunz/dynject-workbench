@@ -272,14 +272,18 @@ public struct TweakInstallPlan: Sendable {
     public var manifestsReplaced: [String]
     public var warnings: [String]
     public var notes: [String]
+    /// Version change, macOS and `depends` checks (TweakCompatibility.swift). `execute` refuses while
+    /// `compatibility.refusals` isn't empty.
+    public var compatibility = TweakInstallCheck()
 
     public var restartsDaemon: Bool { configNew != nil }
     public var needsPrivilegedStep: Bool { dylibAction != .unchanged || configNew != nil }
     public var changesNothing: Bool { !needsPrivilegedStep && manifestAction == .unchanged && manifestsReplaced.isEmpty }
+    public var isRefused: Bool { !compatibility.refusals.isEmpty }
 
     /// What will happen, one line each, for `dw` and Workbench's review sheet.
     public var summary: [String] {
-        var out: [String] = []
+        var out: [String] = [compatibility.change.summary]
         let size = ByteCountFormatter.string(fromByteCount: Int64(dylibData.count), countStyle: .file)
         let elsewhere = dylibFilePath == dylibInstallPath ? "" : " [file: \(dylibFilePath)]"
         switch dylibAction {
@@ -320,7 +324,7 @@ public enum TweakInstaller {
     /// Plans an install. `bundleIDs` are the apps to enable the tweak for; `targets` are every installed app with
     /// its service name (used to keep the config edit specific to those apps).
     public static func plan(source: TweakSource, enableFor bundleIDs: [String], targets: [InjectionTarget],
-                            locations: TweakLocations) throws -> TweakInstallPlan {
+                            locations: TweakLocations, options: TweakInstallOptions = .init()) throws -> TweakInstallPlan {
         let fm = FileManager.default
         let manifest = source.manifest
         let installPath = manifest.dylib
@@ -397,7 +401,11 @@ public enum TweakInstaller {
             }
         }
 
-        return TweakInstallPlan(
+        let compatibility = TweakInstallCheck.evaluate(
+            manifest, installed: TweakManifestLoader.load(directories: locations.manifestSearchDirectories).manifests,
+            dylibChanged: dylibAction != .unchanged, options: options)
+        warnings += compatibility.warnings
+        var plan = TweakInstallPlan(
             locations: locations, source: source, dylibData: dylibData, architectures: check.archs,
             dylibInstallPath: installPath, dylibFilePath: filePath, dylibCurrent: current, dylibAction: dylibAction,
             configOriginal: configData, configNew: configNew,
@@ -405,11 +413,14 @@ public enum TweakInstaller {
             declares: declares, enabledFor: enabled, alreadyEnabledFor: already,
             manifestDestination: destination, manifestCurrent: manifestCurrent, manifestAction: manifestAction,
             manifestsReplaced: replaced, warnings: warnings, notes: notes)
+        plan.compatibility = compatibility
+        return plan
     }
 
     /// Runs a plan: dylib and config in one `apply` (one administrator prompt at most, restart folded in), then the
     /// manifest. Files that changed since planning are never overwritten.
     public static func execute(_ plan: TweakInstallPlan, writer: ProtectedFileWriter, restarter: DaemonRestarter) throws -> TweakInstallResult {
+        guard !plan.isRefused else { throw TweakInstallError.refused(plan.compatibility.refusalText) }
         var changes: [ProtectedChange] = []
         if plan.dylibAction != .unchanged {
             changes.append(.write(plan.dylibData, to: plan.dylibFilePath, expectedCurrent: plan.dylibCurrent, category: "dylibs"))
@@ -552,7 +563,9 @@ public extension ConfigEditor {
 
 public extension TweakInstaller {
     /// Plans removing a tweak, named by its identifier or a manifest file. `keepFile` leaves the dylib in place.
+    /// Refuses when other installed tweaks depend on it (`depends`), unless `force`.
     static func planUninstall(_ tweak: String, keepFile: Bool, locations: TweakLocations, safeMode: SafeMode?,
+                              force: Bool = false,
                               currentDirectory: String = FileManager.default.currentDirectoryPath) throws -> TweakUninstallPlan {
         let fm = FileManager.default
         var manifest: TweakManifest?
@@ -578,6 +591,16 @@ public extension TweakInstaller {
         let all = locations.manifestSearchDirectories.flatMap { TweakInstaller.installedManifests(in: $0).map(\.manifest) }
         if let other = all.first(where: { $0.id != m.id && $0.dylib == installPath }) {
             throw TweakInstallError.refused("\(installPath) is also the dylib of \(other.name) (\(other.sourcePath)); uninstall it in Workbench or edit the config by hand.")
+        }
+        var seen = Set<String>()
+        let dependents = DependencyChecker(installed: all.filter { seen.insert($0.id).inserted }, components: [:])
+            .dependents(of: m.id).map { "\($0.name) (\($0.id))" }
+        if !dependents.isEmpty {
+            let which = dependents.joined(separator: ", ")
+            guard force else {
+                throw TweakInstallError.refused("\(which) depend\(dependents.count == 1 ? "s" : "") on \(m.name) and would stop working. Uninstall \(dependents.count == 1 ? "it" : "them") first, or force it (--force).")
+            }
+            notes.append("Warning: \(which) depend\(dependents.count == 1 ? "s" : "") on it (--force)")
         }
 
         // Config.
