@@ -4,8 +4,8 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
-unreleased
-----------
+0.1.1 (2026-11-20)
+------------------
 
 - `scripts/test-all.sh`: every test that leaves the live system alone, one summary. unit
   tests, the app, each bundled tweak's build and test host, and a fresh `dw new` tweak taken
