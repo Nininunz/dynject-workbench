@@ -121,6 +121,10 @@ first steps
 when you break something
 ------------------------
 
+- run `dw doctor` first. read-only: engine, sip, config, tweaks, the watcher and the
+  bridge, the apple menu, out-of-date apps, safe mode. every `!` and `✗` comes with the
+  command that fixes it. after a macos update, `dw doctor --apis` checks the private
+  apis your tweaks declare they need.
 - hold shift while launching an app: no tweaks that launch.
 - workbench -> safe mode -> panic switch (`dw safemode panic on`): no tweaks anywhere.
 - crashes get your tweak switched off for that app automatically, once the watcher
@@ -138,7 +142,8 @@ what's in the box
 - Dynject Workbench: the app. which apps each dylib applies to and why, per-app
   switches, raw config editor, plist editor, daemon restart, tweak settings pages,
   tweak install, safe mode and respring. see docs/workbench.md.
-- dw: the cli. install/uninstall tweaks, enable per app, respring, logs, safe mode.
+- dw: the cli. install/uninstall tweaks, enable per app, respring, logs, safe mode,
+  `dw doctor`.
 - DynjectHook: objective-c hooking library you compile into your tweak. docs/hooking.md.
 - settings sdk: `DynjectTweak.h` plus a manifest gives your tweak a settings page.
   docs/tweak-format.md.

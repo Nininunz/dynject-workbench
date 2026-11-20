@@ -10,6 +10,15 @@
 	<key>author</key><string>Dynject Workbench</string>
 	<key>dylib</key><string>/opt/dynject/lib/tweaks/libMenuLoader.dylib</string>
 	<key>takesEffect</key><string>live</string>
+	<!-- What dw doctor --apis checks after a macOS update: MenuLoader hooks these two _NSAppleMenu methods. -->
+	<key>requires</key>
+	<array>
+		<dict>
+			<key>class</key><string>_NSAppleMenu</string>
+			<key>image</key><string>AppKit</string>
+			<key>methods</key><array><string>-_addAppleMenuItems</string><string>-updateMenu:withEvent:withFlags:</string></array>
+		</dict>
+	</array>
 	<key>sections</key>
 	<array>
 		<dict>

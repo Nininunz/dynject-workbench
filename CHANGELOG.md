@@ -7,6 +7,14 @@ newest first. for testers; the commit log has the details.
 unreleased
 ----------
 
+- `dw doctor`: a read-only health check. engine binaries and launchdaemon, one dynjectd
+  running, recent log errors, sip, config diagnostics, every dylib (arm64e, signature),
+  manifests, safe mode support, the watcher and bridge agents (running, stale dw copy,
+  token), the apple-menu list, apps out of date, safe mode entries and crashes, the
+  workbench version. `✓ ! ✗`, a fix under each problem, `--json`, `--quiet`, exit 1 on ✗.
+- `dw doctor --apis`: after a macos update, checks the private classes, methods, functions
+  and strings each installed tweak declares in its manifest's new `requires` key, plus the
+  bridge's spi. MenuLoader and OLEDFinder declare theirs. docs/tweak-format.md#requirements.
 - bridge: tweaks in sandboxed apps can ask a background agent (`dw bridge serve`,
   workbench -> bridge) to set their own settings, post their own notifications, open
   declared kinds of links or write the clipboard. declared per tweak in the manifest

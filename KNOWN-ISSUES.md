@@ -39,6 +39,14 @@ safe mode
 - turning the panic switch off isn't dated, so respring doesn't notice it.
 - `defaults write -g dynject.safemode '{...}'` replaces every entry. use dw or workbench.
 
+doctor
+- dynjectd's log has times without dates. `dw doctor` dates its lines backwards from the
+  file's modification time, so an error is placed a day off if the log skipped a whole day.
+- `dw doctor --apis` loads the frameworks tweaks name into dw (their initializers run) and
+  only knows what manifests declare: a tweak without `requires`, or one that leaves out what
+  it hooks, gets no warning. a class living only in an app can only be checked as a string.
+- the apps section is respring's plan, so it shares its limits (lsof, see respring).
+
 install / uninstall
 - `dw tweak install/uninstall` were run live once (a dw new tweak in chess, 2026-11-19).
   workbench's install tweak... button shares the code but hasn't been clicked live. `--dry-run`

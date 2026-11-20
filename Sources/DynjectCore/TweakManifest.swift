@@ -35,6 +35,13 @@ public struct TweakManifest: Identifiable, Sendable {
     public var appleMenuSymbol: String?
     /// What the tweak may ask DynjectBridge for (manifest key `bridge`). Empty: nothing. See docs/bridge.md.
     public var bridge: [BridgeCapability] = []
+    /// What the tweak needs from macOS (manifest key `requires`), checked by `dw doctor --apis`. nil: not declared.
+    public var requires: [TweakRequirement]? = nil
+
+    /// `requires` plus what the SDK needs for the tweak's declared features (the bridge client's SPI).
+    public var effectiveRequirements: [TweakRequirement] {
+        (requires ?? []) + (bridge.isEmpty ? [] : TweakRequirement.bridgeClient)
+    }
 
     /// The title MenuLoader shows for this tweak's items.
     public var effectiveAppleMenuTitle: String { appleMenuTitle ?? name }
@@ -220,6 +227,7 @@ public enum TweakManifestParser {
         let appleMenu = AppleMenuParser.parse(root["appleMenu"], switchKeys: switchKeys, error: err, warning: warn)
         let menuGroup = AppleMenuParser.parseGroup(root, hasItems: !appleMenu.isEmpty, error: err, warning: warn)
         let bridge = BridgeCapability.parseManifestValue(root["bridge"], error: err, warning: warn)
+        let requires = TweakRequirementParser.parse(root["requires"], error: err, warning: warn)
         if bridge.contains(.settingsSet) && sections.flatMap(\.items).isEmpty {
             warn("bridge declares settings.set, but the manifest has no settings to set.")
         }
@@ -241,7 +249,8 @@ public enum TweakManifestParser {
                                      version: root["version"] as? String, author: root["author"] as? String,
                                      takesEffect: takesEffect, applyCommand: apply, sections: sections, sourcePath: path,
                                      appleMenu: appleMenu, appleMenuPlacement: menuGroup.placement,
-                                     appleMenuTitle: menuGroup.title, appleMenuSymbol: menuGroup.symbol, bridge: bridge)
+                                     appleMenuTitle: menuGroup.title, appleMenuSymbol: menuGroup.symbol, bridge: bridge,
+                                     requires: requires)
         return (manifest, issues)
     }
 

@@ -202,6 +202,8 @@ them in any update. all of them are looked up with dlsym: if one disappears the 
 logs it and keeps serving (unsandboxed callers only), the sdk returns errors, nothing
 crashes. without `xpc_connection_get_audit_token` the broker identifies nobody and
 denies everything; without the responsibility lookup only the ppid is checked.
+`dw doctor --apis` checks all four after a macos update (the client one only when a tweak
+declares `bridge`).
 
 the class string `com.apple.app-sandbox.mach` and the "generic token works for every
 app, survives restarts" behaviour were found by experiment on macos 27 (the spike), not

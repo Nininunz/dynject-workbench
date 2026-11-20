@@ -10,6 +10,9 @@
 	<key>author</key><string>Dynject Workbench</string>
 	<key>dylib</key><string>/opt/dynject/lib/tweaks/libInspector.dylib</string>
 	<key>takesEffect</key><string>live</string>
+	<!-- Only public runtime and AppKit API: nothing for dw doctor --apis to watch. -->
+	<key>requires</key>
+	<array/>
 	<key>sections</key>
 	<array>
 		<dict>

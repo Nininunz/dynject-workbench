@@ -10,5 +10,30 @@
 	<key>author</key><string>Dynject Workbench example</string>
 	<key>dylib</key><string>/opt/dynject/lib/tweaks/libOLEDFinder.dylib</string>
 	<key>takesEffect</key><string>relaunch</string>
+	<!-- What dw doctor --apis checks after a macOS update. Finder's window classes live in its executable, which can't
+	     be loaded, so they are looked up as strings. Without NSGlassEffectView or NSScrollPocket the sidebar glass and
+	     the scroll edge effect keep their stock colours; the rest still works. -->
+	<key>requires</key>
+	<array>
+		<dict>
+			<key>string</key><string>TBrowserWindow</string>
+			<key>image</key><string>/System/Library/CoreServices/Finder.app/Contents/MacOS/Finder</string>
+		</dict>
+		<dict>
+			<key>string</key><string>TDesktopWindow</string>
+			<key>image</key><string>/System/Library/CoreServices/Finder.app/Contents/MacOS/Finder</string>
+		</dict>
+		<dict>
+			<key>class</key><string>NSGlassEffectView</string>
+			<key>image</key><string>AppKit</string>
+			<key>methods</key><array><string>-setContentView:</string><string>-contentView</string><string>-cornerRadius</string></array>
+			<key>optional</key><true/>
+		</dict>
+		<dict>
+			<key>class</key><string>NSScrollPocket</string>
+			<key>image</key><string>AppKit</string>
+			<key>optional</key><true/>
+		</dict>
+	</array>
 </dict>
 </plist>

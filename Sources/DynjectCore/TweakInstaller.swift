@@ -99,11 +99,23 @@ public struct MachOInfo: Equatable, Sendable {
         public var arch: String
         public var isDylib: Bool
         public var isSigned: Bool
+        /// Where the slice is in the file (0 and the file's size for a thin file).
+        public var offset: Int = 0
+        public var size: Int = 0
     }
 
     public var slices: [Slice]
     public var archs: [String] { slices.map(\.arch) }
     public var isUniversal: Bool { slices.count > 1 }
+
+    /// The bytes of the slice an arm64e process maps: arm64e, else arm64, else the first; the whole file when it isn't
+    /// a Mach-O file.
+    public static func preferredSlice(of data: Data) -> Data {
+        guard let info = inspect(data) else { return data }
+        let pick = info.slices.first { $0.arch == "arm64e" } ?? info.slices.first { $0.arch == "arm64" } ?? info.slices.first
+        guard let s = pick, s.offset >= 0, s.size > 0, s.offset + s.size <= data.count else { return data }
+        return data.subdata(in: data.startIndex + s.offset ..< data.startIndex + s.offset + s.size)
+    }
 
     public static func inspect(_ data: Data) -> MachOInfo? {
         let bytes = [UInt8](data)
@@ -127,7 +139,8 @@ public struct MachOInfo: Equatable, Sendable {
                 if cmd == 0x1D { signed = true }   // LC_CODE_SIGNATURE
                 lc += Int(size)
             }
-            return Slice(arch: archName(cpu: cpu, subtype: sub), isDylib: fileType == 6, isSigned: signed)
+            return Slice(arch: archName(cpu: cpu, subtype: sub), isDylib: fileType == 6, isSigned: signed,
+                         offset: offset, size: bytes.count - offset)
         }
 
         guard let magic = be32(0) else { return nil }
@@ -139,8 +152,10 @@ public struct MachOInfo: Equatable, Sendable {
                 let entry = 8 + i * (is64 ? 32 : 20)
                 guard let cpu = be32(entry), let sub = be32(entry + 4) else { return nil }
                 let off = is64 ? be64(entry + 8).map(Int.init) : be32(entry + 8).map(Int.init)
-                guard let off, var s = slice(at: off) else { return nil }
+                let size = is64 ? be64(entry + 16).map(Int.init) : be32(entry + 12).map(Int.init)
+                guard let off, let size, var s = slice(at: off) else { return nil }
                 s.arch = archName(cpu: cpu, subtype: sub)
+                s.size = min(size, bytes.count - off)
                 out.append(s)
             }
             return MachOInfo(slices: out)

@@ -5,7 +5,7 @@ import Foundation
 /// Live mode: the app's own user defaults. Fixture mode: a JSON file in the support folder, so fixture runs
 /// never touch the real app's defaults.
 struct MenuLoaderSettingsStore {
-    static let defaultsKey = "MenuLoaderSettings"
+    static let defaultsKey = MenuLoaderSettings.defaultsKey
 
     var file: URL?
     var defaults: UserDefaults = .standard

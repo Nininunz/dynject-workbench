@@ -12,6 +12,7 @@
 //   dw log <subsystem> [minutes]           show a tweak's unified-log lines
 //   dw safemode ...                        Safe Mode: status, disable/enable, panic, watch, agent (SafeModeCommands.swift)
 //   dw bridge ...                          DynjectBridge broker: serve, agent, status, log (BridgeCommands.swift)
+//   dw doctor [--apis] [--json] [--quiet]  read-only health check; --apis: the private-API canary (DoctorCommand.swift)
 //
 // Uses the same DynjectCore code as the app: backups, conflict checks, atomic writes, single-daemon restart.
 import AppKit
@@ -142,6 +143,7 @@ case ("safemode", _): safeModeCommand(Array(a.dropFirst()))
 case ("bridge", _): bridgeCommand(Array(a.dropFirst()))
 case ("respring", _): respringCommand(Array(a.dropFirst()))
 case ("tweak", _): tweakCommand(Array(a.dropFirst()))
+case ("doctor", _): doctorCommand(Array(a.dropFirst()))
 case ("new", _): newTweak(Array(a.dropFirst()))
 case ("install", 2): install(a[1])
 case ("enable", 3): setEnabled(true, dylib: a[1], bundleID: a[2])
@@ -166,6 +168,7 @@ default:
       dw respring [--dry-run] [--all] [--include ID]... [--exclude ID]... [--timeout S]   (dw respring --help)
       dw config apply <new.conf> [--yes]
       dw menu publish                   republish MenuLoader's list from the installed manifests
+      dw doctor [--apis] [--json] [--quiet]   check the setup (read-only); --apis: private apis after a macos update
       dw log <subsystem> [minutes]
       dw safemode ...   (dw safemode help)
       dw bridge ...     (dw bridge help)

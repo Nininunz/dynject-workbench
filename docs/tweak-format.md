@@ -49,6 +49,7 @@ A property list with a dictionary at the top level. See [`Examples/ExampleTweak.
 | `appleMenuTitle` | no | Title of the tweak's own entry, or of its section in the shared one. Default: `name`. |
 | `appleMenuSymbol` | no | SF Symbol name for the tweak's own entry (`submenu` placement). |
 | `bridge` | no | Array of capabilities DynjectBridge grants the tweak inside apps the config injects it into: `settings.set`, `notify`, `open:<scheme>`, `pasteboard.write`. Unknown entries and forbidden schemes (`file`, `javascript`, `x-apple*`, `shortcuts`, `tel`, `dynject-workbench`, ...) are errors and skipped; schemes other than `http`, `https` and `mailto` get a warning. See [bridge.md](bridge.md). |
+| `requires` | no | Array of private classes, methods, functions and strings the tweak needs from macOS. `dw doctor --apis` checks them after an update. See [Requirements](#requirements). |
 
 ### Items
 
@@ -208,6 +209,53 @@ notification  dynject.menuloader.changed
   preferences file, never to the global domain.
 
 Workbench reads only manifests. It doesn't know which apps MenuLoader is injected into; that is the Injection page's job.
+
+## Requirements
+
+What a tweak looks up by name and would break without: a private class or method it hooks, a C function it finds with
+`dlsym`, a class in an app's executable. Declaring them lets `dw doctor --apis` tell the user, after a macOS update,
+which tweaks will probably misbehave, instead of the user finding out by crashes or silence.
+
+```xml
+<key>requires</key>
+<array>
+  <dict>
+    <key>class</key><string>_NSAppleMenu</string>
+    <key>image</key><string>AppKit</string>
+    <key>methods</key><array><string>-_addAppleMenuItems</string><string>-updateMenu:withEvent:withFlags:</string></array>
+  </dict>
+  <dict>
+    <key>symbol</key><string>sandbox_extension_consume</string>
+    <key>image</key><string>libsystem_sandbox</string>
+  </dict>
+  <dict>
+    <key>string</key><string>TBrowserWindow</string>
+    <key>image</key><string>/System/Library/CoreServices/Finder.app/Contents/MacOS/Finder</string>
+  </dict>
+</array>
+```
+
+Each entry has exactly one of `class`, `symbol` or `string`:
+
+| Key | Meaning |
+| --- | --- |
+| `class` | An Objective-C class name. `dw doctor --apis` loads `image` with `dlopen`, then looks the class up in the runtime. |
+| `methods` | With `class`: selectors it must have, `-name:` for instance methods, `+name` for class methods (inherited ones count). |
+| `ivars` | With `class`: instance variable names it must have. |
+| `symbol` | A C function or variable, looked up with `dlsym` in `image` (and what it re-exports). Without the leading underscore. |
+| `string` | A string that must appear, whole and NUL-terminated, in the C-string sections of the binary `image` (its arm64e slice). For classes in app executables, which can't be loaded: Finder's `TBrowserWindow`. `image` must be an absolute path. |
+| `image` | Required. A short name, tried as `/System/Library/Frameworks/<name>.framework/<name>`, then `PrivateFrameworks`, `/usr/lib/system/<name>.dylib` and `/usr/lib/<name>.dylib` (most exist only in the dyld shared cache; `dlopen` finds them there), or an absolute path. |
+| `optional` | `true`: missing turns a feature off but the tweak still works. Reported as a warning instead of a problem. |
+
+- Absent: the tweak declares nothing, and `dw doctor --apis` says it can't tell. An empty array: it needs nothing private.
+- A manifest that declares `bridge` capabilities also needs the bridge client's private SPI (`sandbox_extension_consume`);
+  that is checked without being listed. `dw doctor --apis` also checks Workbench's own broker SPI.
+- Bad entries (no kind or more than one, no `image`, a `string` with a short `image`, a malformed class, selector or
+  symbol name) are skipped with an error; unknown keys get a warning. The rest of the manifest still loads.
+- The checks run in `dw`'s own process: the named frameworks are loaded into it, nothing is injected anywhere. A class
+  that only exists inside an app (not in a loadable image) can only be checked as a `string`.
+- `dw doctor --apis --tweaks-dir <folder>` checks the manifests in a folder (yours, before installing) instead of the
+  installed ones.
 
 ## Storage and delivery (what the SDK reads)
 

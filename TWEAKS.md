@@ -62,9 +62,35 @@ manifest essentials
     sections        settings ui. may be empty if you only add apple-menu items.
     appleMenu       apple-menu items, see below.
     bridge          what the bridge may do for it, see below.
+    requires        private classes, methods, functions it needs, see below.
 
 workbench validates manifests with the same parser as dw and MenuLoader. errors
 refuse an install; bad items are skipped and reported.
+
+declare what you need from macos in `requires`, so `dw doctor --apis` can tell your
+users when a macos update breaks your tweak, before they go hunting:
+
+    <key>requires</key>
+    <array>
+      <dict>
+        <key>class</key><string>_NSAppleMenu</string>
+        <key>image</key><string>AppKit</string>
+        <key>methods</key><array><string>-_addAppleMenuItems</string></array>
+      </dict>
+      <dict>   <!-- a class in an app's executable: can't be loaded, so look for its name -->
+        <key>string</key><string>TBrowserWindow</string>
+        <key>image</key><string>/System/Library/CoreServices/Finder.app/Contents/MacOS/Finder</string>
+      </dict>
+      <dict>
+        <key>symbol</key><string>sandbox_extension_consume</string>
+        <key>image</key><string>libsystem_sandbox</string>
+        <key>optional</key><true/>   <!-- missing turns a feature off, nothing breaks -->
+      </dict>
+    </array>
+
+list what you hook or look up by name, not public api. `<array/>` says "nothing private".
+the bridge's own spi is checked for you when you declare `bridge`. try it before you
+install: `dw doctor --apis --tweaks-dir .`. format: docs/tweak-format.md#requirements.
 
 
 hooking with DynjectHook
@@ -397,7 +423,8 @@ gotchas
 -------
 
 - private apis change between macos releases. MenuLoader leans on `_NSAppleMenu`; check
-  your tweak on every update and fail quietly when a class or method is missing.
+  your tweak on every update and fail quietly when a class or method is missing. declare
+  them in `requires` and `dw doctor --apis` does the checking for your users.
 - sandboxed hosts can read global prefs but can't write them. post a notification
   instead, or go through the bridge.
 - inject only where you mean to. a `dylib:...:allow` default means every app, helpers

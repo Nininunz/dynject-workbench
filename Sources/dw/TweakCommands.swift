@@ -258,8 +258,7 @@ func newTweak(_ args: [String]) {
 /// the same publisher, and Workbench's saved Apple-menu preferences (per-tweak "Show in Apple menu", placement).
 /// Without this a tweak installed from the terminal gets no Apple-menu items until Workbench next reloads.
 func republishAppleMenu(_ locations: TweakLocations) {
-    let saved = UserDefaults(suiteName: "local.dynject.workbench")?.data(forKey: "MenuLoaderSettings")
-    let settings = saved.flatMap { try? JSONDecoder().decode(MenuLoaderSettings.self, from: $0) } ?? MenuLoaderSettings()
+    let settings = MenuLoaderSettings.savedByWorkbench()
     let (manifests, _) = TweakManifestLoader.load(directories: locations.manifestSearchDirectories)
     do {
         if try MenuLoaderPublisher(store: CFPreferencesTweakBackend(), names: .production).publish(manifests, settings: settings) {

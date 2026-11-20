@@ -453,6 +453,15 @@ public struct MenuLoaderSettings: Codable, Equatable, Sendable {
 
     public func isIncluded(_ tweakID: String) -> Bool { included[tweakID] ?? true }
 
+    /// Workbench's preferences domain and the key its Apple-menu options are saved under (JSON).
+    public static let workbenchDefaultsDomain = "local.dynject.workbench"
+    public static let defaultsKey = "MenuLoaderSettings"
+
+    /// What Workbench saved, as `dw` (a different process) reads it; defaults when nothing is saved.
+    public static func savedByWorkbench(_ defaults: UserDefaults? = UserDefaults(suiteName: workbenchDefaultsDomain)) -> MenuLoaderSettings {
+        defaults?.data(forKey: defaultsKey).flatMap { try? JSONDecoder().decode(MenuLoaderSettings.self, from: $0) } ?? MenuLoaderSettings()
+    }
+
     public var effectiveSubmenuTitle: String {
         let t = submenuTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         return t.isEmpty ? Self.defaultSubmenuTitle : t
@@ -583,17 +592,21 @@ public final class MenuLoaderPublisher {
 
     public func currentPayload() -> [String: Any]? { store.dictionary(forKey: names.key) }
 
+    /// Whether a published list equals a payload (both nil: no key, nothing to publish).
+    public static func isSame(_ published: [String: Any]?, _ payload: [String: Any]?) -> Bool {
+        switch (published, payload) {
+        case (nil, nil): return true
+        case let (o?, n?): return NSDictionary(dictionary: o).isEqual(to: n)
+        default: return false
+        }
+    }
+
     /// Writes the list and posts the change notification, unless the published list is already identical.
     /// Returns whether anything was written.
     @discardableResult
     public func publish(_ manifests: [TweakManifest], settings: MenuLoaderSettings) throws -> Bool {
         let new = Self.payload(for: manifests, settings: settings)
-        let old = currentPayload()
-        switch (old, new) {
-        case (nil, nil): return false
-        case let (o?, n?) where NSDictionary(dictionary: o).isEqual(to: n): return false
-        default: break
-        }
+        if Self.isSame(currentPayload(), new) { return false }
         try store.setDictionary(new, forKey: names.key)
         store.postNotification(names.notification)
         return true

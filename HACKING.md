@@ -14,14 +14,17 @@ layout
                                   writer + privileged helper script, plists, tweak manifests and settings,
                                   apple menu publishing, safe mode, respring, tweak installer and template,
                                   the bridge (Bridge.swift: rules, actions, limits, log; BridgeSystem.swift:
-                                  xpc, code identity, token, agent), version and notices (WorkbenchInfo.swift)
+                                  xpc, code identity, token, agent), version and notices (WorkbenchInfo.swift),
+                                  `dw doctor` (Doctor.swift) and manifests' `requires` + the api canary
+                                  (TweakRequirements.swift)
     Sources/DynjectWorkbench/     the swiftui app. AppEnvironment.swift: launch arguments.
                                   RespringModel.swift: the respring sheet. SafeModeModel.swift. BridgeModel.swift.
                                   TweakInstallModel.swift. SmokeTest.swift: the ui smoke test runner.
                                   Views/: the pages.
     Sources/dw/                   the cli. main.swift (install, enable/disable, relaunch, config apply, log),
                                   TweakCommands.swift (tweak install/uninstall/list, new),
-                                  SafeModeCommands.swift, RespringCommand.swift, BridgeCommands.swift
+                                  SafeModeCommands.swift, RespringCommand.swift, BridgeCommands.swift,
+                                  DoctorCommand.swift
     Sources/DynjectLiveTrial/     live privileged trial runner against /opt/dynject. run only when you mean it.
     TweakSDK/                     DynjectTweak.h (settings, header only), DynjectHook.h + DynjectHook.m
                                   (hooking), DynjectBridge.h + DynjectBridge.m (the bridge client). also the
@@ -49,7 +52,7 @@ building and tests
 ------------------
 
     swift build
-    swift test                          # 354 tests, ~20 s
+    swift test                          # 380 tests, ~20 s
     swift test --filter DynjectHookTests
     ./scripts/build-app.sh              # build/Dynject Workbench.app, release, ad-hoc unless SIGN_IDENTITY
     ./scripts/ui-smoke-test.sh          # drives the built app against fixtures
@@ -61,9 +64,9 @@ building and tests
     Tweaks/Inspector/build.sh test                # Inspector in an appkit + swiftui test app, screenshots
     open "build/Dynject Workbench.app"
 
-current counts (2026-11-20): 245 DynjectCore (parser, editor, helper script, writer,
+current counts (2026-11-20): 271 DynjectCore (parser, editor, helper script, writer,
 plists, tweaks, apple menu, safe mode, respring, tweak install and template, version
-notice, bridge), 84 DynjectHook (3 of them the bridge sdk), 25 DynjectWorkbench (launch
+notice, bridge, doctor, requires), 84 DynjectHook (3 of them the bridge sdk), 25 DynjectWorkbench (launch
 arguments, the respring sheet's model and links, install tweak in fixture mode, bridge
 isolation).
 
@@ -110,6 +113,11 @@ testing notes:
   the first steps fail with "apps-table missing" (the model checks still run): rerun.
   screenshots in `build/smoke-report/` are approximate; `cacheDisplay` can't render
   vibrancy.
+- doctor tests build a whole made-up setup in a temp folder (engine files, config, fake
+  mach-o dylibs, manifests, agents with `RecordingLaunchctlRunner`, the apple-menu key in
+  `MemoryTweakBackend`, safe mode in memory) and swap `DoctorContext`'s closures for
+  daemons, sip and signatures. the `requires` evaluator tests run against the real
+  Foundation, AppKit and libSystem, and a two-slice binary they compile.
 - respring e2e: docs/respring.md#end-to-end-test. MenuLoader testhost and `-DML_TEST`:
   Tweaks/MenuLoader/README.md.
 
@@ -244,6 +252,10 @@ conventions
 - new writers back up first and go through `ProtectedFileWriter`.
 - anything that can quit or open apps goes through `AppController`, so tests can
   use `SimulatedAppController`.
+- `dw doctor` only reads. a new check takes its inputs through `DoctorContext` (paths
+  or a closure) so tests can fake them, reuses the code the feature itself uses, and
+  gives every `!`/`✗` a one-line fix. bump `DoctorTests` when you add one.
+- a tweak of ours that looks something up by name declares it in `requires`.
 - keep `swift test` and `scripts/build-app.sh` green.
 
 
