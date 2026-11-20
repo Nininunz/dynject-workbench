@@ -456,14 +456,17 @@ typedef struct { double black, bright, maxLum, r, g, b; } Sample;
     check(sText.maxLum > 0.4, @"sidebar text is still readable");
     check(sSel.maxLum > 0.6 && sSel.black < 0.9, @"sidebar selection is still visible");
     check(lEmpty.black > 0.97, @"list background is #000000");
-    check(lHeader.black > 0.97, @"rows scrolled under the list header are hidden by black");
+    // With kOLEDGlassTitlebar the edge effect under the titlebar (which also spans the list header) is stock: rows
+    // scrolled under it are dimmed by the stock effect rather than covered with black.
+    check(lHeader.maxLum < 0.3, @"rows scrolled under the list header are dimmed by the stock edge effect");
     check(lStripe.black > 0.97, @"list rows are not striped grey");
     check(lText.maxLum > 0.6, @"list text is still bright");
     check(iEmpty.black > 0.97, @"icon view background is #000000");
     check(iText.maxLum > 0.6, @"icon labels are still bright");
     check(cEmpty.black > 0.97, @"column view background is #000000");
     check(cText.maxLum > 0.6, @"column view text is still bright");
-    check(tEmpty.black > 0.90, @"titlebar/toolbar background is black");
+    // kOLEDGlassTitlebar (default YES): the titlebar band keeps the stock glass instead of being forced black.
+    check(tEmpty.black < 0.90, @"titlebar band keeps the stock glass (not forced black)");
     check(pill.black > 0.80 || pill.maxLum > 0.6, @"glass pill is black with bright text");
     check(drep != nil && dWin.b > 0.5 && dWin.b > dWin.r + 0.2, @"desktop stand-in window background untouched (blue)");
     check(drep != nil && dScroll.b > 0.5 && dScroll.b > dScroll.r + 0.2, @"desktop stand-in scroll view untouched (blue)");

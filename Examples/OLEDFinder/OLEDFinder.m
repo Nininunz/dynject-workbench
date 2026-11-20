@@ -27,6 +27,8 @@
 // The look. 0xRRGGBB, sRGB.
 static const uint32_t kOLEDBackground = 0x000000;   // every background: pure black, pixels off
 static const uint32_t kOLEDSeparator  = 0x1C1C1E;   // grid lines and split view dividers: just visible on black
+static const BOOL     kOLEDGlassTitlebar = YES;     // YES: the titlebar band keeps the stock glass and scroll edge
+                                                    // effect over the black content; NO: black there too
 
 // Finder's window classes. Only the first is changed; the second is excluded even if it ever became a subclass.
 static const char *const kOLFBrowserWindowClass = "TBrowserWindow";
@@ -129,16 +131,35 @@ static BOOL OLFIsBackgroundMaterial(NSVisualEffectMaterial m) {
 
 #pragma mark - Applying
 
+/// Inside the titlebar container (the titlebar's own materials).
+static BOOL OLFInTitlebar(NSView *v) {
+    for (NSView *a = v.superview; a; a = a.superview)
+        if ([NSStringFromClass([a class]) hasPrefix:@"NSTitlebar"]) return YES;
+    return NO;
+}
+
+/// A scroll edge effect under the titlebar: it lives in the scroll view (which extends under the titlebar), so tell
+/// it from a list header's by reaching above the window's content layout rect.
+static BOOL OLFInTitlebarBand(NSView *v) {
+    if (OLFInTitlebar(v)) return YES;
+    NSWindow *w = v.window;
+    if (!w) return NO;
+    NSRect inWindow = [v convertRect:v.bounds toView:nil];
+    return NSMaxY(inWindow) > NSMaxY(w.contentLayoutRect) + 0.5;
+}
+
 static void OLFApplyToView(NSView *v) {
     if ([v isKindOfClass:[OLFBackdropView class]]) return;
     if ([v isKindOfClass:[NSVisualEffectView class]]) {
-        if (OLFIsBackgroundMaterial(((NSVisualEffectView *)v).material)) OLFAddBackdrop(v, 0);
+        if (OLFIsBackgroundMaterial(((NSVisualEffectView *)v).material) && !(kOLEDGlassTitlebar && OLFInTitlebar(v)))
+            OLFAddBackdrop(v, 0);
     } else if (gOLFGlassView && [v isKindOfClass:gOLFGlassView]) {
         OLFApplyToGlass(v);
     } else if (gOLFScrollPocket && [v isKindOfClass:gOLFScrollPocket]) {
         // The scroll edge effect: a tinted blur over content under the titlebar and the list header. Black there
-        // still hides the rows scrolled under them, as the effect is meant to.
-        OLFAddBackdrop(v, 0);
+        // still hides the rows scrolled under them, as the effect is meant to. With kOLEDGlassTitlebar the one under
+        // the titlebar keeps the stock effect.
+        if (!(kOLEDGlassTitlebar && OLFInTitlebarBand(v))) OLFAddBackdrop(v, 0);
     } else if ([v isKindOfClass:[NSScrollView class]]) {
         NSScrollView *s = (NSScrollView *)v;
         s.backgroundColor = gOLFBlack;

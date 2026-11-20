@@ -45,6 +45,9 @@ top of `OLEDFinder.m`, `0xRRGGBB`:
 
     kOLEDBackground   0x000000   every background
     kOLEDSeparator    0x1C1C1E   grid lines, split view dividers
+    kOLEDGlassTitlebar  YES      titlebar band keeps the stock glass and scroll edge effect;
+                                 NO makes it black too (rows under the list header get
+                                 covered with black instead of dimmed)
 
 edit, rebuild, install again.
 
