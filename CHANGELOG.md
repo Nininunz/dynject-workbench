@@ -7,7 +7,11 @@ newest first. for testers; the commit log has the details.
 unreleased
 ----------
 
-nothing yet.
+- bridge: tweaks in sandboxed apps can ask a background agent (`dw bridge serve`,
+  workbench -> bridge) to set their own settings, post their own notifications, open
+  declared kinds of links or write the clipboard. declared per tweak in the manifest
+  (`bridge`), allowed only inside apps the config injects the tweak into, rate-limited
+  and logged. sdk: `DynjectBridge.h`. docs/bridge.md.
 
 
 0.1.0 (2026-11-19)

@@ -23,6 +23,7 @@ struct ContentView: View {
                     case .injection: InjectionView(model: model)
                     case .tweaks: TweaksView(model: model)
                     case .safemode: SafeModeView(model: model)
+                    case .bridge: BridgeView(model: model)
                     case .dylibs: DylibsView(model: model)
                     case .config: ConfigView(model: model)
                     case .plists: PlistView(model: model)

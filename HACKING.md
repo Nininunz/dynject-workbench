@@ -13,28 +13,32 @@ layout
                                   filters), minimal editor, validator, log/ps/lsof/launchctl readers,
                                   writer + privileged helper script, plists, tweak manifests and settings,
                                   apple menu publishing, safe mode, respring, tweak installer and template,
-                                  version and notices (WorkbenchInfo.swift)
+                                  the bridge (Bridge.swift: rules, actions, limits, log; BridgeSystem.swift:
+                                  xpc, code identity, token, agent), version and notices (WorkbenchInfo.swift)
     Sources/DynjectWorkbench/     the swiftui app. AppEnvironment.swift: launch arguments.
-                                  RespringModel.swift: the respring sheet. SafeModeModel.swift.
+                                  RespringModel.swift: the respring sheet. SafeModeModel.swift. BridgeModel.swift.
                                   TweakInstallModel.swift. SmokeTest.swift: the ui smoke test runner.
                                   Views/: the pages.
     Sources/dw/                   the cli. main.swift (install, enable/disable, relaunch, config apply, log),
                                   TweakCommands.swift (tweak install/uninstall/list, new),
-                                  SafeModeCommands.swift, RespringCommand.swift
+                                  SafeModeCommands.swift, RespringCommand.swift, BridgeCommands.swift
     Sources/DynjectLiveTrial/     live privileged trial runner against /opt/dynject. run only when you mean it.
     TweakSDK/                     DynjectTweak.h (settings, header only), DynjectHook.h + DynjectHook.m
-                                  (hooking). also the DynjectTweakSDK target, so tests can compile against it.
+                                  (hooking), DynjectBridge.h + DynjectBridge.m (the bridge client). also the
+                                  DynjectTweakSDK target, so tests can compile against it.
     Tweaks/MenuLoader/            the apple-menu loader tweak, its build.sh and testhost/
     Examples/                     ExampleTweak.workbench.plist (every item type), TitleBadge/ and
                                   OLEDFinder/ (example tweaks)
     Tests/DynjectCoreTests/       unit tests + Fixtures/ (live.conf is a byte copy of a real config)
-    Tests/DynjectHookTests/       objective-c tests for DynjectHook
+    Tests/DynjectHookTests/       objective-c tests for DynjectHook, and the bridge sdk's local refusals
     Tests/DynjectHookSwiftFixtures/  swift classes for DynjectHook's swift class lookup tests
     Tests/DynjectWorkbenchTests/  the app's launch arguments, the respring sheet's model, install tweak
-                                  in fixture mode
+                                  in fixture mode, the bridge page's isolation
     Resources/Info.plist          app bundle metadata, url scheme dynject-workbench://
-    scripts/                      bootstrap.sh, build-app.sh, ui-smoke-test.sh, respring-e2e.sh (+ respring-e2e/)
-    docs/                         reference: workbench.md, tweak-format.md, hooking.md, safe-mode.md, respring.md
+    scripts/                      bootstrap.sh, build-app.sh, ui-smoke-test.sh, respring-e2e.sh (+ respring-e2e/),
+                                  bridge-e2e.sh (+ bridge-e2e/)
+    docs/                         reference: workbench.md, tweak-format.md, hooking.md, safe-mode.md, respring.md,
+                                  bridge.md
     build/                        output, gitignored
 
 
@@ -42,20 +46,22 @@ building and tests
 ------------------
 
     swift build
-    swift test                          # 304 tests, ~20 s
+    swift test                          # 353 tests, ~20 s
     swift test --filter DynjectHookTests
     ./scripts/build-app.sh              # build/Dynject Workbench.app, release, ad-hoc unless SIGN_IDENTITY
     ./scripts/ui-smoke-test.sh          # drives the built app against fixtures
     ./scripts/respring-e2e.sh           # respring engine end to end against test apps it builds (~25 s)
+    ./scripts/bridge-e2e.sh             # bridge end to end: temporary agent, sandboxed test app (~40 s)
     Tweaks/MenuLoader/testhost/run.sh   # MenuLoader in an appkit test host, sandboxed copy included
     (cd Examples/TitleBadge && ./build.sh test)   # TitleBadge in a local test app
     Examples/OLEDFinder/build.sh test             # OLEDFinder in a finder-like test app, screenshots
     open "build/Dynject Workbench.app"
 
-current counts (2026-11-19): 201 DynjectCore (parser, editor, helper script, writer,
+current counts (2026-11-20): 244 DynjectCore (parser, editor, helper script, writer,
 plists, tweaks, apple menu, safe mode, respring, tweak install and template, version
-notice), 81 DynjectHook, 22 DynjectWorkbench (launch arguments, the respring sheet's
-model and links, install tweak in fixture mode).
+notice, bridge), 84 DynjectHook (3 of them the bridge sdk), 25 DynjectWorkbench (launch
+arguments, the respring sheet's model and links, install tweak in fixture mode, bridge
+isolation).
 
 `build-app.sh` builds the app and `dw`, copies `dw` to `Contents/MacOS/dw` (safe mode's
 install watcher copies it from there), copies the sdk to `Contents/Resources/TweakSDK`
@@ -110,7 +116,8 @@ the rule
 tests, the smoke test and fixture mode never touch the live config, /opt/dynject, the
 real `dynject.*` global keys, the real LaunchAgent or real apps. they use fixture
 copies, test domains and keys (`dynject.menuloader.test`, `local.dynject.safemode.test`,
-`local.dynject.menuloader.testprefs`), temp dirs, stubs and simulated controllers. if
+`local.dynject.menuloader.testprefs`, `local.bridge-e2e.*`), temp dirs, stubs and simulated
+controllers. if
 you add a feature that writes somewhere, add its isolation in the same patch.
 
 
@@ -146,6 +153,15 @@ safe mode is isolated in the same cases, and also with `-DWReportsDir` or
 (under `SafeModePreview/` in it when `-DWSupportDir` isn't given, so they never share
 the real `SafeMode/state.json` or `bin/dw`), and launchctl is simulated.
 
+the bridge page is isolated whenever safe mode is: its agent plist and `dw-bridge` copy
+go under the same folder with the label `local.dynject.bridge.preview` and preview names
+in the plist's arguments, launchctl is simulated, the token lives in memory (never read
+from or removed in the global domain) and the decision log is that folder's
+`Bridge/log.json`. `dw bridge serve --test` refuses the real names and needs its own
+config, Tweaks folder, settings file and log (`--app-roots` names where callers must be
+installed); `dw bridge agent` takes `--launch-agents-dir` and `--bin-dir` only together
+with `--no-launchctl`, which also leaves the token keys alone.
+
 in fixture mode, in the smoke test and with `-DWRespringFixture <json>`, the respring
 sheet lists made-up running apps (from that file, or a few scanned apps the config
 injects into plus finder, a terminal and workbench) and relaunches them with a
@@ -174,6 +190,9 @@ how the pieces talk
     tweaks (DynjectTweak.h, DH_CTOR), MenuLoader ──> read those keys, observe those notifications
     LaunchAgent local.dynject.safemode ──> dw safemode watch ──> DiagnosticReports ──> dynject.safemode
                                                                  + SafeMode/state.json
+    LaunchAgent local.dynject.bridge ──> dw bridge serve: publishes dynject.bridge.token (+ .version,
+        notify dynject.bridge.changed); tweaks (DynjectBridge.h) consume it, xpc to local.dynject.bridge;
+        broker checks the live config + manifests, writes dynject.tweak.<id> / posts / opens; Bridge/log.json
 
 config and privileged helper. the only root code is `HelperScript.swift`, passed inline
 to `/bin/sh -c` through `osascript ... with administrator privileges`. it takes a list of
@@ -194,6 +213,12 @@ settings), written atomically under `state.lock` (flock). every key change, the
 watcher's, workbench's and dw's, holds that lock. the LaunchAgent is
 `~/Library/LaunchAgents/local.dynject.safemode.plist` (RunAtLoad, KeepAlive) running
 the copy of dw in `.../Dynject Workbench/bin/dw`. docs/safe-mode.md.
+
+bridge: `~/Library/LaunchAgents/local.dynject.bridge.plist` (RunAtLoad, KeepAlive,
+MachServices) running `.../Dynject Workbench/bin/dw-bridge`; decisions in
+`.../Dynject Workbench/Bridge/log.json`. the only place tweaks get to write anything
+outside their sandbox, so every rule is in one function (`BridgeService.handle`) and
+the authorization table is tested case by case. docs/bridge.md.
 
 other app state in Application Support: `Backups/`, `Tweaks/` (installed manifests),
 `associations.json` (plist <-> dylib).

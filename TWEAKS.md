@@ -2,7 +2,8 @@ writing tweaks
 ==============
 
 for people writing tweaks. you know objective-c and you know what a dylib is.
-references: docs/hooking.md, docs/tweak-format.md, docs/safe-mode.md, docs/respring.md.
+references: docs/hooking.md, docs/tweak-format.md, docs/safe-mode.md, docs/respring.md,
+docs/bridge.md.
 working examples: Examples/TitleBadge (settings, no swizzling), Examples/OLEDFinder (hook
 classes on appkit views, one app, no settings) and Tweaks/MenuLoader (hooks a private appkit
 class, listens for notifications).
@@ -60,6 +61,7 @@ manifest essentials
     takesEffect     live (you observe changes) or relaunch (default)
     sections        settings ui. may be empty if you only add apple-menu items.
     appleMenu       apple-menu items, see below.
+    bridge          what the bridge may do for it, see below.
 
 workbench validates manifests with the same parser as dw and MenuLoader. errors
 refuse an install; bad items are skipped and reported.
@@ -152,6 +154,59 @@ readable from inside sandboxed apps. workbench writes it and posts
 key; delete it yourself if you want it gone.
 
 
+the bridge (sandboxed apps)
+---------------------------
+
+inside a sandboxed app (calculator, notes, textedit...) your tweak can read its settings
+but can't write them, can't post most notifications and can't open other apps' links.
+the bridge does those for it: a background agent running as you, `dw bridge serve`
+(workbench -> bridge -> install bridge, or `dw bridge agent install`). think
+rocketbootstrap with a fixed menu.
+
+declare what you need in the manifest. nothing else is ever allowed:
+
+    <key>bridge</key>
+    <array>
+      <string>settings.set</string>       <!-- this tweak's own settings, declared keys only -->
+      <string>notify</string>             <!-- darwin notifications named <id> or <id>.* -->
+      <string>open:https</string>         <!-- open https links; one entry per scheme. http, https,
+                                               mailto are low risk; others get a warning at install;
+                                               file:, shortcuts:, tel:, x-apple*, ... are refused -->
+      <string>pasteboard.write</string>   <!-- put text on the clipboard -->
+    </array>
+
+compile `TweakSDK/DynjectBridge.m` in next to DynjectHook.m (same flags; copy
+`DynjectBridge.h` into your `sdk/` too) and:
+
+    #import "DynjectBridge.h"
+    static const char *kID = "com.you.glass";
+
+    // the apple-menu toggle from below, now persisted from inside calculator:
+    static int token;
+    notify_register_dispatch("com.you.glass.toggle", &token, dispatch_get_main_queue(), ^(int t) {
+        BOOL on = !DTPrefBool(@(kID), @"enabled", YES);
+        DHGroupSetEnabled(gMain, on);
+        DBSetSetting(kID, @"enabled", @(on), nil, ^(NSError *error) {
+            if (error) DHLog(@"bridge: %@", error.localizedDescription);   // not installed, denied, timeout
+        });
+    });
+
+    // anything else: one request, one reply block on the queue you pass (NULL: main).
+    DBRequest(kID, "open", @{@"url": @"https://example.com/help"}, NULL, ^(NSDictionary *r, NSError *e) { ... });
+
+it never blocks and never throws: no bridge, a denial or a 5 s timeout all come back as
+an NSError (`DBErrorReasonKey` has the broker's reason, e.g. `not-injected`,
+`capability-missing`, `bad-arguments`, `rate-limited`).
+
+it only works inside apps the config injects your tweak into (installed in the app
+folders, with an override that names the app exactly), and the broker can't tell
+your code from any other code in that app: anything loaded there can ask in your name.
+so declare only what you use. `settings.set` with `app` sets a per-app override, only
+for the app you're in and only for `perApp` items. rate limit: 20 at once, 5 a second
+per app and tweak. `dw bridge log` shows what was allowed and denied, and why.
+details and the security model: docs/bridge.md.
+
+
 apple menu items (MenuLoader)
 -----------------------------
 
@@ -189,7 +244,8 @@ the app's own shortcuts win over yours.
 
 `checkedBy` only draws the checkmark. toggling is your job: listen for the notification
 and do something. a sandboxed host can't write the global preferences, so the tweak
-can't flip its own setting from inside most apps; act on the notification directly.
+can't flip its own setting from inside most apps by itself; act on the notification
+directly, or ask the bridge (`settings.set`, above).
 
     #include <notify.h>
     static int token;
@@ -322,7 +378,7 @@ behaviour
 - nothing slow at load: no network, no disk scans, no synchronous ax queries in the
   constructor. defer to the main queue.
 - don't write the global preferences from inside the app (sandboxed apps can't anyway);
-  signal something outside instead.
+  signal something outside instead, or use the bridge's `settings.set`.
 - log through os_log with your subsystem, quietly. no `NSLog` spam.
 
 menus
@@ -337,7 +393,7 @@ gotchas
 - private apis change between macos releases. MenuLoader leans on `_NSAppleMenu`; check
   your tweak on every update and fail quietly when a class or method is missing.
 - sandboxed hosts can read global prefs but can't write them. post a notification
-  instead.
+  instead, or go through the bridge.
 - inject only where you mean to. a `dylib:...:allow` default means every app, helpers
   that pass the filters included. use deny plus per-app overrides, and a `DH_CTOR`
   bundle filter on top.

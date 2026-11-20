@@ -145,6 +145,8 @@ what's in the box
 - MenuLoader: tweaks declare apple-menu items, it adds them. Tweaks/MenuLoader.
 - safe mode: crash watcher, per-app auto-disable, panic switch. docs/safe-mode.md.
 - respring: relaunch running apps whose tweaks are out of date. docs/respring.md.
+- DynjectBridge: tweaks in sandboxed apps ask a user agent to set their settings, post
+  notifications, open declared links. narrow, declared in the manifest. docs/bridge.md.
 - TitleBadge: example tweak with every kind of setting. Examples/TitleBadge.
 - OLEDFinder: example tweak, pure black finder windows, hooks, no settings. Examples/OLEDFinder.
 

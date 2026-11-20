@@ -18,6 +18,8 @@ A native macOS app for managing the installed Dynject injection engine:
   [TWEAKS.md](../TWEAKS.md).
 - Safe Mode: install the crash watcher, flip the panic switch, see and re-enable what was turned off. See
   [safe-mode.md](safe-mode.md).
+- Bridge: install the DynjectBridge agent, which does a few declared things for tweaks in sandboxed apps, and see
+  what it allowed and denied. See [bridge.md](bridge.md).
 
 It manages the existing engine at `/opt/dynject` ([dynject](https://github.com/ut0mt8/dynject) by ut0mt8, installed
 separately). It is not an injector, not a theme UI, and not a binary/hex editor.
@@ -136,6 +138,14 @@ item already has.
 Installs or removes the watcher, has the panic switch, lists what is disabled where and why (with the crash report
 and Re-enable), shows recent tweak-related crashes and which tweaks support Safe Mode, and offers "Disable in
 Config…" (the usual review, save and restart) for tweaks that ignore it. See [safe-mode.md](safe-mode.md#the-workbench-panel).
+
+## Bridge page
+
+Installs or removes the bridge agent (`local.dynject.bridge`), says whether its token is published, lists the tweaks
+that declare bridge capabilities and the broker's last 100 decisions with their reasons. A tweak's page has a Bridge
+section with its capabilities and recent decisions, and Install Tweak's review lists the capabilities. When a tweak
+changes its settings through the bridge, an open settings page re-reads them (unless it has an unsaved change).
+See [bridge.md](bridge.md#workbench).
 
 ## Respring sheet
 

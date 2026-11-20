@@ -44,6 +44,40 @@ install / uninstall
 - uninstall refuses to remove the config's last dylib (dynjectd won't start without one).
 - uninstall keeps the tweak's settings key `dynject.tweak.<id>`.
 
+bridge
+- it stands on private spi: `sandbox_extension_issue_mach` / `sandbox_extension_consume`
+  and `xpc_connection_get_audit_token`. a macos update can remove or change them; then
+  sandboxed tweaks can't reach the broker (or the broker identifies nobody and denies
+  everything). nothing crashes. docs/bridge.md#private-spi.
+- tested end to end only with an ad-hoc test app and `--test` (scripts/bridge-e2e.sh). not
+  yet run live: the real agent, apple's apps (`anchor apple` callers) injected by dynject,
+  developer id and app store apps. the three signing requirements were checked
+  statically against installed apps, not on running injected ones. if dynject's
+  injection leaves an app's code signature dynamically invalid, the broker denies it
+  (`untrusted-caller`, in os_log, not in the decision log); check
+  `log stream --predicate 'subsystem == "local.dynject.bridge"'` on the first live run.
+- apple's own apps from the app store (pages, numbers, keynote, xcode) have `com.apple.`
+  ids but aren't `anchor apple`, so the bridge refuses them. so does any app without the
+  hardened runtime, any app with the dyld-variables, library-validation-off or
+  get-task-allow entitlements, and any app installed outside /Applications,
+  /System/Applications, ~/Applications and /System/Library/CoreServices.
+- an override pattern only grants the bridge when it names the app exactly (bundle id,
+  `application.<id>.` or the launchd label). hand-written broader patterns (`Notes`,
+  `com.apple.`) inject the tweak but don't give it the bridge.
+- the launch check is ppid 1 plus "its own responsible process", the latter via private
+  spi. an app launched by another app (some helpers, updaters) is refused. without the
+  spi a shell-started process that was reparented to launchd would pass the ppid check.
+- the tweak id in a request is self-asserted. the broker knows the app, not which dylib
+  in it is asking, so any code in an app can use the capabilities of every tweak the
+  config injects there. capabilities are kept narrow for that reason.
+- the caller's code signature is validated once per connection (again if the audit token
+  changes), not for every request.
+- the decision log only holds trusted callers. an unknown process's attempts are in
+  os_log only, rate-limited, so a flood of them is summarized rather than kept.
+- workbench re-reads a tweak's settings when the bridge changes them, except while it
+  has an unsaved change of its own, which then overwrites the bridge's write.
+- `open` uses NSWorkspace from a background agent: the opened app comes to the front.
+
 respring
 - relaunching finder goes through an apple event, so macos may ask for automation permission.
 - apps come back without their windows if "close windows when quitting an application" is on

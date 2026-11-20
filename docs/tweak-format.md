@@ -43,11 +43,12 @@ A property list with a dictionary at the top level. See [`Examples/ExampleTweak.
 | `summary`, `version`, `author` | no | Shown in the header. |
 | `takesEffect` | no | `live` (the tweak observes changes) or `relaunch` (default). Workbench uses it to tell the user what to do, and offers to relaunch the apps that have the tweak loaded. |
 | `applyCommand` | no | Array: absolute executable path plus arguments. Run as the user, with no shell and a 10 s timeout, after each change. Only needed if the tweak must do extra work beyond the notification. |
-| `sections` | yes | Array of `{ title?, footer?, items: [item] }`. May be empty when the manifest only declares `appleMenu` items. |
+| `sections` | yes | Array of `{ title?, footer?, items: [item] }`. May be empty when the manifest only declares `appleMenu` items or `bridge` capabilities. |
 | `appleMenu` | no | Array of Apple-menu items, added to the Apple menu by MenuLoader. See [Apple menu items](#apple-menu-items-menuloader). |
 | `appleMenuPlacement` | no | `shared` (default): the items are one section of the shared "Tweaks" entry. `submenu`: the tweak gets its own entry in the Apple menu. |
 | `appleMenuTitle` | no | Title of the tweak's own entry, or of its section in the shared one. Default: `name`. |
 | `appleMenuSymbol` | no | SF Symbol name for the tweak's own entry (`submenu` placement). |
+| `bridge` | no | Array of capabilities DynjectBridge grants the tweak inside apps the config injects it into: `settings.set`, `notify`, `open:<scheme>`, `pasteboard.write`. Unknown entries and forbidden schemes (`file`, `javascript`, `x-apple*`, `shortcuts`, `tel`, `dynject-workbench`, ...) are errors and skipped; schemes other than `http`, `https` and `mailto` get a warning. See [bridge.md](bridge.md). |
 
 ### Items
 

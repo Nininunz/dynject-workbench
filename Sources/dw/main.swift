@@ -11,6 +11,7 @@
 //   dw config apply <new.conf> [--yes]     replace the config (diff + validation; writes only with --yes)
 //   dw log <subsystem> [minutes]           show a tweak's unified-log lines
 //   dw safemode ...                        Safe Mode: status, disable/enable, panic, watch, agent (SafeModeCommands.swift)
+//   dw bridge ...                          DynjectBridge broker: serve, agent, status, log (BridgeCommands.swift)
 //
 // Uses the same DynjectCore code as the app: backups, conflict checks, atomic writes, single-daemon restart.
 import AppKit
@@ -138,6 +139,7 @@ let a = Array(CommandLine.arguments.dropFirst())
 switch (a.first, a.count) {
 case ("--version", _), ("version", _): print(WorkbenchInfo.versionText)
 case ("safemode", _): safeModeCommand(Array(a.dropFirst()))
+case ("bridge", _): bridgeCommand(Array(a.dropFirst()))
 case ("respring", _): respringCommand(Array(a.dropFirst()))
 case ("tweak", _): tweakCommand(Array(a.dropFirst()))
 case ("new", _): newTweak(Array(a.dropFirst()))
@@ -164,6 +166,7 @@ default:
       dw config apply <new.conf> [--yes]
       dw log <subsystem> [minutes]
       dw safemode ...   (dw safemode help)
+      dw bridge ...     (dw bridge help)
       dw --version
     """)
     exit(a.isEmpty ? 0 : 2)

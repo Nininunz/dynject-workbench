@@ -3,7 +3,7 @@ import DynjectCore
 import Observation
 
 enum SidebarSection: String, CaseIterable, Identifiable {
-    case injection, tweaks, safemode, dylibs, config, plists, daemon
+    case injection, tweaks, safemode, bridge, dylibs, config, plists, daemon
     var id: String { rawValue }
 
     var title: String {
@@ -11,6 +11,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .injection: return "Apps & Injection"
         case .tweaks: return "Tweaks"
         case .safemode: return "Safe Mode"
+        case .bridge: return "Bridge"
         case .dylibs: return "Dylibs"
         case .config: return "Raw Config"
         case .plists: return "Plist Editor"
@@ -23,6 +24,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .injection: return "square.stack.3d.down.right"
         case .tweaks: return "puzzlepiece.extension"
         case .safemode: return "cross.case"
+        case .bridge: return "arrow.left.arrow.right.circle"
         case .dylibs: return "shippingbox"
         case .config: return "doc.plaintext"
         case .plists: return "list.bullet.indent"
@@ -136,6 +138,8 @@ final class WorkbenchModel {
     private(set) var tweakApplyStatus: [String: String] = [:]
     var selectedTweakID: String?
     @ObservationIgnored private var tweakPersistTasks: [String: Task<Void, Never>] = [:]
+    /// Tweak IDs whose `.changed` notification this model observes (live settings only).
+    @ObservationIgnored private var observedTweakIDs: Set<String> = []
     @ObservationIgnored private var tweakSnapshotsSaved: Set<String> = []
 
     // MARK: Installing tweaks (TweakInstallModel.swift)
@@ -162,6 +166,7 @@ final class WorkbenchModel {
 
     // MARK: Safe Mode
     let safeMode: SafeModeModel
+    let bridge: BridgeModel
     /// Crash reports "opened" during a smoke test, which never launches Console.
     private(set) var openedReports: [String] = []
     @ObservationIgnored private var appIcons: [String: NSImage] = [:]
@@ -195,6 +200,7 @@ final class WorkbenchModel {
         }
         menuSettings = menuSettingsStore.load()
         safeMode = SafeModeModel(env: env, tweakBackend: tweakBackend)
+        bridge = BridgeModel(env: env)
         respring = RespringModel(env: env)
         associations = associationStore.load()
         reloadConfig()
@@ -204,12 +210,18 @@ final class WorkbenchModel {
         safeMode.onRefresh = { [weak self] in self?.respring.scheduleRefresh() }
     }
 
+    deinit {
+        // The tweak `.changed` observers hold an unretained pointer to self.
+        CFNotificationCenterRemoveEveryObserver(CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(self).toOpaque())
+    }
+
     // MARK: Loading
 
     func start() {
         scanApps()
         refreshRuntime()
         safeMode.start()
+        bridge.start()
         respring.start()
         if !respring.simulated && appLifecycleObservers.isEmpty {
             let nc = NSWorkspace.shared.notificationCenter
@@ -583,6 +595,30 @@ final class WorkbenchModel {
         publishAppleMenu()
         safeMode.manifests = manifests
         respring.scheduleRefresh()
+        observeTweakChanges(manifests.map(\.id))
+    }
+
+    /// Someone else (the bridge's settings.set, dw, another Workbench) can write a tweak's key. Re-read it on
+    /// `dynject.tweak.<id>.changed` unless this model has an unsaved change of its own, so the next save here doesn't
+    /// put back stale values. Workbench's own saves post the same notification; re-reading then is harmless.
+    private func observeTweakChanges(_ ids: [String]) {
+        guard tweakBackend is CFPreferencesTweakBackend else { return }
+        let center = CFNotificationCenterGetDarwinNotifyCenter()
+        let observer = Unmanaged.passUnretained(self).toOpaque()
+        for id in ids where observedTweakIDs.insert(id).inserted {
+            CFNotificationCenterAddObserver(center, observer, { _, observer, name, _, _ in
+                guard let observer, let name = name?.rawValue as String? else { return }
+                let me = Unmanaged<WorkbenchModel>.fromOpaque(observer).takeUnretainedValue()
+                let id = String(name.dropFirst("dynject.tweak.".count).dropLast(".changed".count))
+                DispatchQueue.main.async { MainActor.assumeIsolated { me.tweakChangedElsewhere(id) } }
+            }, TweakPrefsContract.notificationName(id) as CFString, nil, .deliverImmediately)
+        }
+    }
+
+    private func tweakChangedElsewhere(_ id: String) {
+        // isDirty: changed here and not yet saved (the save runs ~0.3 s after the last change).
+        guard let s = tweakSettings[id], !s.isDirty else { return }
+        s.reload()
     }
 
     var tweaksFolder: String { env.tweakDirectories.first ?? env.supportDirectory.appendingPathComponent("Tweaks").path }

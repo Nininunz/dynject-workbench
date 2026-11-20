@@ -24,7 +24,7 @@ public final class RecordingLaunchctlRunner: LaunchctlRunner {
     }
 }
 
-public struct SafeModeAgentStatus: Equatable, Sendable {
+public struct LaunchAgentStatus: Equatable, Sendable {
     public var plistInstalled: Bool
     public var binaryInstalled: Bool
     /// launchd knows the job (bootstrapped in the user's GUI domain).
@@ -32,7 +32,7 @@ public struct SafeModeAgentStatus: Equatable, Sendable {
     public var running: Bool
     public var pid: Int32?
     public var lastExitCode: String?
-    /// The installed plist runs the installed binary with `safemode watch`.
+    /// The installed plist runs the installed binary with the agent's subcommand.
     public var plistMatches: Bool
 
     public var summary: String {
@@ -43,20 +43,28 @@ public struct SafeModeAgentStatus: Equatable, Sendable {
     }
 }
 
-/// The per-user LaunchAgent that runs `dw safemode watch`. No administrator rights are involved.
-public final class SafeModeAgent {
-    public static let label = "local.dynject.safemode"
-    /// os_log subsystem of the watcher.
-    public static let logSubsystem = "local.dynject.safemode"
+public typealias SafeModeAgentStatus = LaunchAgentStatus
 
+/// A per-user LaunchAgent that runs a copy of `dw` with a subcommand: RunAtLoad + KeepAlive, a plist in
+/// ~/Library/LaunchAgents, the binary in Workbench's bin folder. No administrator rights are involved.
+/// SafeModeAgent and BridgeAgent are the two.
+public class UserLaunchAgent {
+    public let label: String
+    /// Arguments after the binary, e.g. ["safemode", "watch"].
+    public let command: [String]
+    /// File name of the copied dw in the bin directory. Each agent has its own, so removing one never
+    /// pulls the binary out from under the other.
+    public let binaryName: String
+    /// Extra top-level plist keys (MachServices, ProcessType).
+    public let extraPlistKeys: [String: Any]
     public let launchAgentsDirectory: URL
     public let binDirectory: URL
     public let runner: LaunchctlRunner
     public let uid: uid_t
 
-    public var plistURL: URL { launchAgentsDirectory.appendingPathComponent("\(Self.label).plist") }
-    public var binaryURL: URL { binDirectory.appendingPathComponent("dw") }
-    public var serviceTarget: String { "gui/\(uid)/\(Self.label)" }
+    public var plistURL: URL { launchAgentsDirectory.appendingPathComponent("\(label).plist") }
+    public var binaryURL: URL { binDirectory.appendingPathComponent(binaryName) }
+    public var serviceTarget: String { "gui/\(uid)/\(label)" }
     public var domainTarget: String { "gui/\(uid)" }
 
     public static var defaultLaunchAgentsDirectory: URL {
@@ -68,22 +76,25 @@ public final class SafeModeAgent {
             .appendingPathComponent("Dynject Workbench/bin", isDirectory: true)
     }
 
-    public init(launchAgentsDirectory: URL = SafeModeAgent.defaultLaunchAgentsDirectory,
-                binDirectory: URL = SafeModeAgent.defaultBinDirectory,
-                runner: LaunchctlRunner = SystemLaunchctlRunner(), uid: uid_t = getuid()) {
+    public init(label: String, command: [String], binaryName: String = "dw", extraPlistKeys: [String: Any] = [:],
+                launchAgentsDirectory: URL, binDirectory: URL, runner: LaunchctlRunner, uid: uid_t = getuid()) {
+        self.label = label
+        self.command = command
+        self.binaryName = binaryName
+        self.extraPlistKeys = extraPlistKeys
         self.launchAgentsDirectory = launchAgentsDirectory
         self.binDirectory = binDirectory
         self.runner = runner
         self.uid = uid
     }
 
-    public func programArguments(extra: [String] = []) -> [String] { [binaryURL.path, "safemode", "watch"] + extra }
+    public func programArguments(extra: [String] = []) -> [String] { [binaryURL.path] + command + extra }
 
-    /// The LaunchAgent property list: RunAtLoad + KeepAlive, background priority, no output files (the watcher
-    /// logs through os_log).
+    /// The LaunchAgent property list: RunAtLoad + KeepAlive, background priority unless the extra keys say
+    /// otherwise, no output files (the agents log through os_log).
     public func plist(extraArguments: [String] = []) -> [String: Any] {
-        [
-            "Label": Self.label,
+        var p: [String: Any] = [
+            "Label": label,
             "ProgramArguments": programArguments(extra: extraArguments),
             "RunAtLoad": true,
             "KeepAlive": true,
@@ -91,6 +102,8 @@ public final class SafeModeAgent {
             "ThrottleInterval": 30,
             "LimitLoadToSessionType": "Aqua",
         ]
+        for (k, v) in extraPlistKeys { p[k] = v }
+        return p
     }
 
     public func plistData(extraArguments: [String] = []) throws -> Data {
@@ -144,15 +157,16 @@ public final class SafeModeAgent {
         if fm.fileExists(atPath: binaryURL.path) { try fm.removeItem(at: binaryURL) }
     }
 
-    public func status() -> SafeModeAgentStatus {
+    public func status() -> LaunchAgentStatus {
         let fm = FileManager.default
-        var s = SafeModeAgentStatus(plistInstalled: fm.fileExists(atPath: plistURL.path),
-                                    binaryInstalled: fm.isExecutableFile(atPath: binaryURL.path),
-                                    loaded: false, running: false, pid: nil, lastExitCode: nil, plistMatches: false)
+        var s = LaunchAgentStatus(plistInstalled: fm.fileExists(atPath: plistURL.path),
+                                  binaryInstalled: fm.isExecutableFile(atPath: binaryURL.path),
+                                  loaded: false, running: false, pid: nil, lastExitCode: nil, plistMatches: false)
         if let data = fm.contents(atPath: plistURL.path),
            let p = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any],
            let args = p["ProgramArguments"] as? [String] {
-            s.plistMatches = Array(args.prefix(3)) == programArguments()
+            let expected = programArguments()
+            s.plistMatches = Array(args.prefix(expected.count)) == expected
         }
         let out = runner.run(["print", serviceTarget])
         guard out.status == 0 else { return s }
@@ -180,5 +194,19 @@ public final class SafeModeAgent {
             }
         }
         return (state, pid, exit)
+    }
+}
+
+/// The LaunchAgent that runs `dw safemode watch`.
+public final class SafeModeAgent: UserLaunchAgent {
+    public static let label = "local.dynject.safemode"
+    /// os_log subsystem of the watcher.
+    public static let logSubsystem = "local.dynject.safemode"
+
+    public init(launchAgentsDirectory: URL = UserLaunchAgent.defaultLaunchAgentsDirectory,
+                binDirectory: URL = UserLaunchAgent.defaultBinDirectory,
+                runner: LaunchctlRunner = SystemLaunchctlRunner(), uid: uid_t = getuid()) {
+        super.init(label: Self.label, command: ["safemode", "watch"], launchAgentsDirectory: launchAgentsDirectory,
+                   binDirectory: binDirectory, runner: runner, uid: uid)
     }
 }

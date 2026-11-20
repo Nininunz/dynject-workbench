@@ -126,6 +126,22 @@ struct TweakDetail: View {
                 if !m.appleMenu.isEmpty {
                     AppleMenuSection(model: model, manifest: m)
                 }
+                if !m.bridge.isEmpty {
+                    Section {
+                        BridgeCapabilityList(capabilities: m.bridge)
+                            .accessibilityElement(children: .combine)
+                            .accessibilityIdentifier("tweak-bridge-\(m.id)")
+                        let recent = model.bridge.entries(forTweak: m.id).prefix(5)
+                        ForEach(Array(recent)) { e in BridgeDecisionRow(model: model, entry: e) }
+                    } header: {
+                        Text("Bridge")
+                    } footer: {
+                        Text(model.bridge.agentStatus?.running == true
+                             ? "The bridge does these for it, only inside apps the config injects it into."
+                             : "The bridge isn't running, so these requests fail. Install it on the Bridge page.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
                 let overridden = settings.appsWithOverrides
                 if !overridden.isEmpty {
                     Section("Per-app overrides") {

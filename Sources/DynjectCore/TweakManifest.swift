@@ -33,6 +33,8 @@ public struct TweakManifest: Identifiable, Sendable {
     public var appleMenuTitle: String?
     /// SF Symbol of the tweak's own entry.
     public var appleMenuSymbol: String?
+    /// What the tweak may ask DynjectBridge for (manifest key `bridge`). Empty: nothing. See docs/bridge.md.
+    public var bridge: [BridgeCapability] = []
 
     /// The title MenuLoader shows for this tweak's items.
     public var effectiveAppleMenuTitle: String { appleMenuTitle ?? name }
@@ -118,7 +120,10 @@ public enum PrefValue: Hashable, Sendable {
     public func plistObject(integer: Bool = false) -> Any {
         switch self {
         case let .bool(b): return NSNumber(value: b)
-        case let .number(n): return integer ? NSNumber(value: Int(n)) : NSNumber(value: n)
+        case let .number(n):
+            // Int(exactly:) never traps: a value outside Int's range, or not whole, stays a Double.
+            if integer, let i = Int(exactly: n.rounded()) { return NSNumber(value: i) }
+            return NSNumber(value: n)
         case let .string(s): return s
         case let .list(l): return l
         }
@@ -136,7 +141,9 @@ public enum PrefValue: Hashable, Sendable {
     public var displayText: String {
         switch self {
         case let .bool(b): return b ? "On" : "Off"
-        case let .number(n): return n == n.rounded() ? String(Int(n)) : String(format: "%.2f", n)
+        case let .number(n):
+            if let i = Int(exactly: n) { return String(i) }
+            return n.isFinite && abs(n) < 1e15 ? String(format: "%.2f", n) : "\(n)"
         case let .string(s): return s.isEmpty ? "(empty)" : s
         case let .list(l): return l.isEmpty ? "none" : l.joined(separator: ", ")
         }
@@ -212,8 +219,12 @@ public enum TweakManifestParser {
         }
         let appleMenu = AppleMenuParser.parse(root["appleMenu"], switchKeys: switchKeys, error: err, warning: warn)
         let menuGroup = AppleMenuParser.parseGroup(root, hasItems: !appleMenu.isEmpty, error: err, warning: warn)
-        // A manifest may exist only to declare Apple-menu items.
-        if sections.flatMap(\.items).isEmpty && appleMenu.isEmpty { warn("No usable settings items.") }
+        let bridge = BridgeCapability.parseManifestValue(root["bridge"], error: err, warning: warn)
+        if bridge.contains(.settingsSet) && sections.flatMap(\.items).isEmpty {
+            warn("bridge declares settings.set, but the manifest has no settings to set.")
+        }
+        // A manifest may exist only to declare Apple-menu items or bridge capabilities.
+        if sections.flatMap(\.items).isEmpty && appleMenu.isEmpty && bridge.isEmpty { warn("No usable settings items.") }
         for item in sections.flatMap(\.items) {
             if let dep = item.enabledIf, !switchKeys.contains(dep) {
                 err("\"\(item.key)\": enabledIf \"\(dep)\" is not a switch in this manifest; ignored.")
@@ -230,7 +241,7 @@ public enum TweakManifestParser {
                                      version: root["version"] as? String, author: root["author"] as? String,
                                      takesEffect: takesEffect, applyCommand: apply, sections: sections, sourcePath: path,
                                      appleMenu: appleMenu, appleMenuPlacement: menuGroup.placement,
-                                     appleMenuTitle: menuGroup.title, appleMenuSymbol: menuGroup.symbol)
+                                     appleMenuTitle: menuGroup.title, appleMenuSymbol: menuGroup.symbol, bridge: bridge)
         return (manifest, issues)
     }
 

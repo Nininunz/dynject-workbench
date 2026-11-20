@@ -221,3 +221,62 @@ final class SafeModeEnvironmentTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: plist.path))
     }
 }
+
+/// The Bridge panel never touches the real agent, launchd, the real token key or the real log when isolated.
+@MainActor
+final class BridgeEnvironmentTests: XCTestCase {
+    private func env(_ args: [String]) -> AppEnvironment { AppEnvironment.current(arguments: ["DynjectWorkbench"] + args) }
+
+    func testLiveUsesTheRealNames() {
+        let e = env([])
+        XCTAssertFalse(e.isolatesBridge)
+        XCTAssertEqual(e.bridgeNames, .production)
+        XCTAssertEqual(e.bridgeLogURL, BridgeDecisionLog.defaultFileURL)
+    }
+
+    func testEveryOverrideIsolatesTheBridge() {
+        for args in [["-DWTweaksDir", "/tmp/dw-tweaks"], ["-DWSupportDir", "/tmp/dw-support"], ["-DWConfigPath", "/tmp/dw.conf"],
+                     ["-DWSmokeTest", "/tmp/dw-report"], ["-DWReportsDir", "/tmp/dw-reports"], ["-DWTweakDylibDir", "/tmp/dw-dylibs"]] {
+            let e = env(args)
+            XCTAssertTrue(e.isolatesBridge, "\(args[0])")
+            XCTAssertTrue(e.bridgeNames.isDisjointFromProduction, "\(args[0])")
+            XCTAssertNotEqual(e.bridgeLogURL, BridgeDecisionLog.defaultFileURL, "\(args[0])")
+            XCTAssertTrue(e.bridgeLogURL.path.hasPrefix(e.safeModeIsolationRoot.path + "/"), "\(args[0])")
+        }
+    }
+
+    func testIsolatedModelInstallsUnderTheSupportFolder() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("dw-bridge-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let fakeDw = dir.appendingPathComponent("dw")
+        try Data("#!/bin/sh\n".utf8).write(to: fakeDw)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeDw.path)
+        let e = env(["-DWConfigPath", dir.appendingPathComponent("x.conf").path, "-DWSupportDir", dir.path, "-DWDwBinary", fakeDw.path])
+        let m = BridgeModel(env: e)
+        XCTAssertTrue(m.isolated)
+
+        m.installAgent()
+        XCTAssertEqual(m.message?.isError, false, m.message?.text ?? "")
+        let plistPath = dir.appendingPathComponent("LaunchAgents/local.dynject.bridge.preview.plist").path
+        let plist = try XCTUnwrap(NSDictionary(contentsOfFile: plistPath) as? [String: Any])
+        XCTAssertEqual(plist["MachServices"] as? [String: Bool], ["local.dynject.bridge.preview": true])
+        let args = try XCTUnwrap(plist["ProgramArguments"] as? [String])
+        XCTAssertEqual(Array(args.prefix(3)), [dir.appendingPathComponent("bin/dw-bridge").path, "bridge", "serve"])
+        XCTAssertTrue(args.contains("local.dynject.bridge.preview.token"))
+        XCTAssertFalse(args.contains("dynject.bridge.token"))
+
+        let log = BridgeDecisionLog(fileURL: e.bridgeLogURL)
+        log.append(BridgeLogEntry(date: Date(), pid: 1, app: "com.apple.Notes", tweak: "t", action: "ping", allowed: true, reason: "ok"))
+        log.append(BridgeLogEntry(date: Date(), pid: 1, app: "com.apple.Notes", tweak: "t", action: "notify", allowed: false, reason: "bad-arguments"))
+        try log.save()
+        m.refresh()
+        XCTAssertEqual(m.entries.map(\.action), ["notify", "ping"], "newest first")
+        XCTAssertEqual(m.deniedCount, 1)
+        XCTAssertFalse(m.tokenPublished)
+
+        m.uninstallAgent()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: plistPath))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("bin/dw-bridge").path))
+    }
+}

@@ -96,6 +96,26 @@ struct AppEnvironment {
         isolatesSafeMode ? safeModeIsolationRoot.appendingPathComponent("bin", isDirectory: true) : SafeModeAgent.defaultBinDirectory
     }
 
+    // MARK: Bridge
+
+    /// The Bridge panel follows Safe Mode's isolation: whenever Safe Mode is isolated, the bridge agent's plist and
+    /// binary go under the isolation root with a preview label and names, launchctl is simulated, the token is never
+    /// read from or removed in the global domain, and the decision log is the isolation root's.
+    var isolatesBridge: Bool { isolatesSafeMode }
+
+    /// Names a preview agent's plist would carry. Never loaded (launchctl is simulated); they only make sure a copy of
+    /// that plist could never serve or publish under the real names.
+    static let bridgePreviewNames = BridgeNames(service: "local.dynject.bridge.preview", tokenKey: "local.dynject.bridge.preview.token",
+                                                versionKey: "local.dynject.bridge.preview.version",
+                                                notification: "local.dynject.bridge.preview.changed")
+
+    var bridgeNames: BridgeNames { isolatesBridge ? Self.bridgePreviewNames : .production }
+
+    /// The broker's decision log. Live: Bridge/log.json in the real support folder.
+    var bridgeLogURL: URL {
+        isolatesBridge ? safeModeIsolationRoot.appendingPathComponent("Bridge/log.json") : BridgeDecisionLog.defaultFileURL
+    }
+
     // MARK: Installing tweaks
 
     /// Where Install Tweak… and Uninstall… work. A plain live launch uses the real config, /opt/dynject/lib/tweaks and

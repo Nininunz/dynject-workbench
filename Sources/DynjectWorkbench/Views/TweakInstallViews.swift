@@ -46,6 +46,28 @@ struct InstallTweakSheet: View {
                 }
             }
 
+            if let m = review.source?.manifest, !m.bridge.isEmpty {
+                GroupBox("Asks the bridge for") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        BridgeCapabilityList(capabilities: m.bridge)
+                        let risky = m.bridge.filter(\.isHighRisk)
+                        if !risky.isEmpty {
+                            Label("It may open \(risky.map(\.rawValue).map { $0.dropFirst(5) + ":" }.joined(separator: ", ")) links. "
+                                  + "Unlike http, https and mailto, the app that handles such a link may act on it. "
+                                  + "Any code in an app this tweak is injected into can use this.",
+                                  systemImage: "exclamationmark.triangle.fill")
+                                .font(.callout).foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("install-bridge-risky")
+                        }
+                        Text("Granted inside the apps the config injects it into, as long as the bridge is installed.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .accessibilityIdentifier("install-bridge-capabilities")
+            }
+
             if let plan = review.plan {
                 GroupBox("Changes") {
                     ScrollView {
