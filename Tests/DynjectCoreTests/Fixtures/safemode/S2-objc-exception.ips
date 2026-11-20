@@ -1,0 +1,478 @@
+{"app_name":"S2","timestamp":"2026-11-19 15:52:11.00 -0600","app_version":"","build_version":"","platform":1,"bundleID":"local.dynject.menuloader.skeptic2","share_with_app_devs":0,"is_first_party":0,"bug_type":"309","os_version":"macOS 27.2.1 (26B131)","roots_installed":0,"name":"S2","incident_id":"91E88724-D13E-4738-883F-6F98EA23CF38"}
+{
+  "procName": "S2",
+  "procPath": "/Users/USER/*/S2.app/Contents/MacOS/S2",
+  "bundleInfo": {
+    "CFBundleIdentifier": "local.dynject.menuloader.skeptic2"
+  },
+  "captureTime": "2026-11-19 15:52:11.3363 -0600",
+  "incident": "91E88724-D13E-4738-883F-6F98EA23CF38",
+  "pid": 4242,
+  "cpuType": "ARM-64",
+  "exception": {
+    "codes": "0x0000000000000000, 0x0000000000000000",
+    "rawCodes": [
+      0,
+      0
+    ],
+    "type": "EXC_CRASH",
+    "signal": "SIGABRT"
+  },
+  "termination": {
+    "flags": 0,
+    "code": 6,
+    "namespace": "SIGNAL",
+    "indicator": "Abort trap: 6",
+    "byProc": "S2",
+    "byPid": 87140
+  },
+  "asi": {
+    "libsystem_c.dylib": [
+      "abort() called"
+    ]
+  },
+  "lastExceptionBacktrace": [
+    {
+      "imageOffset": 989092,
+      "symbol": "__exceptionPreprocess",
+      "symbolLocation": 164,
+      "imageIndex": 8
+    },
+    {
+      "imageOffset": 99932,
+      "symbol": "objc_exception_throw",
+      "symbolLocation": 88,
+      "imageIndex": 7
+    },
+    {
+      "imageOffset": 167004,
+      "symbol": "-[__NSSingleObjectArrayI objectAtIndex:]",
+      "symbolLocation": 332,
+      "imageIndex": 8
+    },
+    {
+      "imageOffset": 4060,
+      "symbol": "__35-[H applicationDidFinishLaunching:]_block_invoke_3",
+      "symbolLocation": 152,
+      "imageIndex": 1
+    },
+    {
+      "imageOffset": 112032,
+      "symbol": "_dispatch_client_callout",
+      "symbolLocation": 16,
+      "imageIndex": 9
+    },
+    {
+      "imageOffset": 25012,
+      "symbol": "_dispatch_continuation_pop",
+      "symbolLocation": 596,
+      "imageIndex": 9
+    },
+    {
+      "imageOffset": 103080,
+      "symbol": "_dispatch_source_latch_and_call",
+      "symbolLocation": 392,
+      "imageIndex": 9
+    },
+    {
+      "imageOffset": 98172,
+      "symbol": "_dispatch_source_invoke",
+      "symbolLocation": 848,
+      "imageIndex": 9
+    },
+    {
+      "imageOffset": 235760,
+      "symbol": "_dispatch_main_queue_drain.cold.6",
+      "symbolLocation": 612,
+      "imageIndex": 9
+    },
+    {
+      "imageOffset": 68364,
+      "symbol": "_dispatch_main_queue_drain",
+      "symbolLocation": 176,
+      "imageIndex": 9
+    },
+    {
+      "imageOffset": 68172,
+      "symbol": "_dispatch_main_queue_callback_4CF",
+      "symbolLocation": 44,
+      "imageIndex": 9
+    },
+    {
+      "imageOffset": 780712,
+      "symbol": "__CFRUNLOOP_IS_SERVICING_THE_MAIN_DISPATCH_QUEUE__",
+      "symbolLocation": 16,
+      "imageIndex": 8
+    },
+    {
+      "imageOffset": 525880,
+      "symbol": "__CFRunLoopRun",
+      "symbolLocation": 1980,
+      "imageIndex": 8
+    },
+    {
+      "imageOffset": 1420304,
+      "symbol": "_CFRunLoopRunSpecificWithOptions",
+      "symbolLocation": 536,
+      "imageIndex": 8
+    },
+    {
+      "imageOffset": 767456,
+      "symbol": "RunCurrentEventLoopInMode",
+      "symbolLocation": 320,
+      "imageIndex": 10
+    },
+    {
+      "imageOffset": 780652,
+      "symbol": "ReceiveNextEventCommon",
+      "symbolLocation": 492,
+      "imageIndex": 10
+    },
+    {
+      "imageOffset": 2379192,
+      "symbol": "_BlockUntilNextEventMatchingListInMode",
+      "symbolLocation": 48,
+      "imageIndex": 10
+    },
+    {
+      "imageOffset": 3647680,
+      "symbol": "_DPSBlockUntilNextEventMatchingListInMode",
+      "symbolLocation": 292,
+      "imageIndex": 11
+    },
+    {
+      "imageOffset": 234908,
+      "symbol": "_DPSNextEvent",
+      "symbolLocation": 576,
+      "imageIndex": 11
+    },
+    {
+      "imageOffset": 8193528,
+      "symbol": "-[NSApplication(NSEventRouting) _nextEventMatchingEventMask:untilDate:inMode:dequeue:]",
+      "symbolLocation": 832,
+      "imageIndex": 11
+    },
+    {
+      "imageOffset": 8192232,
+      "symbol": "-[NSApplication(NSEventRouting) nextEventMatchingMask:untilDate:inMode:dequeue:]",
+      "symbolLocation": 344,
+      "imageIndex": 11
+    },
+    {
+      "imageOffset": 182560,
+      "symbol": "-[NSApplication run]",
+      "symbolLocation": 396,
+      "imageIndex": 11
+    },
+    {
+      "imageOffset": 6888,
+      "symbol": "main",
+      "symbolLocation": 672,
+      "imageIndex": 1
+    },
+    {
+      "imageOffset": 204156,
+      "symbol": "start",
+      "symbolLocation": 6652,
+      "imageIndex": 12
+    }
+  ],
+  "faultingThread": 0,
+  "threads": [
+    {
+      "triggered": true,
+      "id": 3442698,
+      "queue": "com.apple.main-thread",
+      "frames": [
+        {
+          "imageOffset": 38480,
+          "symbol": "__pthread_kill",
+          "symbolLocation": 8,
+          "imageIndex": 3
+        },
+        {
+          "imageOffset": 26976,
+          "symbol": "pthread_kill",
+          "symbolLocation": 296,
+          "imageIndex": 4
+        },
+        {
+          "imageOffset": 504960,
+          "symbol": "abort",
+          "symbolLocation": 148,
+          "imageIndex": 5
+        },
+        {
+          "imageOffset": 90884,
+          "symbol": "__abort_message",
+          "symbolLocation": 132,
+          "imageIndex": 6
+        },
+        {
+          "imageOffset": 13944,
+          "symbol": "demangling_terminate_handler()",
+          "symbolLocation": 296,
+          "imageIndex": 6
+        },
+        {
+          "imageOffset": 139664,
+          "symbol": "_objc_terminate()",
+          "symbolLocation": 156,
+          "imageIndex": 7
+        },
+        {
+          "imageOffset": 78512,
+          "symbol": "std::__terminate(void (*)())",
+          "symbolLocation": 16,
+          "imageIndex": 6
+        },
+        {
+          "imageOffset": 87996,
+          "symbol": "__cxxabiv1::failed_throw(__cxxabiv1::__cxa_exception*)",
+          "symbolLocation": 88,
+          "imageIndex": 6
+        },
+        {
+          "imageOffset": 8588,
+          "symbol": "__cxa_throw",
+          "symbolLocation": 92,
+          "imageIndex": 6
+        },
+        {
+          "imageOffset": 100292,
+          "symbol": "objc_exception_throw",
+          "symbolLocation": 448,
+          "imageIndex": 7
+        },
+        {
+          "imageOffset": 167004,
+          "symbol": "-[__NSSingleObjectArrayI objectAtIndex:]",
+          "symbolLocation": 332,
+          "imageIndex": 8
+        },
+        {
+          "imageOffset": 4060,
+          "symbol": "__35-[H applicationDidFinishLaunching:]_block_invoke_3",
+          "symbolLocation": 152,
+          "imageIndex": 1
+        },
+        {
+          "imageOffset": 112032,
+          "symbol": "_dispatch_client_callout",
+          "symbolLocation": 16,
+          "imageIndex": 9
+        },
+        {
+          "imageOffset": 25012,
+          "symbol": "_dispatch_continuation_pop",
+          "symbolLocation": 596,
+          "imageIndex": 9
+        },
+        {
+          "imageOffset": 103080,
+          "symbol": "_dispatch_source_latch_and_call",
+          "symbolLocation": 392,
+          "imageIndex": 9
+        },
+        {
+          "imageOffset": 98172,
+          "symbol": "_dispatch_source_invoke",
+          "symbolLocation": 848,
+          "imageIndex": 9
+        },
+        {
+          "imageOffset": 235760,
+          "symbol": "_dispatch_main_queue_drain.cold.6",
+          "symbolLocation": 612,
+          "imageIndex": 9
+        },
+        {
+          "imageOffset": 68364,
+          "symbol": "_dispatch_main_queue_drain",
+          "symbolLocation": 176,
+          "imageIndex": 9
+        },
+        {
+          "imageOffset": 68172,
+          "symbol": "_dispatch_main_queue_callback_4CF",
+          "symbolLocation": 44,
+          "imageIndex": 9
+        },
+        {
+          "imageOffset": 780712,
+          "symbol": "__CFRUNLOOP_IS_SERVICING_THE_MAIN_DISPATCH_QUEUE__",
+          "symbolLocation": 16,
+          "imageIndex": 8
+        }
+      ]
+    },
+    {
+      "id": 3442699,
+      "frames": [
+        {
+          "imageOffset": 3000,
+          "symbol": "__workq_kernreturn",
+          "symbolLocation": 8,
+          "imageIndex": 3
+        }
+      ]
+    }
+  ],
+  "usedImages": [
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 4329177088,
+      "size": 49152,
+      "path": "/Users/USER/*/libMenuLoader.dylib",
+      "name": "libMenuLoader.dylib"
+    },
+    {
+      "source": "P",
+      "arch": "arm64",
+      "base": 4328767488,
+      "CFBundleIdentifier": "local.dynject.menuloader.skeptic2",
+      "size": 16384,
+      "path": "/Users/USER/*/S2.app/Contents/MacOS/S2",
+      "name": "S2"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 4331159552,
+      "size": 49152,
+      "path": "/usr/lib/libobjc-trampolines.dylib",
+      "name": "libobjc-trampolines.dylib"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 6955429888,
+      "size": 256604,
+      "path": "/usr/lib/system/libsystem_kernel.dylib",
+      "name": "libsystem_kernel.dylib"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 6955687936,
+      "size": 51372,
+      "path": "/usr/lib/system/libsystem_pthread.dylib",
+      "name": "libsystem_pthread.dylib"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 6955814912,
+      "size": 535764,
+      "path": "/usr/lib/system/libsystem_c.dylib",
+      "name": "libsystem_c.dylib"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 7030239232,
+      "size": 106240,
+      "path": "/usr/lib/libc++abi.dylib",
+      "name": "libc++abi.dylib"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 6954106880,
+      "size": 325208,
+      "path": "/usr/lib/libobjc.A.dylib",
+      "name": "libobjc.A.dylib"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 7024148480,
+      "CFBundleShortVersionString": "6.9",
+      "CFBundleIdentifier": "com.apple.CoreFoundation",
+      "size": 4797232,
+      "path": "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+      "name": "CoreFoundation",
+      "CFBundleVersion": "5027.1.8"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 7039070208,
+      "size": 287200,
+      "path": "/usr/lib/system/libdispatch.dylib",
+      "name": "libdispatch.dylib"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 7199772672,
+      "CFBundleShortVersionString": "2.1.1",
+      "CFBundleIdentifier": "com.apple.HIToolbox",
+      "size": 3049880,
+      "path": "/System/Library/Frameworks/Carbon.framework/Versions/A/Frameworks/HIToolbox.framework/Versions/A/HIToolbox",
+      "name": "HIToolbox"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 7121608704,
+      "CFBundleShortVersionString": "6.9",
+      "CFBundleIdentifier": "com.apple.AppKit",
+      "size": 23873264,
+      "path": "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit",
+      "name": "AppKit",
+      "CFBundleVersion": "2775.20.133"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 6954643456,
+      "size": 785540,
+      "path": "/usr/lib/dyld",
+      "name": "dyld"
+    },
+    {
+      "size": 0,
+      "source": "A",
+      "base": 0
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 7259373568,
+      "CFBundleShortVersionString": "1.22",
+      "CFBundleIdentifier": "com.apple.HIServices",
+      "size": 430140,
+      "path": "/System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/HIServices.framework/Versions/A/HIServices",
+      "name": "HIServices"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 6962225152,
+      "CFBundleShortVersionString": "6.9",
+      "CFBundleIdentifier": "com.apple.Foundation",
+      "size": 19620216,
+      "path": "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
+      "name": "Foundation",
+      "CFBundleVersion": "5027.1.8"
+    }
+  ],
+  "bug_type": "309",
+  "version": 2,
+  "osVersion": {
+    "train": "macOS 27.2.1",
+    "build": "26B131",
+    "releaseType": "User"
+  },
+  "procRole": "Default",
+  "legacyInfo": {
+    "threadTriggered": {
+      "queue": "com.apple.main-thread"
+    }
+  },
+  "futureField": {
+    "added": "in a later macOS"
+  }
+}

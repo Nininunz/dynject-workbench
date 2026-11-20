@@ -3,13 +3,14 @@ import DynjectCore
 import Observation
 
 enum SidebarSection: String, CaseIterable, Identifiable {
-    case injection, tweaks, dylibs, config, plists, daemon
+    case injection, tweaks, safemode, dylibs, config, plists, daemon
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .injection: return "Apps & Injection"
         case .tweaks: return "Tweaks"
+        case .safemode: return "Safe Mode"
         case .dylibs: return "Dylibs"
         case .config: return "Raw Config"
         case .plists: return "Plist Editor"
@@ -21,6 +22,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         switch self {
         case .injection: return "square.stack.3d.down.right"
         case .tweaks: return "puzzlepiece.extension"
+        case .safemode: return "cross.case"
         case .dylibs: return "shippingbox"
         case .config: return "doc.plaintext"
         case .plists: return "list.bullet.indent"
@@ -132,6 +134,12 @@ final class WorkbenchModel {
     private(set) var menuStatus: String?
     @ObservationIgnored private var menuPublishTask: Task<Void, Never>?
 
+    // MARK: Safe Mode
+    let safeMode: SafeModeModel
+    /// Crash reports "opened" during a smoke test, which never launches Console.
+    private(set) var openedReports: [String] = []
+    @ObservationIgnored private var appIcons: [String: NSImage] = [:]
+
     init(env: AppEnvironment) {
         self.env = env
         tweakBackend = env.fixtureMode ? FileTweakBackend(path: env.tweakPrefsFile) : CFPreferencesTweakBackend()
@@ -155,6 +163,7 @@ final class WorkbenchModel {
             menuSettingsStore = MenuLoaderSettingsStore(file: nil)
         }
         menuSettings = menuSettingsStore.load()
+        safeMode = SafeModeModel(env: env, tweakBackend: tweakBackend)
         associations = associationStore.load()
         reloadConfig()
         loadTweaks()
@@ -165,6 +174,7 @@ final class WorkbenchModel {
     func start() {
         scanApps()
         refreshRuntime()
+        safeMode.start()
     }
 
     func reloadConfig() {
@@ -475,6 +485,7 @@ final class WorkbenchModel {
             selectedTweakID = manifests.first?.id
         }
         publishAppleMenu()
+        safeMode.manifests = manifests
     }
 
     var tweaksFolder: String { env.tweakDirectories.first ?? env.supportDirectory.appendingPathComponent("Tweaks").path }
@@ -597,6 +608,75 @@ final class WorkbenchModel {
 
     func installedAppName(_ bundleID: String) -> String {
         apps.first { $0.bundleID == bundleID }?.displayName ?? bundleID
+    }
+
+    // MARK: Safe Mode
+
+    func installedApp(bundleID: String) -> InstalledApp? { apps.first { $0.bundleID == bundleID } }
+
+    /// The app's icon: from the scanned apps, else from Launch Services. Cached per bundle ID.
+    func appIcon(bundleID: String) -> NSImage? {
+        if let cached = appIcons[bundleID] { return cached }
+        let path = installedApp(bundleID: bundleID)?.bundlePath
+            ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)?.path
+        guard let path else { return nil }
+        let icon = NSWorkspace.shared.icon(forFile: path)
+        appIcons[bundleID] = icon
+        return icon
+    }
+
+    func appDisplayName(bundleID: String, fallback: String? = nil) -> String {
+        if bundleID == SafeModeNames.all { return "Every app" }
+        return installedApp(bundleID: bundleID)?.displayName ?? fallback ?? bundleID
+    }
+
+    /// Opens a crash report in the default viewer (Console). The smoke test only records it.
+    func openCrashReport(_ path: String) {
+        guard env.smokeTestReportDirectory == nil else {
+            openedReports.append(path)
+            return
+        }
+        guard FileManager.default.fileExists(atPath: path) else {
+            banner = Banner(kind: .warning, title: "Crash report not found", detail: "\(path) no longer exists (macOS removes old reports).")
+            return
+        }
+        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+    }
+
+    /// Whether the config injects `dylib` into the app `bundleID`: as saved, and as in the working copy (which
+    /// differs while a change is staged). nil when `bundleID` is "*" or not a scanned app.
+    func configInjection(dylib: String, bundleID: String) -> (saved: Bool, working: Bool)? {
+        guard bundleID != SafeModeNames.all, let app = installedApp(bundleID: bundleID), let saved = diskEvals[app.id] else { return nil }
+        return (saved.isInjected(dylib), workingEvals[app.id]?.isInjected(dylib) ?? saved.isInjected(dylib))
+    }
+
+    /// For tweaks that ignore Safe Mode: stage "don't inject this dylib into this app" in the working config and
+    /// open the usual review sheet (save, then restart dynjectd; admin prompt in live mode).
+    func disableInConfig(dylib: String, bundleID: String, tweakName: String) {
+        guard bundleID != SafeModeNames.all else {
+            section = .injection
+            onlyInjected = true
+            searchText = ""
+            banner = Banner(kind: .info, title: "Turn \(tweakName) off app by app",
+                            detail: "Select each app that gets \(dylib.lastPathComponent) and switch it off, then Review & Save.")
+            return
+        }
+        guard let app = installedApp(bundleID: bundleID) else {
+            banner = Banner(kind: .warning, title: "\(bundleID) isn't among the scanned apps",
+                            detail: "Workbench can only edit the config for apps it found. Edit Raw Config to deny \(dylib.lastPathComponent) for it.")
+            return
+        }
+        if workingEvals[app.id]?.isInjected(dylib) == true {
+            let before = workingText
+            setInjection(false, dylib: dylib, app: app)
+            guard workingText != before else { return }   // setInjection explained why in the banner
+        } else if !hasUnsavedConfig {
+            banner = Banner(kind: .info, title: "\(dylib.lastPathComponent) is already off for \(app.displayName) in the config",
+                            detail: diskEvals[app.id]?.isInjected(dylib) == true ? nil
+                                : "If it still loads, restart Dynject and relaunch \(app.displayName).")
+            return
+        }
+        showApplySheet = true
     }
 
     // MARK: Plists

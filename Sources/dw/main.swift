@@ -5,6 +5,7 @@
 //   dw disable <installed.dylib> <bundleID>  the reverse
 //   dw relaunch <bundleID>                 quit (if running) and open the app
 //   dw log <subsystem> [minutes]           show a tweak's unified-log lines
+//   dw safemode ...                        Safe Mode: status, disable/enable, panic, watch, agent (SafeModeCommands.swift)
 //
 // Uses the same DynjectCore code as the app: backups, conflict checks, atomic writes, single-daemon restart.
 import AppKit
@@ -104,6 +105,7 @@ func showLog(_ subsystem: String, minutes: Int) {
 
 let a = Array(CommandLine.arguments.dropFirst())
 switch (a.first, a.count) {
+case ("safemode", _): safeModeCommand(Array(a.dropFirst()))
 case ("install", 2): install(a[1])
 case ("enable", 3): setEnabled(true, dylib: a[1], bundleID: a[2])
 case ("disable", 3): setEnabled(false, dylib: a[1], bundleID: a[2])
@@ -118,6 +120,7 @@ default:
       dw disable <installed.dylib> <bundleID>
       dw relaunch <bundleID>
       dw log <subsystem> [minutes]
+      dw safemode ...   (dw safemode help)
     """)
     exit(a.isEmpty ? 0 : 2)
 }

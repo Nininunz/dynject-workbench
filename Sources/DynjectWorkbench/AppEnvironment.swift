@@ -15,11 +15,20 @@ struct AppEnvironment {
     var errorLogPath: String
     var appRoots: [String]
     var supportDirectory: URL
+    /// `-DWSupportDir` was given (supportDirectory is not the real one).
+    var overridesSupportDirectory = false
     var smokeTestReportDirectory: String?
     /// Folders searched for tweak manifests (`-DWTweaksDir` replaces the defaults).
     var tweakDirectories: [String]
     /// `-DWTweaksDir` or `-DWSupportDir` was given: the manifests are not (only) the installed ones.
     var overridesTweakSources = false
+    /// Crash reports Safe Mode's "Check Reports Now" reads (`-DWReportsDir`).
+    var reportsDirectoryOverride: String?
+    /// Installed tweak dylibs Safe Mode lists (`-DWTweakDylibDir`; default /opt/dynject/lib/tweaks, read only).
+    var tweakDylibDirectory: String = SafeModeCatalog.defaultDylibDirectory
+    var overridesTweakDylibDirectory = false
+    /// The `dw` binary the Safe Mode agent installs (`-DWDwBinary`; default: next to Workbench's executable).
+    var dwBinaryOverride: String?
 
     var fixtureMode: Bool { configPath != Self.liveConfigPath }
 
@@ -39,8 +48,55 @@ struct AppEnvironment {
     /// Workbench's own MenuLoader preferences in fixture mode (live mode uses the app's user defaults).
     var menuLoaderSettingsFile: URL { supportDirectory.appendingPathComponent("menuloader-settings.json") }
 
+    // MARK: Safe Mode
+
+    /// Safe Mode stays away from the real "dynject.safemode" key, the real state.json, ~/Library/LaunchAgents and
+    /// launchd whenever MenuLoader is isolated, or when crash reports or tweak dylibs come from somewhere else
+    /// (a scan of other reports must not disable tweaks for real). Then the key goes to a plist file, the
+    /// notification name is the test one, state.json and the agent's plist and binary go under the support
+    /// folder, and launchctl is simulated.
+    var isolatesSafeMode: Bool { isolatesMenuLoader || reportsDirectoryOverride != nil || overridesTweakDylibDirectory }
+
+    /// Where isolated Safe Mode files go: the support folder `-DWSupportDir` names, or, when an isolating flag
+    /// (`-DWTweaksDir`, `-DWConfigPath`, `-DWReportsDir`, `-DWTweakDylibDir`) comes without it, a preview folder
+    /// inside the real one. The real support folder itself holds the real SafeMode/state.json and bin/dw.
+    var safeModeIsolationRoot: URL {
+        overridesSupportDirectory ? supportDirectory : supportDirectory.appendingPathComponent("SafeModePreview", isDirectory: true)
+    }
+
+    /// Where an isolated "dynject.safemode" key goes when tweak settings are live (fixture mode shares the
+    /// tweak-prefs file).
+    var safeModeKeyFile: String { safeModeIsolationRoot.appendingPathComponent("safemode-prefs.plist").path }
+
+    var safeModeStateDirectory: URL {
+        isolatesSafeMode ? safeModeIsolationRoot.appendingPathComponent("SafeMode", isDirectory: true) : SafeModeStateStore.defaultDirectory
+    }
+
+    var safeModeReportsDirectory: String {
+        reportsDirectoryOverride
+            ?? (isolatesSafeMode ? safeModeIsolationRoot.appendingPathComponent("DiagnosticReports").path
+                                 : SafeModeScanner.defaultReportsDirectory)
+    }
+
+    var launchAgentsDirectory: URL {
+        isolatesSafeMode ? safeModeIsolationRoot.appendingPathComponent("LaunchAgents", isDirectory: true)
+                         : SafeModeAgent.defaultLaunchAgentsDirectory
+    }
+
+    var agentBinDirectory: URL {
+        isolatesSafeMode ? safeModeIsolationRoot.appendingPathComponent("bin", isDirectory: true) : SafeModeAgent.defaultBinDirectory
+    }
+
+    /// The bundled `dw` (Contents/MacOS/dw, put there by scripts/build-app.sh; in a SwiftPM build, the sibling
+    /// product).
+    var dwBinaryPath: String {
+        dwBinaryOverride ?? (Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0]))
+            .deletingLastPathComponent().appendingPathComponent("dw").path
+    }
+
     /// Reads `-DWConfigPath`, `-DWLogPath`, `-DWErrorLogPath`, `-DWAppRoots` (colon-separated), `-DWSupportDir`,
-    /// `-DWTweaksDir` and `-DWSmokeTest <report-dir>` from the launch arguments.
+    /// `-DWTweaksDir`, `-DWReportsDir`, `-DWTweakDylibDir`, `-DWDwBinary` and `-DWSmokeTest <report-dir>` from the
+    /// launch arguments.
     static func current(arguments: [String] = ProcessInfo.processInfo.arguments) -> AppEnvironment {
         func value(_ flag: String) -> String? {
             guard let i = arguments.firstIndex(of: flag), i + 1 < arguments.count else { return nil }
@@ -59,9 +115,14 @@ struct AppEnvironment {
             errorLogPath: value("-DWErrorLogPath") ?? liveErrorLogPath,
             appRoots: value("-DWAppRoots")?.split(separator: ":").map(String.init) ?? AppDiscovery.defaultRoots,
             supportDirectory: support,
+            overridesSupportDirectory: value("-DWSupportDir") != nil,
             smokeTestReportDirectory: value("-DWSmokeTest"),
             tweakDirectories: tweakDirs,
-            overridesTweakSources: value("-DWTweaksDir") != nil || value("-DWSupportDir") != nil
+            overridesTweakSources: value("-DWTweaksDir") != nil || value("-DWSupportDir") != nil,
+            reportsDirectoryOverride: value("-DWReportsDir"),
+            tweakDylibDirectory: value("-DWTweakDylibDir") ?? SafeModeCatalog.defaultDylibDirectory,
+            overridesTweakDylibDirectory: value("-DWTweakDylibDir") != nil,
+            dwBinaryOverride: value("-DWDwBinary")
         )
     }
 }
@@ -70,5 +131,29 @@ struct AppEnvironment {
 struct RefusingExecutor: PrivilegedExecutor {
     func run(_ arguments: [String], prompt: String) throws -> String {
         throw WriteError.helperFailed("Fixture mode never asks for administrator rights. Make the fixture file writable.")
+    }
+}
+
+/// launchctl for an isolated Safe Mode agent: nothing reaches launchd. It remembers bootstrap and bootout, so
+/// the panel shows the agent as loaded and running after Install, like the real thing.
+final class SimulatedLaunchctlRunner: LaunchctlRunner {
+    private(set) var calls: [[String]] = []
+    private(set) var loaded = false
+
+    func run(_ arguments: [String]) -> (status: Int32, output: String) {
+        calls.append(arguments)
+        switch arguments.first {
+        case "bootstrap":
+            loaded = true
+            return (0, "")
+        case "bootout":
+            defer { loaded = false }
+            return loaded ? (0, "") : (3, "Boot-out failed: 3: No such process (simulated)")
+        case "print":
+            return loaded ? (0, "\(arguments.last ?? "") = {\n\tstate = running\n\tpid = 4242\n\tlast exit code = (never exited)\n}\n")
+                          : (113, "Could not find service (simulated)")
+        default:
+            return (0, "")
+        }
     }
 }

@@ -1161,15 +1161,34 @@ static BOOL DHStringEqualsCString(CFStringRef string, const char *cString) {
     return equal;
 }
 
-// Whether "dynject.safemode" lists this app (or "*") for the tweak. Values of the wrong type
-// anywhere count as absent.
-static BOOL DHSafeModeApplies(const char *tweakID, CFStringRef bundleID) {
+// Whether `apps` (any CF value) is an array that contains "*" or `bundleID`. Elements that are not
+// strings are skipped; any other kind of value counts as absent.
+static BOOL DHSafeModeListMatches(CFTypeRef apps, CFStringRef bundleID) {
+    if (!apps || CFGetTypeID(apps) != CFArrayGetTypeID()) return NO;
+    CFIndex count = CFArrayGetCount((CFArrayRef)apps);
+    for (CFIndex i = 0; i < count; i++) {
+        CFTypeRef app = CFArrayGetValueAtIndex((CFArrayRef)apps, i);
+        if (!app || CFGetTypeID(app) != CFStringGetTypeID()) continue;
+        if (CFEqual(app, CFSTR("*")) || (bundleID && CFEqual(app, bundleID))) return YES;
+    }
+    return NO;
+}
+
+typedef enum {
+    DHSafeModeOff = 0,
+    DHSafeModeForTweak,   // the tweak's own entry lists this app (or "*")
+    DHSafeModeForAll,     // the "*" entry (the panic switch) lists this app (or "*")
+} DHSafeModeMatch;
+
+// Whether "dynject.safemode" lists this app (or "*") for the tweak, either under the tweak's ID or
+// under "*", which applies to every tweak. Values of the wrong type anywhere count as absent.
+static DHSafeModeMatch DHSafeModeApplies(const char *tweakID, CFStringRef bundleID) {
     CFStringRef domain = NULL;
     char *override = DHCopyOverride(&sTestPreferencesDomain);
     if (override) {
         domain = CFStringCreateWithCString(kCFAllocatorDefault, override, kCFStringEncodingUTF8);
         free(override);
-        if (!domain) return NO;
+        if (!domain) return DHSafeModeOff;
     } else {
         domain = CFRetain(kCFPreferencesAnyApplication);
     }
@@ -1177,22 +1196,19 @@ static BOOL DHSafeModeApplies(const char *tweakID, CFStringRef bundleID) {
     CFPropertyListRef value = CFPreferencesCopyValue(CFSTR("dynject.safemode"), domain,
                                                      kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
     CFRelease(domain);
-    BOOL applies = NO;
+    DHSafeModeMatch match = DHSafeModeOff;
     CFStringRef key = CFStringCreateWithCString(kCFAllocatorDefault, tweakID, kCFStringEncodingUTF8);
-    if (value && key && CFGetTypeID(value) == CFDictionaryGetTypeID()) {
-        CFTypeRef apps = CFDictionaryGetValue((CFDictionaryRef)value, key);
-        if (apps && CFGetTypeID(apps) == CFArrayGetTypeID()) {
-            CFIndex count = CFArrayGetCount((CFArrayRef)apps);
-            for (CFIndex i = 0; i < count && !applies; i++) {
-                CFTypeRef app = CFArrayGetValueAtIndex((CFArrayRef)apps, i);
-                if (!app || CFGetTypeID(app) != CFStringGetTypeID()) continue;
-                applies = CFEqual(app, CFSTR("*")) || (bundleID && CFEqual(app, bundleID));
-            }
+    if (value && CFGetTypeID(value) == CFDictionaryGetTypeID()) {
+        CFDictionaryRef entries = (CFDictionaryRef)value;
+        if (key && DHSafeModeListMatches(CFDictionaryGetValue(entries, key), bundleID)) {
+            match = DHSafeModeForTweak;
+        } else if (DHSafeModeListMatches(CFDictionaryGetValue(entries, CFSTR("*")), bundleID)) {
+            match = DHSafeModeForAll;
         }
     }
     if (key) CFRelease(key);
     if (value) CFRelease(value);
-    return applies;
+    return match;
 }
 
 static BOOL DHShiftKeyIsDown(void) {
@@ -1200,6 +1216,13 @@ static BOOL DHShiftKeyIsDown(void) {
     CGEventFlags flags = CGEventSourceFlagsState(kCGEventSourceStateCombinedSessionState);
     return (flags & kCGEventFlagMaskShift) ? YES : NO;
 }
+
+#pragma mark - Safe Mode capabilities
+
+// Read by Dynject Workbench's Safe Mode support check (SafeModeSupportChecker.panicMarker): this build honours
+// the "*" entry of "dynject.safemode" (the panic switch, or every tweak in one app). Builds without it honour
+// only the tweak's own entry. Keep the string exactly as it is.
+__attribute__((used)) static const char *const DHSafeModeCapabilities = "dynject.safemode:all-tweaks";
 
 BOOL DHShouldLoad(const char *tweakID, const char *const *bundleIDs) {
     if (!tweakID || !tweakID[0]) {
@@ -1215,7 +1238,13 @@ BOOL DHShouldLoad(const char *tweakID, const char *const *bundleIDs) {
         }
         if (!listed) reason = @"this app is not one of the tweak's target apps";
     }
-    if (!reason && DHSafeModeApplies(tweakID, bundleID)) reason = @"Safe Mode is on for this tweak in this app (dynject.safemode)";
+    if (!reason) {
+        switch (DHSafeModeApplies(tweakID, bundleID)) {
+            case DHSafeModeForTweak: reason = @"Safe Mode is on for this tweak in this app (dynject.safemode)"; break;
+            case DHSafeModeForAll: reason = @"Safe Mode is on for all tweaks in this app (dynject.safemode \"*\")"; break;
+            case DHSafeModeOff: break;
+        }
+    }
     if (!reason && DHShiftKeyIsDown()) reason = @"the Shift key is held down";
     if (reason) {
         DHLog(@"%s: not loading into %@: %@", tweakID, bundleID ? (__bridge NSString *)bundleID : @"(no bundle identifier)", reason);

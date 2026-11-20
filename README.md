@@ -50,6 +50,12 @@ an administrator prompt can never appear. A purple strip marks the window. The o
 support folder and app roots; with `-DWSupportDir` or `-DWTweaksDir` (a folder of manifests to preview) the
 Apple-menu list is also kept out of the global preferences (in `menuloader-preview.plist` in the support folder, or
 the fixture's `tweak-prefs.plist` in fixture mode), so previewing never replaces what the installed tweaks publish.
+Safe Mode is isolated in the same cases, and also with `-DWReportsDir` (crash reports to scan) or `-DWTweakDylibDir`
+(installed dylibs to list): its key goes to that plist file under the test notification name, `state.json`, the
+LaunchAgent plist and the `dw` copy go under the support folder (under `SafeModePreview/` in it when
+`-DWSupportDir` isn't given, so they never share the real `SafeMode/state.json` or `bin/dw`), and launchctl is
+simulated. `-DWDwBinary` picks the
+`dw` that Install Watcher copies (default: `Contents/MacOS/dw`, which `scripts/build-app.sh` bundles).
 
 ```sh
 "build/Dynject Workbench.app/Contents/MacOS/DynjectWorkbench" \
@@ -177,13 +183,39 @@ switched off at runtime, a bundle filter and Safe Mode check in `DH_CTOR`. Its s
 one app can each include it. Guide: [docs/hooking.md](docs/hooking.md). For the build loop, the `dw` CLI
 (`swift build -c release --product dw`) installs a dylib, enables it for one app, relaunches the app and shows logs.
 
+## Safe Mode
+
+A crashing tweak is kept out of the app it crashes, per app and without admin rights. The watcher
+(`dw safemode watch`, run by the LaunchAgent `local.dynject.safemode`) reads new crash reports in
+`~/Library/Logs/DiagnosticReports`, finds the tweaks loaded in the crashed process, and adds the tweak and app to
+`dynject.safemode` in the global preferences domain. It does this at once when the crash happened in the tweak's code,
+and otherwise after 2 tweak-loaded crashes of that app within 10 minutes. DynjectHook's `DH_CTOR` skips listed tweaks
+at the next launch. `"*": ["*"]` is a panic switch for every DynjectHook tweak everywhere, and holding Shift while
+an app launches skips them for that launch. Tweaks not built on DynjectHook ignore the key; only the config can stop
+them, and tweaks built with an older DynjectHook ignore the panic switch until they are rebuilt. Safe Mode never edits the config. Details: [docs/safe-mode.md](docs/safe-mode.md).
+
+Workbench's **Safe Mode** page installs or removes the watcher, has the panic switch, lists what is disabled where
+and why (with the crash report and Re-enable), shows recent tweak-related crashes and which tweaks support Safe Mode,
+and offers "Disable in Config…" (the usual review, save and restart) for tweaks that ignore it.
+
+```
+dw safemode status                              panic switch, agent, disabled list, recent tweak-related crashes
+dw safemode disable <tweakID> <bundleID|*>      by hand
+dw safemode enable  <tweakID> <bundleID|*>      re-enable; earlier crashes stop counting
+dw safemode panic on|off
+dw safemode clear                               re-enable everything, panic off
+dw safemode settings [threshold N] [window MIN] [notify on|off]
+dw safemode watch [--once]                      the watcher
+dw safemode agent install|uninstall|status      LaunchAgent; install copies dw to Application Support/Dynject Workbench/bin
+```
+
 ## Repository layout
 
 ```
-Sources/DynjectCore/       Parser, evaluator, editor, log/ps/lsof/launchctl readers, writer, helper script, plists
+Sources/DynjectCore/       Parser, evaluator, editor, log/ps/lsof/launchctl readers, writer, helper script, plists, Safe Mode
 Sources/DynjectWorkbench/  SwiftUI app and the smoke-test runner (SmokeTest.swift)
 Sources/DynjectLiveTrial/  Live privileged trial runner (run only with approval)
-Sources/dw/                dw CLI for the tweak build loop (install, enable/disable, relaunch, log)
+Sources/dw/                dw CLI for the tweak build loop (install, enable/disable, relaunch, log) and Safe Mode
 TweakSDK/                  Tweak SDK: settings (DynjectTweak.h) and hooking (DynjectHook.h/.m)
 Examples/, docs/           Example manifest and TitleBadge tweak; tweak format and hooking guides
 Tests/DynjectCoreTests/    Unit tests and fixtures (live.conf is a byte copy of the live config)

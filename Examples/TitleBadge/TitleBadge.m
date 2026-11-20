@@ -3,11 +3,15 @@
 // Adds a small badge to the trailing side of every titled window, using only public AppKit API
 // (NSTitlebarAccessoryViewController): no swizzling, nothing the host app depends on.
 // Settings come from Dynject Workbench through DynjectTweak.h and update live.
+// It starts through DynjectHook's DH_CTOR, so it honours Safe Mode ("dynject.safemode") and the
+// Shift-at-launch bypass; DynjectHook is used for nothing else.
 #import <AppKit/AppKit.h>
 #import <os/log.h>
+#import "DynjectHook.h"
 #import "DynjectTweak.h"
 
-#define TB_ID @"local.dynject.titlebadge"
+#define TB_ID_C "local.dynject.titlebadge"
+#define TB_ID @TB_ID_C
 static NSString *const kTBViewID = @"local.dynject.titlebadge.badge";
 /// Result of the last settings read. Window events only trigger a re-apply while the badge is on,
 /// so a disabled tweak costs nothing per window update.
@@ -109,7 +113,8 @@ static void TBApplyAll(NSString *reason) {
            reason, bundleID, enabled, text, colorHex, style, fontSize, (unsigned long)n);
 }
 
-__attribute__((constructor)) static void TBInit(void) {
+// Every app it's injected into (no bundle-ID list); Workbench's "exclude" setting filters per app.
+DH_CTOR(TB_ID_C) {
     // Runs before main(); NSApp doesn't exist yet, so wait for launch and window events.
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     NSOperationQueue *main = [NSOperationQueue mainQueue];

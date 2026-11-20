@@ -178,6 +178,73 @@ static const char *const kDHTHostID = "com.dynject.tests.host";
     }
 }
 
+- (void)testPanicSwitchSkipsEveryTweakEverywhere {
+    [self setSafeMode:@{@"*" : @[ @"*" ]}];
+    XCTAssertFalse(DHShouldLoad("dht.tweak", NULL));
+    XCTAssertFalse(DHShouldLoad("dht.other.tweak", NULL));
+    const char *match[] = {kDHTHostID, NULL};
+    XCTAssertFalse(DHShouldLoad("dht.tweak", match), @"the panic switch wins over a matching bundle filter");
+    DHSetBundleIdentifierForTesting("com.example.anything");
+    XCTAssertFalse(DHShouldLoad("dht.tweak", NULL));
+    DHSetBundleIdentifierForTesting(NULL);
+    XCTAssertFalse(DHShouldLoad("dht.tweak", NULL), @"also applies to the real main bundle identifier");
+}
+
+- (void)testPanicSwitchForListedAppsOnly {
+    [self setSafeMode:@{@"*" : @[ @"com.example.other", @(kDHTHostID) ]}];
+    XCTAssertFalse(DHShouldLoad("dht.tweak", NULL));
+    XCTAssertFalse(DHShouldLoad("dht.other.tweak", NULL));
+    DHSetBundleIdentifierForTesting("com.example.third");
+    XCTAssertTrue(DHShouldLoad("dht.tweak", NULL), @"apps not listed under \"*\" still load every tweak");
+    DHSetBundleIdentifierForTesting("com.example.other");
+    XCTAssertFalse(DHShouldLoad("dht.other.tweak", NULL));
+}
+
+- (void)testPanicSwitchCombinesWithPerTweakEntries {
+    [self setSafeMode:@{
+        @"*" : @[ @"com.example.other" ],
+        @"dht.tweak" : @[ @(kDHTHostID) ],
+    }];
+    XCTAssertFalse(DHShouldLoad("dht.tweak", NULL), @"the per-tweak entry still applies");
+    XCTAssertTrue(DHShouldLoad("dht.other.tweak", NULL), @"\"*\" lists another app only");
+    DHSetBundleIdentifierForTesting("com.example.other");
+    XCTAssertFalse(DHShouldLoad("dht.tweak", NULL));
+    XCTAssertFalse(DHShouldLoad("dht.other.tweak", NULL));
+}
+
+- (void)testPanicSwitchWithMalformedPerTweakEntry {
+    // A malformed entry for the tweak must not hide a valid "*" entry, and vice versa.
+    [self setSafeMode:@{@"*" : @[ @"*" ], @"dht.tweak" : @"not an array"}];
+    XCTAssertFalse(DHShouldLoad("dht.tweak", NULL));
+    [self setSafeMode:@{@"*" : @"*", @"dht.tweak" : @[ @(kDHTHostID) ]}];
+    XCTAssertFalse(DHShouldLoad("dht.tweak", NULL));
+    XCTAssertTrue(DHShouldLoad("dht.other.tweak", NULL), @"a malformed \"*\" entry is ignored");
+}
+
+- (void)testPanicSwitchWrongTypesAreIgnored {
+    NSArray *wrongValues = @[
+        @{@"*" : @"*"},
+        @{@"*" : @(kDHTHostID)},
+        @{@"*" : @{@"*" : @YES}},
+        @{@"*" : @[ @1, @[ @"*" ] ]},
+        @{@"*" : @[]},
+        @{@"*" : @[ @"com.example.other" ]},
+        @{@"**" : @[ @"*" ], @" *" : @[ @"*" ]},    // only the exact key "*" is the panic switch
+    ];
+    for (id value in wrongValues) {
+        [self setSafeMode:value];
+        XCTAssertTrue(DHShouldLoad("dht.tweak", NULL), @"Safe Mode value %@ must not stop the tweak", value);
+    }
+}
+
+- (void)testPanicSwitchCanBeTurnedOff {
+    [self setSafeMode:@{@"*" : @[ @"*" ], @"dht.other.tweak" : @[ @"*" ]}];
+    XCTAssertFalse(DHShouldLoad("dht.tweak", NULL));
+    [self setSafeMode:@{@"dht.other.tweak" : @[ @"*" ]}];
+    XCTAssertTrue(DHShouldLoad("dht.tweak", NULL), @"read fresh: removing \"*\" re-enables at once");
+    XCTAssertFalse(DHShouldLoad("dht.other.tweak", NULL), @"entries other than \"*\" are kept");
+}
+
 - (void)testShiftBypassFollowsKeyboardWhenNotDisabled {
     unsetenv("DH_DISABLE_SHIFT_BYPASS");
     // The real keyboard decides here. Sample it on both sides of the call and

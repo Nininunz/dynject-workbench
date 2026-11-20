@@ -22,6 +22,7 @@ struct ContentView: View {
                     switch model.section {
                     case .injection: InjectionView(model: model)
                     case .tweaks: TweaksView(model: model)
+                    case .safemode: SafeModeView(model: model)
                     case .dylibs: DylibsView(model: model)
                     case .config: ConfigView(model: model)
                     case .plists: PlistView(model: model)
@@ -71,6 +72,12 @@ struct ContentView: View {
             }
             if model.hasUnsavedConfig {
                 Label("Unsaved config", systemImage: "pencil.circle.fill").foregroundStyle(.blue)
+            }
+            if model.safeMode.snapshot.panic {
+                Label("Safe Mode panic on", systemImage: "exclamationmark.octagon.fill").foregroundStyle(.red)
+            } else if model.safeMode.disabledCount > 0 {
+                let n = model.safeMode.disabledCount
+                Label("Safe Mode: \(n) disabled", systemImage: "cross.case.fill").foregroundStyle(.orange)
             }
         }
         .font(.caption)

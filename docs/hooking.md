@@ -13,7 +13,8 @@ Dynject Workbench publishes for your tweak (see [Tweak format](tweak-format.md))
 **Use it when** you need to change what an existing Objective-C method does: an AppKit method, a method on
 one of the app's own classes, or an `@objc` method on a Swift class. **You don't need it when** public API already does
 the job. For example, the [TitleBadge](../Examples/TitleBadge) example only adds a titlebar accessory and
-swizzles nothing.
+swizzles nothing. It still compiles DynjectHook in, but only for `DH_CTOR`, so that it honours Safe Mode and the Shift
+bypass (see [Entry point and load policy](#entry-point-and-load-policy-dh_ctor)). Every tweak should start that way.
 
 Requirements: macOS 14+, arm64 / arm64e / x86_64, compiled with `-fobjc-arc`. It depends only on Foundation,
 CoreFoundation and CoreGraphics (CoreGraphics is used only for the Shift-key check).
@@ -399,13 +400,33 @@ The body runs while dyld loads your dylib, before the app's `main`. Install hook
   processes Dynject has already injected; `dynjectd.conf` still decides which apps load the dylib at all.
 - **Safe Mode.** The user's global preferences (`kCFPreferencesAnyApplication`, current user, any host) contain
   `dynject.safemode`: a dictionary that maps tweak IDs to arrays of bundle IDs. If the array for your tweak ID contains
-  the current bundle ID or `"*"`, the tweak is skipped. DynjectHook synchronizes the domain before reading it. Values of the wrong type
-  are ignored. The domain is readable from sandboxed apps.
+  the current bundle ID or `"*"`, the tweak is skipped. The tweak-ID key `"*"` is the panic switch: its array applies
+  to every tweak, so `"*" = ("*")` skips every DynjectHook tweak in every app, and `"*" = ("com.apple.calculator")`
+  skips all of them in Calculator only. DynjectHook synchronizes the domain before reading it. Values of the wrong type
+  are ignored (a malformed entry for your tweak doesn't hide a valid `"*"` entry, or the other way round). The domain is
+  readable from sandboxed apps.
+
+  Change the key with `dw safemode` or Workbench's Safe Mode page rather than `defaults`. They read, change and
+  write back only the entry concerned (under the same lock as the crash watcher), post `dynject.safemode.changed`,
+  and record why, since when and the re-enable time, so crashes from before a re-enable stop counting:
 
   ```sh
-  defaults write -g dynject.safemode '{ "com.you.tweak" = ("com.apple.calculator"); "com.other.tweak" = ("*"); }'
-  defaults delete -g dynject.safemode
+  dw safemode disable com.you.tweak com.apple.calculator   # one app
+  dw safemode enable  com.you.tweak com.apple.calculator   # re-enable
+  dw safemode panic on                                     # panic: no DynjectHook tweak loads anywhere
+  dw safemode panic off                                    # per-app entries are kept
+  dw safemode status
   ```
+
+  `defaults write -g dynject.safemode '{ ... }'` with a literal dictionary **replaces every Safe Mode entry**,
+  including the ones the watcher added after crashes, and `defaults delete -g dynject.safemode` removes them all.
+  If you must use `defaults`, add one entry with `defaults write -g dynject.safemode -dict-add '*' '("*")'`.
+
+  Builds of DynjectHook that know the `"*"` entry carry the string `dynject.safemode:all-tweaks`, which is how
+  Safe Mode tells them from older builds that ignore the panic switch.
+
+  Only tweaks built on DynjectHook (or that read the key themselves) honour Safe Mode. A dylib that doesn't is still
+  loaded wherever `dynjectd.conf` says; turn it off there. The setting takes effect at the next launch of the app.
 
 - **Shift bypass.** Shift is held down when the tweak loads. Hold Shift while launching an app to start it without any
   DynjectHook tweaks, which helps if a tweak crashes the app at launch. Set the environment variable

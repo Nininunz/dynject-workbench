@@ -221,4 +221,5 @@ are best-effort; a relaunch always picks up the latest values.
 ## Not in version 1
 
 The format leaves room for these later: suggested injection targets, tweak install/uninstall (dylib + manifest
-into `/opt/dynject/lib/tweaks/`), safe mode after repeated crashes, settings presets (export/import), and image settings.
+into `/opt/dynject/lib/tweaks/`), settings presets (export/import), and image settings. Safe mode after crashes
+exists outside the format: see [safe-mode.md](safe-mode.md).

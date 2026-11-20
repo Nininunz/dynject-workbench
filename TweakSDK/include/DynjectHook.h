@@ -249,8 +249,10 @@ DH_HIDDEN void DHCheckPendingClasses(void);
 ///  1. `bundleIDs` (NULL, or a NULL-terminated array) is not empty and does not contain the main
 ///     bundle's identifier;
 ///  2. Safe Mode is on for this tweak here: the user's global preferences hold a dictionary under
-///     "dynject.safemode" that maps tweak IDs to arrays of bundle IDs, and the array for `tweakID`
-///     contains this app's bundle ID or "*" (values of any other shape are ignored);
+///     "dynject.safemode" that maps tweak IDs to arrays of bundle IDs, and the array for `tweakID`,
+///     or the array under the key "*" (which applies to every tweak: the panic switch), contains
+///     this app's bundle ID or "*". So {"*": ["*"]} stops every DynjectHook tweak in every app.
+///     Values of any other shape are ignored;
 ///  3. the Shift key is held down while the tweak loads, unless the environment variable
 ///     DH_DISABLE_SHIFT_BYPASS is set (to any value);
 ///  or when `tweakID` is NULL or empty. Otherwise returns YES.

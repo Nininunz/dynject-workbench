@@ -8,9 +8,11 @@ SDK=$(xcrun --show-sdk-path)
 CC=$(xcrun -find clang)
 mkdir -p "$OUT"
 
+# DynjectHook.m is compiled in for DH_CTOR (Safe Mode and the Shift bypass); its symbols are hidden.
 "$CC" -Wall -Wextra -O2 -fobjc-arc -isysroot "$SDK" -I "$DIR/../../TweakSDK/include" \
   -arch x86_64 -arch arm64 -arch arm64e -dynamiclib -install_name @rpath/libTitleBadge.dylib \
-  -framework AppKit -framework Foundation "$DIR/TitleBadge.m" -o "$OUT/libTitleBadge.dylib"
+  -framework AppKit -framework Foundation -framework CoreGraphics \
+  "$DIR/TitleBadge.m" "$DIR/../../TweakSDK/DynjectHook.m" -o "$OUT/libTitleBadge.dylib"
 codesign --force --sign - --timestamp=none "$OUT/libTitleBadge.dylib"
 echo "Built $OUT/libTitleBadge.dylib ($(lipo -archs "$OUT/libTitleBadge.dylib"))"
 

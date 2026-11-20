@@ -153,6 +153,7 @@ struct SmokeTest {
         model.revertPlist()
 
         await tweakScenario(finder: finder)
+        await safeModeScenario(finder: finder)
 
         model.section = .dylibs
         _ = check("association shown", await wait { await AXSelf.exists("screen-dylibs") }
@@ -175,7 +176,7 @@ struct SmokeTest {
         func global(_ k: String) -> Any? { (payload()?["values"] as? [String: Any])?[k] }
         func perApp(_ b: String, _ k: String) -> Any? { ((payload()?["perApp"] as? [String: Any])?[b] as? [String: Any])?[k] }
 
-        guard check("tweak manifest loaded", model.tweaks.map(\.id) == [id] && !model.tweakIssues.contains { $0.severity == .error },
+        guard check("tweak manifest loaded", Set(model.tweaks.map(\.id)) == [id, safeTweakID] && !model.tweakIssues.contains { $0.severity == .error },
                     model.tweakIssues.map(\.message).joined(separator: " | ")) else { return }
         model.section = .tweaks
         model.selectedTweakID = id
@@ -222,6 +223,212 @@ struct SmokeTest {
         model.section = .tweaks
         _ = check("press revert", await pressWhenReady("tweak-revert"), "")
         _ = check("session reverted", await wait { payload() == nil }, "no payload existed before this session")
+    }
+
+    // MARK: Safe Mode
+
+    /// The second fixture manifest (scripts/ui-smoke-test.sh): its dylib contains DynjectHook's key string.
+    var safeTweakID: String { "com.example.safetweak" }
+
+    /// Agent install (simulated launchctl), crash attribution from synthetic reports, Re-enable, panic switch,
+    /// refresh on state.json changes and on the Darwin notification, "Disable in Config…" through the review
+    /// sheet, uninstall. Everything stays in the fixture file, the support folder and the test names.
+    func safeModeScenario(finder: InstalledApp) async {
+        let sm = model.safeMode
+        let support = model.env.supportDirectory.path
+        let brutalID = "com.example.windowtweak"
+        let host = "local.dynject.safemode.smokehost"
+        let safeRow = "\(safeTweakID)|\(host)", brutalRow = "\(brutalID)|com.apple.finder"
+        let keys = sm.safeMode.keys
+        let runner = sm.agent.runner as? SimulatedLaunchctlRunner
+
+        guard check("safemode isolated", sm.isolated && sm.names == .forDomain(SafeModeNames.testDomain)
+                    && sm.keyFile == model.env.tweakPrefsFile && sm.stateFile.hasPrefix(support)
+                    && sm.agent.plistURL.path.hasPrefix(support) && sm.agent.binaryURL.path.hasPrefix(support)
+                    && runner != nil && sm.reportsDirectory == model.env.reportsDirectoryOverride && sm.notifier is RecordingNotifier,
+                    "key \(sm.names.key) in \(sm.keyFile ?? "?"), notification \(sm.names.notification), state \(sm.stateFile), agent \(sm.agent.plistURL.path)")
+        else { return }
+        let loose = SafeModeTweak.unmanifestedID(fileName: "libLoose.dylib")
+        _ = check("safemode support check", sm.supportLevel(safeTweakID) == .perTweakAndPanic && sm.supportsSafeMode(brutalID) == false
+                  && sm.supportsSafeMode(loose) == false && sm.tweaksIgnoringSafeMode.map(\.tweakID).contains(brutalID),
+                  sm.catalog.tweaks.map { "\($0.tweakID)=\(String(describing: sm.supportsSafeMode($0.tweakID)))" }.joined(separator: ", "))
+
+        model.section = .safemode
+        _ = check("safemode panel", await wait {
+                      for id in ["safemode-support-\(safeTweakID)", "safemode-support-\(loose)", "safemode-shift-footer", "safemode-panic"] {
+                          if !(await AXSelf.exists(id)) { return false }
+                      }
+                      return true
+                  }, "support badges, panic switch, Shift footer")
+        _ = check("agent not installed", await wait { sm.agentStatus?.plistInstalled == false && sm.agentStatus?.loaded == false },
+                  sm.agentStatus?.summary ?? "nil")
+        await settle()
+        snapshot("safemode-empty")
+
+        // Watcher agent: real files in the support folder, simulated launchctl.
+        _ = check("press install watcher", await pressWhenReady("safemode-agent-install"), sm.dwBinaryPath)
+        _ = check("agent running (simulated)", await wait { sm.agentStatus?.running == true && sm.agentStatus?.plistMatches == true },
+                  sm.agentStatus?.summary ?? "nil")
+        let plist = (try? Data(contentsOf: sm.agent.plistURL))
+            .flatMap { try? PropertyListSerialization.propertyList(from: $0, format: nil) } as? [String: Any]
+        let args = plist?["ProgramArguments"] as? [String] ?? []
+        _ = check("agent plist", plist?["Label"] as? String == SafeModeAgent.label && plist?["RunAtLoad"] as? Bool == true
+                  && plist?["KeepAlive"] as? Bool == true && Array(args.prefix(3)) == [sm.agent.binaryURL.path, "safemode", "watch"]
+                  && args.contains(SafeModeNames.testDomain) && args.contains(sm.reportsDirectory),
+                  args.joined(separator: " "))
+        _ = check("agent binary copied", FileManager.default.isExecutableFile(atPath: sm.agent.binaryURL.path)
+                  && FileManager.default.contentsEqual(atPath: sm.agent.binaryURL.path, andPath: sm.dwBinaryPath), sm.agent.binaryURL.path)
+        _ = check("launchctl simulated", runner?.calls.contains { $0.first == "bootstrap" && $0.last == sm.agent.plistURL.path } == true,
+                  runner?.calls.map { $0.joined(separator: " ") }.joined(separator: " | ") ?? "")
+
+        // Two synthetic crashes: one inside the DynjectHook tweak, one inside the tweak that ignores Safe Mode.
+        let dylibDir = model.env.tweakDylibDirectory
+        let reportA = writeCrashReport("SmokeHost", bundleID: host, procPath: "/Applications/SmokeHost.app/Contents/MacOS/SmokeHost",
+                                       tweakPath: (dylibDir as NSString).appendingPathComponent("libSafeTweak.dylib"))
+        let reportB = writeCrashReport("Finder", bundleID: "com.apple.finder", procPath: finder.executablePath, tweakPath: brutalium)
+        _ = check("press check reports", await pressWhenReady("safemode-scan"), sm.reportsDirectory)
+        _ = check("crashes attributed", await wait {
+                      let ids = Set(sm.snapshot.disabled.map(\.id))
+                      return ids.contains(safeRow) && ids.contains(brutalRow)
+                  }, sm.message?.text ?? "")
+        let entries = keys.entries()
+        let a = sm.snapshot.disabled.first { $0.id == safeRow }, b = sm.snapshot.disabled.first { $0.id == brutalRow }
+        _ = check("key written", entries[safeTweakID] == [host] && entries[brutalID] == ["com.apple.finder"],
+                  "\(keys.names.key) = \(entries)")
+        _ = check("reasons recorded", a?.reason == .crashInTweak && a?.reportPath == reportA && a?.supportsSafeMode == true
+                  && b?.reason == .crashInTweak && b?.reportPath == reportB && b?.supportsSafeMode == false,
+                  "\(a?.frameSummary ?? "") / \(b?.frameSummary ?? "")")
+        _ = check("recent crashes", sm.snapshot.recentCrashes.filter(\.inTweak).count >= 2, "\(sm.snapshot.recentCrashes.count) records")
+        _ = check("user notified (recorded)", (sm.notifier as? RecordingNotifier)?.posted.count == 2,
+                  (sm.notifier as? RecordingNotifier)?.posted.map(\.title).joined(separator: " | ") ?? "")
+        _ = check("test notification only", (keys.store as? FileTweakBackend)?.posted.contains(sm.names.notification) == true
+                  && (keys.store as? FileTweakBackend)?.posted.contains(SafeModeNames.production.notification) == false, sm.names.notification)
+        let rowsShown = await wait {
+            let row = await AXSelf.exists("safemode-row-\(safeRow)")
+            let config = await AXSelf.exists("safemode-config-\(brutalRow)")
+            return row && config
+        }
+        let safeHasConfig = await AXSelf.exists("safemode-config-\(safeRow)")
+        _ = check("rows shown", rowsShown && !safeHasConfig, "only the tweak that ignores Safe Mode offers Disable in Config")
+        await settle()
+        snapshot("safemode-disabled")
+        model.banner = nil
+        scrollFormsToBottom()
+        await settle()
+        snapshot("safemode-disabled-rows")
+
+        _ = check("press show crash report", await pressWhenReady("safemode-report-\(safeRow)"), "")
+        _ = check("crash report opened (recorded)", await wait { model.openedReports.last == reportA }, model.openedReports.last ?? "nil")
+
+        // Re-enable through the row button.
+        _ = check("press re-enable", await pressWhenReady("safemode-reenable-\(safeRow)"), "")
+        _ = check("re-enabled", await wait {
+                      keys.entries()[safeTweakID] == nil && !sm.snapshot.disabled.contains { $0.id == safeRow }
+                  } && sm.safeMode.stateStore.load().reenabledAt(tweakID: safeTweakID, bundleID: host) != nil,
+                  "key entry removed, re-enable time recorded")
+
+        // Panic switch.
+        _ = check("press panic", await pressWhenReady("safemode-panic"), "")
+        _ = check("panic on", await wait {
+                      let v = await AXSelf.value("safemode-panic")
+                      return keys.isPanicOn && sm.snapshot.panic && v == "1"
+                  },
+                  "\(keys.names.key)[\"*\"] = \(keys.entries()["*"] ?? [])")
+        await settle()
+        snapshot("safemode-panic")
+        _ = await pressWhenReady("safemode-panic")
+        _ = check("panic off", await wait { !keys.isPanicOn && keys.entries()["*"] == nil && !sm.snapshot.panic },
+                  "brutalium entry kept: \(keys.entries()[brutalID] ?? [])")
+
+        // Changes made by someone else (the watcher, dw): state.json → directory watch; key → Darwin notification.
+        let other = SafeModeStateStore(directory: sm.safeMode.stateStore.directory)
+        _ = try? other.update { $0.settings.threshold = 3 }
+        _ = check("refresh on state.json change", await wait { sm.snapshot.settings.threshold == 3 }, "threshold 3 written outside the panel")
+        let elsewhere = "local.dynject.safemode.other"
+        let outside = SafeModeKeyStore(store: FileTweakBackend(path: sm.keyFile ?? ""), names: sm.names)
+        _ = try? outside.add(tweakID: safeTweakID, bundleID: elsewhere)
+        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+                                             CFNotificationName(sm.names.notification as CFString), nil, nil, true)
+        let outsideRow = "\(safeTweakID)|\(elsewhere)"
+        _ = check("refresh on Darwin notification", await wait {
+                      sm.snapshot.disabled.first { $0.id == outsideRow }.map { $0.reason == nil } ?? false
+                  }, "\(sm.names.notification) posted")
+        _ = await pressWhenReady("safemode-reenable-\(outsideRow)")
+        _ = check("outside entry re-enabled", await wait { keys.entries()[safeTweakID] == nil }, "")
+
+        // A tweak that ignores Safe Mode: stop it through the config, with the usual review sheet.
+        let restarts = (model.restarter as? SimulatedRestarter)?.count ?? -1
+        _ = check("finder injected before", model.diskEvals[finder.id]?.isInjected(brutalium) == true, "")
+        _ = check("press disable in config", await pressWhenReady("safemode-config-\(brutalRow)"), "")
+        _ = check("config edit staged", await wait {
+                      let sheet = await AXSelf.exists("save-restart")
+                      return sheet && model.workingEvals[finder.id]?.isInjected(brutalium) == false
+                  }, model.lastEdit.map { $0.changes.map(\.description).joined(separator: " | ") } ?? "no edit")
+        await settle()
+        snapshot("safemode-config-sheet", window: NSApp.windows.first { $0.isSheet && $0.isVisible })
+        _ = check("press save & restart (safe mode)", await pressWhenReady("save-restart"), "")
+        _ = check("config saved without Finder", await wait {
+                      !model.hasUnsavedConfig && model.diskEvals[finder.id]?.isInjected(brutalium) == false
+                  } && (model.restarter as? SimulatedRestarter)?.count == restarts + 1
+                    && model.lastOutcome?.usedAdministratorRights == false,
+                  model.banner?.title ?? "")
+        // The row now reflects the config: no warning or Disable in Config, and Re-enable says the config keeps it out.
+        _ = check("row reflects the config", await wait {
+                      let off = await AXSelf.exists("safemode-configoff-\(brutalRow)")
+                      let button = await AXSelf.exists("safemode-config-\(brutalRow)")
+                      return off && !button
+                  }, "safemode-configoff-\(brutalRow)")
+        _ = check("press re-enable (config-only tweak)", await pressWhenReady("safemode-reenable-\(brutalRow)"), "")
+        _ = check("re-enable explains the config", await wait {
+                      keys.entries()[brutalID] == nil && (sm.message?.text.contains("config still keeps it out") ?? false)
+                  }, sm.message?.text ?? "")
+
+        _ = check("press uninstall watcher", await pressWhenReady("safemode-agent-uninstall"), "")
+        _ = check("agent removed", await wait { sm.agentStatus?.plistInstalled == false && sm.agentStatus?.loaded == false }
+                  && !FileManager.default.fileExists(atPath: sm.agent.plistURL.path)
+                  && !FileManager.default.fileExists(atPath: sm.agent.binaryURL.path),
+                  sm.agentStatus?.summary ?? "nil")
+        await settle()
+        snapshot("safemode-final")
+    }
+
+    /// A minimal macOS 27 style .ips (header line + JSON body) whose faulting thread is inside `tweakPath`,
+    /// written to the isolated reports folder and back-dated so the scanner reads it at once.
+    func writeCrashReport(_ appName: String, bundleID: String, procPath: String, tweakPath: String) -> String {
+        let dir = model.safeMode.reportsDirectory
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let date = Date().addingTimeInterval(-30)
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSSS Z"
+        let time = f.string(from: date)
+        let incident = UUID().uuidString
+        let header: [String: Any] = ["app_name": appName, "timestamp": time, "bug_type": "309", "bundleID": bundleID,
+                                     "name": appName, "incident_id": incident, "os_version": "macOS 27.2.1 (26B131)"]
+        let images: [[String: Any]] = [
+            ["source": "P", "arch": "arm64", "base": 4_328_767_488, "size": 16384, "path": procPath, "name": procPath.lastPathComponent],
+            ["source": "P", "arch": "arm64e", "base": 7_121_608_704, "size": 23_873_264,
+             "path": "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit", "name": "AppKit"],
+            ["source": "P", "arch": "arm64e", "base": 4_329_177_088, "size": 49152, "path": tweakPath, "name": tweakPath.lastPathComponent],
+        ]
+        let frames: [[String: Any]] = [
+            ["imageIndex": 2, "imageOffset": 4000, "symbol": "-[SmokeHook crash]", "symbolLocation": 12],
+            ["imageIndex": 1, "imageOffset": 4016, "symbol": "-[NSApplication run]", "symbolLocation": 12],
+            ["imageIndex": 0, "imageOffset": 4032, "symbol": "main", "symbolLocation": 12],
+        ]
+        let body: [String: Any] = [
+            "procName": appName, "procPath": procPath, "bundleInfo": ["CFBundleIdentifier": bundleID], "captureTime": time,
+            "incident": incident, "pid": 4242, "faultingThread": 0, "bug_type": "309",
+            "exception": ["type": "EXC_BAD_ACCESS", "signal": "SIGSEGV", "subtype": "KERN_INVALID_ADDRESS at 0x10"],
+            "threads": [["triggered": true, "id": 1, "queue": "com.apple.main-thread", "frames": frames]],
+            "usedImages": images,
+        ]
+        let h = try! JSONSerialization.data(withJSONObject: header, options: [.sortedKeys])
+        let b = try! JSONSerialization.data(withJSONObject: body, options: [.prettyPrinted, .sortedKeys])
+        let path = (dir as NSString).appendingPathComponent("\(appName)-smoke-\(incident.prefix(8)).ips")
+        try? (h + Data("\n".utf8) + b).write(to: URL(fileURLWithPath: path))
+        try? FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: path)
+        return path
     }
 
     // MARK: Helpers
