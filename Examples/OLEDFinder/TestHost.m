@@ -49,6 +49,8 @@ static void check(BOOL ok, NSString *what) {
                             NSTableViewDataSource, NSTableViewDelegate, NSCollectionViewDataSource,
                             NSBrowserDelegate, NSToolbarDelegate>
 @property NSWindow *browserWindow, *desktopWindow, *infoWindow;
+/// screencapture couldn't capture the desktop-level window here (seen on CI runners); its checks use properties.
+@property BOOL desktopUncapturable;
 @property NSOutlineView *sidebar;
 @property NSTableView *list;
 @property NSCollectionView *icons;
@@ -332,7 +334,9 @@ typedef struct { double black, bright, maxLum, r, g, b; } Sample;
     NSString *path = [self.outDir stringByAppendingPathComponent:[NSString stringWithFormat:@"%@-%@.png", self.mode, name]];
     NSBitmapImageRep *rep = nil;
     // A window that has only just been ordered in sometimes can't be captured yet; give it a moment.
-    for (int attempt = 0; attempt < 4 && !rep; attempt++) {
+    // OLF_UNCAPTURABLE_DESKTOP=1 plays a machine that can't capture desktop-level windows (tests the fallback).
+    BOOL fake = w == self.desktopWindow && getenv("OLF_UNCAPTURABLE_DESKTOP");
+    for (int attempt = 0; attempt < 4 && !rep && !fake; attempt++) {
         if (attempt) [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.4]];
         [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
         NSTask *t = [[NSTask alloc] init];
@@ -346,9 +350,11 @@ typedef struct { double black, bright, maxLum, r, g, b; } Sample;
         NSData *png = t.terminationStatus == 0 ? [NSData dataWithContentsOfFile:path] : nil;
         rep = png ? [[NSBitmapImageRep alloc] initWithData:png] : nil;
     }
-    if (!rep && !CGPreflightScreenCaptureAccess()) {
-        // A desktop-level window only comes out of screencapture, which needs screen recording (CI runners lack it).
-        printf("  [SKIP] %s: screencapture needs screen recording permission for this process\n", name.UTF8String);
+    if (!rep && w == self.desktopWindow) {
+        // Some machines (GitHub's macOS runners) capture every window but a desktop-level one.
+        printf("  [SKIP] %s: screencapture can't capture a desktop-level window here; checking its properties instead\n",
+               name.UTF8String);
+        self.desktopUncapturable = YES;
         return nil;
     }
     if (!rep) { check(NO, [NSString stringWithFormat:@"%@: screencapture produced %@", name, path]); return nil; }
@@ -473,8 +479,18 @@ typedef struct { double black, bright, maxLum, r, g, b; } Sample;
     // kOLEDGlassTitlebar (default YES): the titlebar band keeps the stock glass instead of being forced black.
     check(tEmpty.black < 0.90, @"titlebar band keeps the stock glass (not forced black)");
     check(pill.black > 0.80 || pill.maxLum > 0.6, @"glass pill is black with bright text");
-    check(drep != nil && dWin.b > 0.5 && dWin.b > dWin.r + 0.2, @"desktop stand-in window background untouched (blue)");
-    check(drep != nil && dScroll.b > 0.5 && dScroll.b > dScroll.r + 0.2, @"desktop stand-in scroll view untouched (blue)");
+    if (drep || !self.desktopUncapturable) {
+        check(drep != nil && dWin.b > 0.5 && dWin.b > dWin.r + 0.2, @"desktop stand-in window background untouched (blue)");
+        check(drep != nil && dScroll.b > 0.5 && dScroll.b > dScroll.r + 0.2, @"desktop stand-in scroll view untouched (blue)");
+    } else {
+        BOOL (^blue)(NSColor *) = ^BOOL(NSColor *c) {
+            NSColor *s = [c colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+            return s && s.blueComponent > 0.5 && s.blueComponent > s.redComponent + 0.2;
+        };
+        check(blue(self.desktopWindow.backgroundColor), @"desktop stand-in window backgroundColor untouched (blue; not captured)");
+        check(self.desktopScroll.drawsBackground && blue(self.desktopScroll.backgroundColor),
+              @"desktop stand-in scroll view background untouched (blue; not captured)");
+    }
     check(self.desktopWindow.appearance == nil, @"desktop stand-in appearance untouched");
     check(irep != nil && iScroll.r > 0.6, @"unrecognised window untouched");
     check(self.infoWindow.appearance == nil, @"unrecognised window appearance untouched");
