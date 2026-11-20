@@ -54,6 +54,9 @@ building and tests
 ------------------
 
     swift build
+    ./scripts/test-all.sh               # everything below that leaves your screen alone, one summary (~2.5 min)
+    ./scripts/test-all.sh --quick       # unit tests and builds only
+    ./scripts/test-all.sh --all         # plus the e2e scripts and the ui smoke test (they open test apps)
     swift test                          # 405 tests, ~20 s
     swift test --filter DynjectHookTests
     ./scripts/build-app.sh              # build/Dynject Workbench.app, release, ad-hoc unless SIGN_IDENTITY
