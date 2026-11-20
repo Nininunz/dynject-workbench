@@ -282,10 +282,27 @@ static CALayer *ITFindLayer(CALayer *l, BOOL (^match)(CALayer *)) {
     [self.steps addObject:@[@(delay), [block copy]]];
 }
 
+/// Waits (polling every 0.1 s) until `condition` holds or `timeout` seconds pass, then runs the next step, which
+/// checks the outcome. For background work whose duration depends on the machine (slow CI runners).
+- (void)waitUpTo:(double)timeout until:(BOOL (^)(void))condition {
+    [self.steps addObject:@[@"wait", @(timeout), [condition copy]]];
+}
+
+- (void)poll:(BOOL (^)(void))condition deadline:(CFAbsoluteTime)deadline {
+    if (condition() || CFAbsoluteTimeGetCurrent() > deadline) { [self runSteps]; return; }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [self poll:condition deadline:deadline];
+    });
+}
+
 - (void)runSteps {
     if (self.steps.count == 0) { [self finish]; return; }
     NSArray *s = self.steps.firstObject;
     [self.steps removeObjectAtIndex:0];
+    if ([s[0] isEqual:@"wait"]) {
+        [self poll:s[2] deadline:CFAbsoluteTimeGetCurrent() + [s[1] doubleValue]];
+        return;
+    }
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)([s[0] doubleValue] * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         ((void (^)(void))s[1])();
         [self runSteps];
@@ -545,7 +562,9 @@ static CALayer *ITFindLayer(CALayer *l, BOOL (^match)(CALayer *)) {
         printf("== runtime browser ==\n");
         DYI(@"runtime", @{@"query": @"ITLeaf"});
     }];
-    [self step:1.5 do:^{
+    // The class list loads in the background: ~1 s here, much longer on a CI runner.
+    [self waitUpTo:30 until:^BOOL { return ![DYI(@"runtime", @{@"query": @"ITLeaf"})[@"loading"] boolValue]; }];
+    [self step:0.2 do:^{
         NSDictionary *s = DYI(@"runtime", @{@"query": @"ITLeaf"});
         check(![s[@"loading"] boolValue], @"class list loaded in the background");
         check(ITRowsContain(s, @"ITLeafView", nil), @"runtime search finds ITLeafView");

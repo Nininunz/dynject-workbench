@@ -346,6 +346,11 @@ typedef struct { double black, bright, maxLum, r, g, b; } Sample;
         NSData *png = t.terminationStatus == 0 ? [NSData dataWithContentsOfFile:path] : nil;
         rep = png ? [[NSBitmapImageRep alloc] initWithData:png] : nil;
     }
+    if (!rep && !CGPreflightScreenCaptureAccess()) {
+        // A desktop-level window only comes out of screencapture, which needs screen recording (CI runners lack it).
+        printf("  [SKIP] %s: screencapture needs screen recording permission for this process\n", name.UTF8String);
+        return nil;
+    }
     if (!rep) { check(NO, [NSString stringWithFormat:@"%@: screencapture produced %@", name, path]); return nil; }
     printf("  %s: window %u -> %s (%ldx%ld px)\n", name.UTF8String, wid, path.UTF8String, (long)rep.pixelsWide, (long)rep.pixelsHigh);
     return rep;

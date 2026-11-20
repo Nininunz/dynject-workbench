@@ -66,6 +66,8 @@ static NSArray<NSString *> *DYITabNames(void) { return @[@"Hierarchy", @"Propert
 @property (nonatomic, strong) NSArray<DYIRow *> *rows;
 @property (nonatomic) DYITab tab;
 @property (nonatomic, strong, nullable) NSArray<NSString *> *classNames;
+/// A background class-list load is running (one at a time: rows are rebuilt on every keystroke meanwhile).
+@property (nonatomic) BOOL loadingClassNames;
 @property (nonatomic) BOOL placed;
 @end
 
@@ -683,10 +685,14 @@ static NSString *DYILayerInfo(CALayer *l) {
     NSMutableArray *rows = [NSMutableArray array];
     if (!self.classNames) {
         [rows addObject:[DYIRow group:@"Loading the class list…"]];
+        if (self.loadingClassNames) return rows;
+        self.loadingClassNames = YES;
         __weak DYIPanelController *weakSelf = self;
         DYILoadClassNames(^(NSArray<NSString *> *names) {
             DYIPanelController *me = weakSelf;
-            if (!me || me.classNames) return;
+            if (!me) return;
+            me.loadingClassNames = NO;
+            if (me.classNames) return;
             me.classNames = names;
             if (me.tab == DYITabRuntime) [me rebuildRows];
         });
