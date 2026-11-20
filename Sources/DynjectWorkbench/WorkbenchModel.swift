@@ -152,6 +152,9 @@ final class WorkbenchModel {
     private(set) var menuSettings: MenuLoaderSettings
     private(set) var menuStatus: String?
     @ObservationIgnored private var menuPublishTask: Task<Void, Never>?
+    /// Rechecks loaded dylibs shortly after any app launches or quits (a relaunched app has a new pid).
+    @ObservationIgnored private var runtimeRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var appLifecycleObservers: [NSObjectProtocol] = []
 
     // MARK: Respring
     let respring: RespringModel
@@ -208,6 +211,24 @@ final class WorkbenchModel {
         refreshRuntime()
         safeMode.start()
         respring.start()
+        if !respring.simulated && appLifecycleObservers.isEmpty {
+            let nc = NSWorkspace.shared.notificationCenter
+            for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
+                appLifecycleObservers.append(nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.scheduleRuntimeRefresh() }
+                })
+            }
+        }
+    }
+
+    /// Debounced: a respring or a burst of launches triggers one recheck, 2 s after the last event.
+    func scheduleRuntimeRefresh() {
+        runtimeRefreshTask?.cancel()
+        runtimeRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            self?.refreshRuntime()
+        }
     }
 
     func reloadConfig() {
