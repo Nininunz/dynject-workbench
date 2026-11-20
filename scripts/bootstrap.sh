@@ -75,7 +75,7 @@ if [ -x /opt/dynject/bin/dynjectd ] && [ -f /opt/dynject/etc/dynjectd.conf ]; th
   else warn "Dynject engine installed but dynjectd isn't running (Workbench → Daemon can restart it)"; fi
   [ -f /Library/LaunchDaemons/com.dynject.dynjectd.plist ] || warn "no /Library/LaunchDaemons/com.dynject.dynjectd.plist: dynjectd won't start at boot"
 else
-  warn "Dynject engine not found in /opt/dynject: Workbench builds, but can't inject anything until you install it (see README → Requirements)"
+  warn "Dynject engine not found in /opt/dynject: Workbench builds, but can't inject anything until you install it (see README: requirements)"
 fi
 
 if [ "$ERRORS" -gt 0 ]; then echo; echo "Fix the ✗ items above, then run this again."; exit 1; fi

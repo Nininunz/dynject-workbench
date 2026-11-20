@@ -1,386 +1,133 @@
-# Dynject Workbench
-
-A native macOS app for managing the installed [Dynject](#how-dynject-decides) injection engine:
-
-- See which installed apps each configured dylib applies to, and why.
-- Turn a configured dylib on or off for one app. The edit is minimal and leaves unrelated config lines alone.
-- Edit the whole `dynjectd.conf` as raw text, with diagnostics based on dynjectd's own parser.
-- Edit any property list as XML. It is validated, backed up, and saved in its original on-disk format.
-- Restart `dynjectd` safely: exactly one daemon, never duplicates.
-- Give tweaks a settings page (similar to iOS's PreferenceLoader): a tweak ships a small manifest, and Workbench
-  draws its settings, with per-app overrides. See [Tweak settings](#tweak-settings).
-- Let tweaks add items to the Apple menu by declaring them in that manifest (MenuLoader). See [Apple menu](#apple-menu-menuloader).
-- Respring: relaunch the running apps whose tweaks no longer match the config, then check them with `lsof`, from
-  `dw respring`, Workbench's Respring sheet or the Apple menu's **Dynject ▸ Respring…**. See [Respring](#respring).
-- Install a built tweak folder in one step (dylib, config, restart: one password prompt), uninstall it again, and start
-  a new tweak from a template: `dw tweak install|uninstall|list`, `dw new`, or **Tweaks → Install Tweak…**. See
-  [Installing tweaks](#installing-tweaks-and-starting-a-new-one).
-
-It manages the existing engine at `/opt/dynject`. It is not an injector, not a theme UI, and not a binary/hex editor.
-
-## Status
-
-Version 0.1. Tested against fixtures, and the privileged write and restart paths passed a live trial on
-2026-11-19 (see [Live trial](#live-trial)).
-
-| Area | State |
-| --- | --- |
-| Config parser, evaluator, minimal editor | Done. Unit-tested against fixtures, including a byte copy of the live config. |
-| App discovery, configured vs. loaded status | Done. "Loaded" is confirmed with `lsof` on running apps. |
-| Raw config editor and diagnostics | Done. |
-| Plist editor (XML/binary, backup, format-preserving) | Done. |
-| Privileged helper (atomic install, single-daemon restart) | Done. Tested with stubs, then live as root. |
-| UI smoke test | Done. Drives the built app through accessibility against fixtures. |
-| Tweak settings (manifest, settings UI, per-app overrides, SDK header) | Done. Verified live with the Title Badge example in sandboxed Calculator. |
-| Respring (pending detection, relaunch engine, `dw respring`, Workbench sheet, `dynject-workbench://respring`) | Done. Unit-tested with fakes and covered by the smoke test with simulated apps; the real controller was checked on a test app only. |
-| Tweak install/uninstall (`dw tweak`, Install Tweak… / Uninstall…) and `dw new` | Done. Unit-tested against temporary folders, with the real helper script run as the user; not yet run against the live engine. The template was built and injected into a test app. |
-
-## Getting started
-
-Requires macOS 14+ (only macOS 27 on Apple Silicon is tested), Xcode or the Command Line Tools with Swift 6, and the
-Dynject engine installed in `/opt/dynject` (installed separately; Workbench only manages it).
-
-Build from source and install in one step:
-
-```sh
-./scripts/bootstrap.sh          # checks prerequisites, builds the app, dw and the tweaks, installs to ~/Applications
-./scripts/bootstrap.sh --check  # prerequisites only; --no-install, --no-tweaks, --dest DIR, --help
-```
-
-It signs ad-hoc, which is all a locally built app needs. To use your own certificate, set `SIGN_IDENTITY`
-(e.g. `SIGN_IDENTITY="Apple Development: Jane Doe (ABCDE12345)"`; `security find-identity -v -p codesigning`
-lists yours); `scripts/build-app.sh` and the tweaks' `build.sh` honour it too. Nothing in it needs administrator
-rights or touches the engine; installing a tweak is a separate step, `dw tweak install` (it prints how).
-
-Development:
-
-```sh
-swift test                    # 200 DynjectCore tests (parser, editor, helper script, writer, plists, tweaks, Apple menu,
-                              # Safe Mode, respring, tweak install and template), 81 DynjectHook tests and 22
-                              # DynjectWorkbench tests (launch arguments, the Respring sheet's model and links,
-                              # Install Tweak in fixture mode)
-./scripts/build-app.sh        # → build/Dynject Workbench.app (release, ad-hoc signed)
-./scripts/ui-smoke-test.sh    # UI smoke test against config fixtures
-./scripts/respring-e2e.sh     # respring engine end to end, against test apps it builds (~25 s)
-open "build/Dynject Workbench.app"
-```
-
-Launched normally, the app reads the **live** paths (`/opt/dynject/etc/dynjectd.conf`,
-`/opt/dynject/log/dynjectd.log`). Nothing is written until you click Save in the review sheet.
-
-### Fixture mode
-
-`-DWConfigPath` switches to fixture mode. In fixture mode restarts are simulated, relaunching apps is disabled, and
-an administrator prompt can never appear. A purple strip marks the window. The other arguments redirect the log,
-support folder and app roots; with `-DWSupportDir` or `-DWTweaksDir` (a folder of manifests to preview) the
-Apple-menu list is also kept out of the global preferences (in `menuloader-preview.plist` in the support folder, or
-the fixture's `tweak-prefs.plist` in fixture mode), so previewing never replaces what the installed tweaks publish.
-Safe Mode is isolated in the same cases, and also with `-DWReportsDir` (crash reports to scan) or `-DWTweakDylibDir`
-(installed dylibs to list): its key goes to that plist file under the test notification name, `state.json`, the
-LaunchAgent plist and the `dw` copy go under the support folder (under `SafeModePreview/` in it when
-`-DWSupportDir` isn't given, so they never share the real `SafeMode/state.json` or `bin/dw`), and launchctl is
-simulated. `-DWDwBinary` picks the
-`dw` that Install Watcher copies (default: `Contents/MacOS/dw`, which `scripts/build-app.sh` bundles).
-In fixture mode, in the smoke test and with `-DWRespringFixture <json>`, the Respring sheet lists made-up running apps
-(from that file, or a few scanned apps the config injects into, plus Finder, a terminal and Workbench) and relaunches
-them with a simulated controller: no real app is quit, opened or inspected. The file format is documented on
-`RespringFixture` in `Sources/DynjectWorkbench/RespringModel.swift`.
-
-```sh
-"build/Dynject Workbench.app/Contents/MacOS/DynjectWorkbench" \
-  -DWConfigPath /path/to/copy.conf \
-  -DWLogPath /path/to/dynjectd.log \
-  -DWSupportDir /tmp/dw-support \
-  -DWAppRoots /Applications:/System/Applications
-```
-
-`-DWSmokeTest <dir>` runs the UI smoke test. It refuses to run unless fixture mode is on.
-
-## How Dynject decides
-
-Ported from `dynjectd.c` (whose source matches the installed binary byte for byte). For each app launch,
-dynjectd applies three filters in order. The app's detail pane shows the result of each one.
-
-1. **XPC service filter** (on the service name, e.g. `application.com.apple.TextEdit.<n>.<n>` or `com.apple.Finder`):
-   built-in system-daemon list → `allow:` substring → `deny:` substring → built-in UI patterns (`application.`, `com.apple.Finder`, …).
-2. **Process filter** (on the executable name and path): `skip_helpers` (" Helper") → `deny:` → `allow:` →
-   `ui_apps` (the app lives under `/Applications`, `/System/Applications`, or `/System/Library/CoreServices`).
-3. **Per-dylib policy**: the first `dylib-override` whose pattern is a substring of the service name wins.
-   Otherwise the dylib's default (`dylib:<path>:allow|deny`) applies.
-
-Details that matter, all enforced and diagnosed by the app:
-
-- Matching is **case-sensitive substring** matching. Finder's bundle ID is `com.apple.finder`, but dynjectd sees
-  `com.apple.Finder`. The app resolves service names from the log first, then known launchd labels, then the
-  LaunchServices pattern, and shows which source it used.
-- A `dylib-override` that appears **above** its `dylib:` line is silently ignored.
-- Any policy other than exactly `allow` means deny (`Allow` is deny).
-- `allow:Finder` also matches "Path Finder". The editor lists every other installed app an edit affects.
-- With no `dylib:` line, dynjectd refuses to start, so the app blocks that save.
-- dynjectd reads its config **only at startup**, and injection happens **only at app launch**.
-
-## Configured vs. loaded
-
-Each app/dylib pair shows three separate facts:
-
-- **Configured.** The policy (in the window, or saved on disk) says dynjectd would inject it.
-- **Log MATCH.** dynjectd logged that it set `DYLD_INSERT_LIBRARIES` for that launch. That is an attempt, not proof.
-- **Loaded.** `lsof` shows the dylib mapped into the running process. This is the only confirmation. It works for
-  your own processes, and the app says so when it can't inspect one.
-
-The detail pane lists the remaining steps in order: save → restart Dynject → quit and relaunch the app. A
-running app keeps whatever it launched with; nothing is added to or removed from a live process.
-
-## How toggles edit the config
-
-Toggling one dylib for one app changes as little as possible:
-
-1. If the deciding `dylib-override` only matches this app, the editor flips its policy in place, or deletes the
-   line when the next rule already gives the wanted result.
-2. Otherwise it inserts a narrow override for this app **above** the deciding line (first match wins), using
-   the bundle ID or, if that would also match another installed app, `application.<bundleID>.`.
-3. If the process filter blocks the app (for example, `ui_apps:no`), it adds `allow:<executable>`. When you turn
-   injection off again, it removes that line only if no installed app's result changes as a consequence.
-4. It refuses, with an explanation, when a global `deny:`, `skip_helpers`, or a duplicate `dylib:` line is in the way.
-   Those are for the raw editor.
-
-Turning injection on and then off restores the original bytes exactly (tested, including CRLF files and files
-without a final newline). The toggles and the raw editor share one buffer, and every save goes through a review sheet
-that shows the diff and which installed apps change.
-
-## Writing protected files and restarting
-
-- Before every write, the current file is backed up to `~/Library/Application Support/Dynject Workbench/Backups/`.
-- Writable files are replaced atomically (temp file in the same directory, fsync, rename) and keep their permissions.
-- Protected files (the live config is `root:wheel 644`) go through `osascript … with administrator privileges`.
-  The only code that runs as root is [`HelperScript.swift`](Sources/DynjectCore/HelperScript.swift), passed
-  inline to `/bin/sh -c`, so there is no script file on disk to tamper with. The helper:
-  refuses to write if the target changed since you loaded it (SHA-256), copies the staged file into root-owned space,
-  checks its hash again (so a swapped staged file is rejected), keeps the owner and mode, and renames atomically.
-- **Restart.** The launchd job runs `dynject_loader`, which spawns a *detached* `dynjectd` and exits. launchd
-  then reports the job as "not running", so `launchctl kickstart -k` cannot stop the old daemon, and every kickstart
-  adds another one. The helper instead waits for any running loader to finish, sends SIGTERM to **every** `dynjectd`
-  (SIGKILL after 5 s), aborts if any survive, starts the job **once** (`kickstart` without `-k`, or `bootstrap`
-  if it isn't loaded), confirms that exactly one daemon is running, and stops extras if two appeared.
-  Save & Restart does the write and the restart under a single password prompt.
-- **Several files, one prompt.** The helper takes a list of operations (`install` a file, `remove` a tweak dylib)
-  and an optional `restart`. It checks all of them first (conflict hashes; a removal must be a regular `*.dylib`
-  directly in a real, root-owned `/opt/dynject/lib/tweaks`, not a symlink), stages and verifies every new file next
-  to its target, and only then renames and removes, so a failed check writes nothing. Tweak install and uninstall use
-  this.
-
-## Plist editor
-
-- Open any plist. Binary and XML files are shown as XML. OpenStep-format files are read-only, because
-  Foundation can't write them.
-- Every edit is validated. Saving backs up the original and writes in the **original format**. XML is written
-  exactly as you typed it. Binary is re-encoded and verified, and values you didn't touch keep their exact
-  original form (sub-second dates, keyed-archiver UIDs).
-- Workbench does not guess where a dylib keeps its settings. You associate plists with dylibs by hand (Dylibs
-  page or plist toolbar). Associations are stored in `associations.json` in Application Support.
-- Preference files are cached by `cfprefsd`, and the owning app may overwrite your edit. The editor warns when
-  the app is running. Quit it before saving.
-
-## Tweak settings
-
-A tweak opts in by shipping `<name>.workbench.plist` (a manifest) and reading its settings with the one-file SDK
-[`DynjectTweak.h`](TweakSDK/include/DynjectTweak.h). Workbench lists it under **Tweaks**, draws native controls
-(switch, slider, number, color, choice, text, app list), and adds a "<Tweak> for <App>" panel with per-app
-overrides to each app's detail pane. Changes save instantly (snapshot first, **Revert Session** to undo).
-Workbench then posts `dynject.tweak.<id>.changed` and runs the tweak's optional apply command. Settings live under one
-key, `dynject.tweak.<id>`, in the global preferences domain, so tweaks can read them from inside sandboxed apps.
-
-Full format and SDK: [docs/tweak-format.md](docs/tweak-format.md). Example manifest:
-[Examples/ExampleTweak.workbench.plist](Examples/ExampleTweak.workbench.plist). A working example tweak:
-[Examples/TitleBadge](Examples/TitleBadge), which adds a titlebar badge. On 2026-11-19 it was injected by Dynject into
-sandboxed Calculator, and its own log lines confirmed that it read settings written by Workbench, picked up live
-changes and a per-app override, and returned to defaults on revert (`swift run DynjectLiveTrial --titlebadge …`).
-**Dylibs → Add Dylib…** declares a newly installed dylib in the config (deny by default); **Tweaks → Install Tweak…**
-(or `dw tweak install`) does the whole install. See [Installing tweaks](#installing-tweaks-and-starting-a-new-one).
-
-## Apple menu (MenuLoader)
-
-The Apple-menu counterpart of PreferenceLoader. A tweak lists items in its manifest's `appleMenu` array (title,
-SF Symbol, action `notify:` / `url:` / `shortcut:` / `app:`, optional app filter, checkmark bound to one of its
-switches, key equivalent). Workbench validates them, shows them in the tweak's "Apple menu" section with a
-**Show in Apple menu** switch, and publishes the combined list as `dynject.menuloader` in the global preferences
-domain, posting `dynject.menuloader.changed` when it changes. The global MenuLoader tweak (`Tweaks/MenuLoader`) reads that
-list and adds the items, so no tweak writes menu code. MenuLoader has no items of its own. Each tweak chooses
-(`appleMenuPlacement`) between its own "Title ▸" entry and a section of the shared "Tweaks" entry (a submenu or a flat
-section, set in Workbench). Workbench also publishes its own **Dynject ▸** group, first: Respring…, Safe Mode…
-(`dynject-workbench://safemode`) and Open Dynject Workbench; the Apple-logo button under the tweak list hides it. Fixture mode,
-the smoke test and launches with `-DWTweaksDir` or `-DWSupportDir` publish only to a file in the support folder.
-Shortcuts must include Command (a Control-only shortcut would steal text-editing keys like ⌃A and ⌃E); Workbench warns about common app shortcuts and drops a shortcut an earlier
-item already has. Format: [docs/tweak-format.md](docs/tweak-format.md#apple-menu-items-menuloader).
-
-## Hooking
-
-[`DynjectHook.h`](TweakSDK/include/DynjectHook.h) with [`DynjectHook.m`](TweakSDK/DynjectHook.m) is the hooking
-library tweaks compile in (in the spirit of Logos and Substrate): hook classes, `DH_ORIG`, hook groups that can be
-switched off at runtime, a bundle filter and Safe Mode check in `DH_CTOR`. Its symbols are hidden, so several tweaks in
-one app can each include it. Guide: [docs/hooking.md](docs/hooking.md). For the build loop, the `dw` CLI
-(`swift build -c release --product dw`, also inside the app as `Contents/MacOS/dw`) installs a tweak folder, enables it
-for an app, relaunches apps and shows logs; `dw new` starts a tweak with the SDK vendored in.
-
-## Installing tweaks and starting a new one
-
-A **tweak folder** holds a manifest (`*.workbench.plist`) whose `dylib` is the install path (a `*.dylib` directly in
-`/opt/dynject/lib/tweaks`) and the built dylib, in `build/` or next to the manifest (or name it with `--dylib`).
-
-```
-dw tweak install <folder|manifest> [--for <bundleID>]... [--dylib <path>] [--dry-run]
-dw tweak uninstall <tweakID|manifest> [--keep-file] [--dry-run]
-dw tweak list
-dw new <Name> [--id <reverse.dns.id>] [--app <bundleID>] [--dir <path>]
-```
-
-- **install** validates the manifest (errors refuse) and the dylib (a Mach-O dylib with an arm64e slice; a warning if
-  x86_64 or arm64 is missing or a slice is unsigned), then shows the plan and asks for your password **once**: the
-  helper copies the dylib into place (hash-checked, the previous file backed up), writes the config with the dylib
-  declared (`deny` by default) and enabled for each `--for` app, and restarts dynjectd, all in one invocation. The
-  config edit is the same minimal edit as the app's switches and is refused if it would change any other app. Nothing
-  is written if a check fails. The manifest is then copied to `~/Library/Application Support/Dynject Workbench/Tweaks/`
-  (no password). If only the dylib changed (a rebuild), dynjectd isn't restarted. Apps load tweaks only at launch:
-  run `dw respring` afterwards.
-- **uninstall** removes the tweak's `dylib:` and `dylib-override:` lines and deletes its dylib (only a regular `*.dylib`
-  directly in `/opt/dynject/lib/tweaks`, never through a symlink; backed up first), with the restart, under one
-  prompt; then its manifest and its Safe Mode entries. Its settings stay. It refuses to remove the config's last dylib,
-  because dynjectd won't start without one ("no dylibs configured"); turn that tweak off per app instead.
-  Global `allow:<app>` rules that were added for it stay.
-- **list** shows each installed manifest's dylib, whether the file exists, its config policy and its Safe Mode support.
-- **new** creates `<Name>/` with `<Name>.m` (a `DH_CTOR` entry point with the `--app` bundle filter, a hook class on
-  `-[NSWindow setTitle:]` using `DH_ORIG`, an **Enabled** setting bound to a hook group through `DTPrefBool` and
-  `DTPrefObserve` so it applies live, `os_log` logging), the manifest (install path
-  `/opt/dynject/lib/tweaks/lib<Name>.dylib`, version 0.1), `build.sh` (universal, signed ad-hoc or with
-  `SIGN_IDENTITY`, fails on exported symbols), a README, and copies of the SDK in `sdk/`, so the folder builds on its
-  own. dw takes the SDK from the app bundle (`Contents/Resources/TweakSDK`, put there by `scripts/build-app.sh`) or,
-  run from `.build`, from this repository's `TweakSDK/` (`--sdk <dir>` otherwise).
-
-```sh
-dw new WindowTitles --app com.apple.TextEdit && cd WindowTitles && ./build.sh
-dw tweak install . --for com.apple.TextEdit && dw respring
-```
-
-In Workbench, **Tweaks → Install Tweak…** (choose a folder or manifest, pick apps, review the changes, then one
-prompt) and **Uninstall…** in a tweak's header (lists what will be removed; option to keep the file) use the same
-code. In fixture mode they use the fixture config and put dylibs and manifests under the support folder (or
-`SafeModePreview/` in the real one), with a simulated restart and no prompt; previewing other manifests, reports or
-dylibs against the live config turns them off. `--root DIR` does the same for `dw tweak` (for testing).
-
-## Safe Mode
-
-A crashing tweak is kept out of the app it crashes, per app and without admin rights. The watcher
-(`dw safemode watch`, run by the LaunchAgent `local.dynject.safemode`) reads new crash reports in
-`~/Library/Logs/DiagnosticReports`, finds the tweaks loaded in the crashed process, and adds the tweak and app to
-`dynject.safemode` in the global preferences domain. It does this at once when the crash happened in the tweak's code,
-and otherwise after 2 tweak-loaded crashes of that app within 10 minutes. DynjectHook's `DH_CTOR` skips listed tweaks
-at the next launch. `"*": ["*"]` is a panic switch for every DynjectHook tweak everywhere, and holding Shift while
-an app launches skips them for that launch. Tweaks not built on DynjectHook ignore the key; only the config can stop
-them, and tweaks built with an older DynjectHook ignore the panic switch until they are rebuilt. Safe Mode never edits the config. Details: [docs/safe-mode.md](docs/safe-mode.md).
-
-Workbench's **Safe Mode** page installs or removes the watcher, has the panic switch, lists what is disabled where
-and why (with the crash report and Re-enable), shows recent tweak-related crashes and which tweaks support Safe Mode,
-and offers "Disable in Config…" (the usual review, save and restart) for tweaks that ignore it.
-
-```
-dw safemode status                              panic switch, agent, disabled list, recent tweak-related crashes
-dw safemode disable <tweakID> <bundleID|*>      by hand
-dw safemode enable  <tweakID> <bundleID|*>      re-enable; earlier crashes stop counting
-dw safemode panic on|off
-dw safemode clear                               re-enable everything, panic off
-dw safemode settings [threshold N] [window MIN] [notify on|off]
-dw safemode watch [--once]                      the watcher
-dw safemode agent install|uninstall|status      LaunchAgent; install copies dw to Application Support/Dynject Workbench/bin
-```
-
-## Respring
-
-Tweaks are injected only at launch, so after a config change, a tweak update or a Safe Mode change, running apps
-keep their old set until they are relaunched. `dw respring` lists every running app whose loaded tweaks (from
-`lsof`) differ from what the config gives it now. The reasons are `missing`, `unwanted`, `updated` (the file changed
-after launch) and Safe Mode changes since launch. It then relaunches them one at a time: it quits each app
-politely, skips it if it is still running after 15 s, reopens it in the background and verifies its tweaks. By
-default it leaves out the terminal or editor running it, other terminals and editors, Workbench and Finder; name them
-with `--include`. `--all` relaunches every running app, Finder included. Details: [docs/respring.md](docs/respring.md).
-
-In Workbench, the sidebar footer shows how many running apps are pending; it and the toolbar's **Respring…** open a
-sheet listing them with their reasons and checkboxes (excluded apps start unchecked, with a note), a quit timeout,
-**Respring Selected**, live progress and a result per app. The count refreshes when the config is saved, dynjectd is
-restarted, Safe Mode changes, apps launch or quit, the config or a tweak dylib changes on disk, and on demand.
-The link `dynject-workbench://respring` (registered in `Resources/Info.plist`) opens the same sheet. Workbench
-publishes it to the Apple menu as **Dynject ▸ Respring…** (MenuLoader). A link never relaunches anything: only the
-button does. `dynject-workbench://safemode` shows the Safe Mode page.
-
-```
-dw respring --dry-run                         the plan with reasons; nothing is quit
-dw respring [--all] [--include ID]... [--exclude ID]... [--timeout S]
-dw respring --only ID                         just this app
-```
-
-## Repository layout
-
-```
-Sources/DynjectCore/       Parser, evaluator, editor, log/ps/lsof/launchctl readers, writer, helper script, plists, Safe Mode, respring
-Sources/DynjectWorkbench/  SwiftUI app (RespringModel.swift: the Respring sheet) and the smoke-test runner (SmokeTest.swift)
-Sources/DynjectLiveTrial/  Live privileged trial runner (run only with approval)
-Sources/dw/                dw CLI for the tweak build loop (tweak install/uninstall/list, new, enable/disable, relaunch, log), Safe Mode and respring
-TweakSDK/                  Tweak SDK: settings (DynjectTweak.h) and hooking (DynjectHook.h/.m)
-Examples/, docs/           Example manifest and TitleBadge tweak; tweak format and hooking guides
-Tests/DynjectCoreTests/    Unit tests and fixtures (live.conf is a byte copy of the live config)
-Tests/DynjectHookTests/    Objective-C tests for DynjectHook
-Tests/DynjectWorkbenchTests/ Tests of the app's launch arguments (AppEnvironment) and the Respring sheet's model
-Resources/Info.plist       App bundle metadata
-scripts/                   build-app.sh, ui-smoke-test.sh, respring-e2e.sh (+ respring-e2e/ sources)
-```
-
-## Testing notes
-
-- The helper script tests run the **real** script as your user, with stub `pgrep`/`kill`/`launchctl`/`sleep`. The
-  script honours stubs (and `DW_TEST_TWEAKS_DIR` in place of `/opt/dynject/lib/tweaks`) only when it is not running as
-  root. One test reproduces this machine's two-daemon state; others cover multi-file transactions and every refused
-  removal (symlinks, other folders, hidden files, `..`, changed contents).
-- The tweak installer tests work in temporary folders with made-up Mach-O files; one runs the helper script for the
-  files (not the restart) to check that install and uninstall each take one invocation. One test generates a tweak
-  with `TweakTemplate` and compiles it with its own `build.sh` (no warnings, no exported symbols).
-- The UI smoke test launches the built app on copies of the fixtures. It drives it as an accessibility client of
-  its own process (no Accessibility permission needed): it flips the TextEdit switch, reviews and saves, toggles
-  back to the original bytes, checks diagnostics, edits and saves a binary plist, switches the example tweak's
-  Apple-menu items off and on again (published to the fixture file under the test key), and checks every result on disk.
-  It then opens the Respring sheet with a `dynject-workbench://respring` Apple Event sent to itself, checks the
-  default checkboxes and exclusion notes over the made-up apps of `-DWRespringFixture`, includes Finder, runs the
-  simulated respring (one app never quits, so the timeout path is covered) and checks the results and the new plan.
-  The script then confirms that the live config hash, the real `dynject.menuloader` key, the set of `dynjectd`
-  PIDs and the running regular apps (from `lsappinfo`) did not change.
-  Accessibility is sometimes slow to expose the window, and then a run fails its first steps with "apps-table
-  missing" (the app's own model checks still run). Rerun it.
-  Screenshots in `build/smoke-report/` are approximate, because `cacheDisplay` can't render vibrancy layers.
-
-## Live trial
-
-`swift run DynjectLiveTrial` runs the privileged paths against `/opt/dynject` using the same DynjectCore code as
-the app (`ConfigEditor`, `ProtectedFileWriter`, `PrivilegedRestarter` via osascript), and checks each step
-from outside. Each administrator dialog is labelled with its step. Run it only when you mean to touch the live
-install. `--original <file>` names the config to return to; `--skip-restart` skips step 2.
-
-Results from 2026-11-19 (test app: Calculator, which was not running):
-
-| Step | Result |
-| --- | --- |
-| Cancel the password prompt | Reported as cancelled; nothing written. |
-| Restart with two detached daemons running (7237, 45044) | Both stopped; exactly one new `dynjectd` started with the current config. |
-| Enable libBrutalium for Calculator, Save & Restart in one prompt | Only two lines added; `root:wheel 644` kept; backup made; one daemon (log: `deny-all, 2 override(s)`); log `MATCH`; `lsof` confirmed **Loaded**. |
-| Disable it, Save & Restart | Config byte-identical to the original; one daemon (`1 override(s)`); Calculator relaunched **Not loaded**. |
-| Conflict guard (unplanned) | When the file changed between load and write, the helper refused to write. |
-
-The first run went wrong because the password was typed at the "click Cancel" step. That appended a test comment to the
-config, and the conflict guard then correctly blocked the next write. A second run started from a pre-trial copy
-and left the config byte-identical to it.
-
-### Through the app's own buttons
-
-Later the same day, the switch, review sheet and **Save & Restart Dynject** button were used in the app against
-the live config, turning libBrutalium on for Notes while Notes was running. Results: exactly two lines added
-(`dylib-override:…:allow:com.apple.Notes`, `allow:Notes`), `root:wheel 644` kept, a backup made, one password
-prompt, and exactly one `dynjectd` afterwards (log: `deny-all, 2 override(s)`). After Notes was relaunched, the
-log showed `MATCH` and `lsof` confirmed libBrutalium was **Loaded**. A Notes launch before the restart was still
-skipped (`SKIP (no_gui)`), which confirms the save → restart → relaunch order the app shows.
+dynject-workbench
+=================
+
+tools for writing and running tweaks on macOS, on top of the dynject injector.
+roughly substrate + preferenceloader + a settings app: a hooking library, a settings
+sdk, an apple-menu loader, crash safe mode, respring, a cli and a native app that
+manages the injector's config. no store, no packages yet.
+
+this is free software. if you paid for it, you got scammed: ask for your money back
+and report the seller (open an issue with a link). same goes for paid tweaks built
+with this sdk.
+
+this is alpha. it injects code into your apps. if that worries you, stop here.
+
+
+requirements
+------------
+
+- macOS 27 on apple silicon. the package says macOS 14+ and other setups might
+  build; nobody has tried.
+- xcode or the command line tools, swift 6.
+- dynject in `/opt/dynject` (`bin/dynjectd`, `etc/dynjectd.conf`, and
+  `/Library/LaunchDaemons/com.dynject.dynjectd.plist` if you want it at boot).
+  we don't ship it. workbench edits its config and restarts its daemon when you
+  ask; it never installs, updates or patches the engine.
+
+
+the engine
+----------
+
+the injection itself is dynject by ut0mt8: https://github.com/ut0mt8/dynject (MIT).
+install the engine from there. this project is a separate set of tools on top of it
+and is not affiliated with or endorsed by its author.
+
+
+build
+-----
+
+    ./scripts/bootstrap.sh              check, build app + dw + tweaks, install to ~/Applications
+    ./scripts/bootstrap.sh --check      prerequisites only
+    ./scripts/bootstrap.sh --no-install build only; the app stays in build/
+    ./scripts/bootstrap.sh --no-tweaks  skip MenuLoader and the examples
+    ./scripts/bootstrap.sh --dest DIR   install somewhere else
+    ./scripts/bootstrap.sh --help
+
+first build takes a few minutes. it signs ad-hoc, which is all a locally built app
+needs: nothing you build yourself is quarantined, so gatekeeper doesn't ask. to sign
+with your own certificate:
+
+    SIGN_IDENTITY="Apple Development: Your Name (TEAMID)" ./scripts/bootstrap.sh
+
+(`security find-identity -v -p codesigning` lists yours.) `scripts/build-app.sh` and
+every tweak's `build.sh` honour `SIGN_IDENTITY` too.
+
+nothing in the build needs admin rights or touches the engine. installing a tweak is
+a separate step and asks for your password once.
+
+`dw` lives inside the app at `Contents/MacOS/dw`. put it on your path:
+
+    ln -s ~/Applications/Dynject\ Workbench.app/Contents/MacOS/dw /usr/local/bin/dw
+
+or build it alone: `swift build -c release --product dw`.
+
+
+first steps
+-----------
+
+1. `open ~/Applications/Dynject\ Workbench.app`. it reads the live config at
+   `/opt/dynject/etc/dynjectd.conf`; nothing is written until you click save in a
+   review sheet that shows the diff.
+2. workbench -> safe mode -> install watcher. no password; macos may ask you to allow
+   a background item. from then on a tweak that crashes an app gets switched off for
+   that app.
+3. try MenuLoader in textedit, from the repo root:
+
+       dw tweak install Tweaks/MenuLoader --for com.apple.TextEdit --dry-run
+       dw tweak install Tweaks/MenuLoader --for com.apple.TextEdit
+
+   one password prompt copies the dylib, declares and enables it in the config and
+   restarts dynjectd. (or workbench -> tweaks -> install tweak...)
+4. respring: `dw respring`, or the respring button in workbench. apps only load
+   tweaks at launch. textedit's apple menu now has a dynject submenu.
+5. write your own: `dw new MyTweak --app com.apple.TextEdit`. see TWEAKS.md.
+
+
+when you break something
+------------------------
+
+- hold shift while launching an app: no tweaks that launch.
+- workbench -> safe mode -> panic switch (`dw safemode panic on`): no tweaks anywhere.
+- crashes get your tweak switched off for that app automatically, once the watcher
+  is installed.
+- all three only stop tweaks built on DynjectHook. anything else: turn it off in the
+  config (workbench's switches, or `dw disable <dylib> <bundleID>`).
+- read the crash report. that's what it's for.
+- every config and plist write is backed up first, in
+  `~/Library/Application Support/Dynject Workbench/Backups/`.
+
+
+what's in the box
+-----------------
+
+- Dynject Workbench: the app. which apps each dylib applies to and why, per-app
+  switches, raw config editor, plist editor, daemon restart, tweak settings pages,
+  tweak install, safe mode and respring. see docs/workbench.md.
+- dw: the cli. install/uninstall tweaks, enable per app, respring, logs, safe mode.
+- DynjectHook: objective-c hooking library you compile into your tweak. docs/hooking.md.
+- settings sdk: `DynjectTweak.h` plus a manifest gives your tweak a settings page.
+  docs/tweak-format.md.
+- MenuLoader: tweaks declare apple-menu items, it adds them. Tweaks/MenuLoader.
+- safe mode: crash watcher, per-app auto-disable, panic switch. docs/safe-mode.md.
+- respring: relaunch running apps whose tweaks are out of date. docs/respring.md.
+- TitleBadge: example tweak with every kind of setting. Examples/TitleBadge.
+
+
+where to go next
+----------------
+
+- TWEAKS.md: writing tweaks.
+- HACKING.md: changing the tools; layout, tests, how the pieces talk.
+- KNOWN-ISSUES.md: what's broken or untested.
+- TODO.md: what's missing.
+- CONTRIBUTING.md: patches.
+- docs/: the reference material.
+
+
+license
+-------
+
+PolyForm Noncommercial 1.0.0, see LICENSE.md. free for any noncommercial use. no
+selling the tools, forks of them, or tweaks built with the sdk.
+
+free tweaks with an optional tip jar are fine. paywalled or early-access tweaks are not.

@@ -34,8 +34,8 @@ Change the key with `dw safemode` or Workbench, not `defaults`: `defaults write 
 replaces every entry (the watcher's included) and `defaults delete` removes them all. Entries removed that way are
 treated as re-enabled at the next scan (see below).
 
-**Tweaks that aren't built on DynjectHook ignore the key.** Brutalium (an external dylib) and, today, TitleBadge are
-examples. The only way to stop such a tweak is to disable it in the Dynject config (Workbench's existing admin-prompt
+**Tweaks that aren't built on DynjectHook ignore the key.** External dylibs built without
+it are the usual example. The only way to stop such a tweak is to disable it in the Dynject config (Workbench's existing admin-prompt
 flow, or `dw disable`). Safe Mode still records their crashes, still adds their entries to the key (which is harmless
 and takes effect if they adopt DynjectHook), and warns that they keep loading.
 
@@ -176,8 +176,8 @@ Workbench's Safe Mode page (`Sources/DynjectWorkbench/SafeModeModel.swift`, `Vie
 - A footer explains the Shift-at-launch bypass.
 
 The page re-reads the key and `state.json` on the change notification and whenever the state directory changes.
-Fixture mode, smoke tests and launches that preview other manifests, reports or dylibs isolate it (see the README's
-fixture-mode section). Isolated files go under `-DWSupportDir`, or, without it, under `SafeModePreview/` in the
+Fixture mode, smoke tests and launches that preview other manifests, reports or dylibs isolate it (see
+[HACKING.md](../HACKING.md#fixture-mode-and-isolation)). Isolated files go under `-DWSupportDir`, or, without it, under `SafeModePreview/` in the
 support folder, never the real `SafeMode/state.json` or `bin/dw`; the UI smoke test covers it with synthetic reports in a scratch folder.
 
 ## Testing

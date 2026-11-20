@@ -238,6 +238,8 @@ public struct TweakTemplate: Sendable {
         hook class on `-[NSWindow setTitle:]`, and has one setting, **Enabled**, which Dynject Workbench shows on its
         Tweaks page and which takes effect while the app runs.
 
+        built with dynject-workbench's sdk: free and noncommercial; don't sell tweaks built with it.
+
         | File | |
         | --- | --- |
         | `\(name).m` | The tweak: `DH_CTOR` entry point, the hook class, settings through `DTPrefBool`/`DTPrefObserve`. |

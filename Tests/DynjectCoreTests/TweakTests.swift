@@ -218,3 +218,12 @@ final class TweakSettingsTests: XCTestCase {
         XCTAssertEqual(DTResolve(payload, "missing", nil, "fb") as? String, "fb")
     }
 }
+
+final class WorkbenchInfoTests: XCTestCase {
+    func testVersionMatchesInfoPlist() throws {
+        let data = try Data(contentsOf: repoRoot.appendingPathComponent("Resources/Info.plist"))
+        let plist = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        XCTAssertEqual(plist?["CFBundleShortVersionString"] as? String, WorkbenchInfo.version)
+        XCTAssertTrue(WorkbenchInfo.versionText.contains("PolyForm Noncommercial 1.0.0"))
+    }
+}

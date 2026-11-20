@@ -69,7 +69,7 @@ xcrun clang -fobjc-arc -O2 -isysroot "$SDK" -I TweakSDK/include \
 codesign --force --sign - --timestamp=none libTitleSuffix.dylib
 ```
 
-Then declare the dylib in `dynjectd.conf`. To get a settings page, add a manifest with a `switch` named `enabled`, a
+Then declare the dylib in `dynjectd.conf` (or let `dw tweak install` do it, see [TWEAKS.md](../TWEAKS.md)). To get a settings page, add a manifest with a `switch` named `enabled`, a
 `text` named `suffix`, and `takesEffect: live` ([Tweak format](tweak-format.md)).
 
 To watch what DynjectHook does, stream its logs. They use your tweak ID as the subsystem and the category `hook`:

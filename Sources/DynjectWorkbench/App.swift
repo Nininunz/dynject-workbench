@@ -1,4 +1,5 @@
 import AppKit
+import DynjectCore
 import SwiftUI
 
 @main
@@ -20,6 +21,15 @@ struct DynjectWorkbenchApp: App {
         }
         .commands {
             CommandGroup(replacing: .newItem) {}
+            CommandGroup(replacing: .appInfo) {
+                Button("About Dynject Workbench") {
+                    let credits = NSAttributedString(
+                        string: "\(WorkbenchInfo.licenseNotice)\n\n\(WorkbenchInfo.engineCredit)",
+                        attributes: [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+                                     .foregroundColor: NSColor.labelColor])
+                    NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
+                }
+            }
         }
     }
 }

@@ -26,8 +26,8 @@ Use **Tweaks → Reload** after editing a manifest.
 
 `dw tweak install <folder>` (or **Tweaks → Install Tweak…**) puts the manifest in the first folder and the dylib at
 its `dylib` path, declares it in the config and enables it for the apps you name, with one password prompt.
-`dw new <Name>` starts a tweak folder with a manifest, a source file, `build.sh` and the SDK. See the README's
-[Installing tweaks](../README.md#installing-tweaks-and-starting-a-new-one).
+`dw new <Name>` starts a tweak folder with a manifest, a source file, `build.sh` and the SDK. See
+[TWEAKS.md](../TWEAKS.md#installing-uninstalling-listing).
 
 ## Manifest
 

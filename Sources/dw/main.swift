@@ -136,6 +136,7 @@ func applyConfig(_ newPath: String, confirmed: Bool) {
 
 let a = Array(CommandLine.arguments.dropFirst())
 switch (a.first, a.count) {
+case ("--version", _), ("version", _): print(WorkbenchInfo.versionText)
 case ("safemode", _): safeModeCommand(Array(a.dropFirst()))
 case ("respring", _): respringCommand(Array(a.dropFirst()))
 case ("tweak", _): tweakCommand(Array(a.dropFirst()))
@@ -163,6 +164,7 @@ default:
       dw config apply <new.conf> [--yes]
       dw log <subsystem> [minutes]
       dw safemode ...   (dw safemode help)
+      dw --version
     """)
     exit(a.isEmpty ? 0 : 2)
 }
