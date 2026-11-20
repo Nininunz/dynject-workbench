@@ -148,6 +148,8 @@ public struct DoctorContext {
     /// The dw running the checks (compared with the agents' copies when no app is installed).
     public var thisDw: String?
     public var version = WorkbenchInfo.version
+    /// The macOS that minimumSystemVersion and testedSystemVersions are checked against.
+    public var systemVersion = SystemVersion.current
 
     public init(locations: TweakLocations, daemonStatus: @escaping () -> DaemonStatus, sipStatus: @escaping () -> String?,
                 codeSignatureProblem: @escaping (String) -> String?, safeModeAgent: UserLaunchAgent, bridgeAgent: UserLaunchAgent,
@@ -525,6 +527,12 @@ public enum Doctor {
             if i.severity == .error { s.problem("manifest", detail, fix: fix) } else { s.warn("manifest", detail, fix: fix) }
         }
         if list.isEmpty { s.ok("installed", "no tweak manifests in \(c.locations.manifestSearchDirectories.joined(separator: " or "))") }
+        let locations = c.locations
+        let env = TweakCompatibility.Environment(
+            systemVersion: c.systemVersion, sdkVersion: c.version,
+            components: BuiltInComponent.installedStatus(launchAgentsDirectory: c.safeModeAgent.launchAgentsDirectory),
+            dylib: { DylibBuildInfo.read(dylibAt: locations.filePath(forDylib: $0.dylib)) })
+        let installed = list.map(\.manifest)
         for t in list {
             let label = "\(t.manifest.name) (\(t.manifest.id))"
             guard t.fileExists else {
@@ -541,6 +549,13 @@ public enum Doctor {
                        fix: "rebuild it against the current TweakSDK and reinstall")
             default:
                 s.ok("installed", "\(label): \(t.policy)")
+            }
+            for i in TweakCompatibility.issues(for: t.manifest, installed: installed, environment: env) {
+                // An older DynjectHook without the panic switch was reported above; its missing SDK marker says the same.
+                if i.kind == .missingSDKMarker, t.safeMode == .perTweak { continue }
+                let detail = "\(label): \(i.message)"
+                if i.severity == .error { s.problem(i.kind.doctorCheck, detail, fix: i.fix) }
+                else { s.warn(i.kind.doctorCheck, detail, fix: i.fix) }
             }
         }
         return s.checks
@@ -747,5 +762,17 @@ public enum Doctor {
               consequence: "sandboxed tweaks can't reach the broker, or it identifies no caller",
               fix: "docs/bridge.md#private-spi; look for a workbench update")
         return DoctorReport(checks: s.checks)
+    }
+}
+
+extension CompatibilityIssue.Kind {
+    /// The check name `dw doctor` lists it under.
+    var doctorCheck: String {
+        switch self {
+        case .systemTooOld, .untestedSystem: return "macos"
+        case .nonSemanticVersion: return "version"
+        case .oldSDK, .missingSDKMarker: return "sdk"
+        case .unmetDependency: return "depends"
+        }
     }
 }

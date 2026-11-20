@@ -9,7 +9,8 @@ unreleased
 
 - `dw doctor`: a read-only health check. engine binaries and launchdaemon, one dynjectd
   running, recent log errors, sip, config diagnostics, every dylib (arm64e, signature),
-  manifests, safe mode support, the watcher and bridge agents (running, stale dw copy,
+  manifests, safe mode support, each tweak's macos range, depends, version format and the
+  dynjecthook it was built with, the watcher and bridge agents (running, stale dw copy,
   token), the apple-menu list, apps out of date, safe mode entries and crashes, the
   workbench version. `✓ ! ✗`, a fix under each problem, `--json`, `--quiet`, exit 1 on ✗.
 - `dw doctor --apis`: after a macos update, checks the private classes, methods, functions

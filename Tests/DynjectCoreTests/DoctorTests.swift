@@ -70,6 +70,7 @@ final class DoctorTests: XCTestCase {
         var dylib = FakeMachO.universal
         dylib.append(SafeModeSupportChecker.marker)
         dylib.append(SafeModeSupportChecker.panicMarker)
+        dylib.append(Data("\u{0}\(SDKVersionChecker.markerPrefix)\(WorkbenchInfo.version)\u{0}".utf8))
         try file("lib/tweaks/libGood.dylib", dylib)
         try FileManager.default.createDirectory(at: root.appendingPathComponent("Tweaks"), withIntermediateDirectories: true)
         try writeManifest("com.example.good", dylib: "libGood.dylib")
@@ -207,6 +208,38 @@ final class DoctorTests: XCTestCase {
         let w = try XCTUnwrap(Doctor.run(s.context).checks.first { $0.check == "safe mode support" })
         XCTAssertEqual(w.status, .warning)
         XCTAssertTrue(w.detail.contains("not built on DynjectHook"))
+    }
+
+    /// minimumSystemVersion and depends are problems; an untested macOS, a non-semantic version and an old SDK
+    /// build are warnings. A pre-panic-switch DynjectHook build gets the Safe Mode warning, not a second SDK one.
+    func testCompatibilityFindings() throws {
+        var s = try healthy()
+        s.context.systemVersion = try XCTUnwrap(SystemVersion("27.2"))
+        var old = FakeMachO.universal
+        old.append(SafeModeSupportChecker.marker)
+        old.append(SafeModeSupportChecker.panicMarker)
+        old.append(Data("\u{0}\(SDKVersionChecker.markerPrefix)0.0.1\u{0}".utf8))
+        try file("lib/tweaks/libGood.dylib", old)
+        try writeManifest("com.example.good", dylib: "libGood.dylib",
+                          extra: ["version": "1.0", "testedSystemVersions": "27.0 - 27.1", "depends": ["com.example.gone >= 2.0.0"]])
+        var perTweak = FakeMachO.universal
+        perTweak.append(SafeModeSupportChecker.marker)
+        try file("lib/tweaks/libNew.dylib", perTweak)
+        try writeManifest("com.example.new", dylib: "libNew.dylib", extra: ["minimumSystemVersion": "99.0"])
+
+        let checks = Doctor.run(s.context).checks.filter { $0.section == "tweaks" }
+        func find(_ check: String, _ id: String) -> [DoctorCheck] { checks.filter { $0.check == check && $0.detail.contains("(\(id))") } }
+        let text = DoctorReport(checks: checks).text()
+        XCTAssertEqual(find("macos", "com.example.new").map(\.status), [.problem], text)
+        XCTAssertTrue(find("macos", "com.example.new")[0].detail.contains("needs macOS 99.0 or later; this Mac runs 27.2"), text)
+        XCTAssertEqual(find("macos", "com.example.good").map(\.status), [.warning], text)
+        XCTAssertEqual(find("version", "com.example.good").map(\.status), [.warning], text)
+        XCTAssertTrue(find("version", "com.example.good")[0].fix?.contains("\"1.0.0\"") == true, text)
+        XCTAssertEqual(find("depends", "com.example.good").map(\.status), [.problem], text)
+        XCTAssertEqual(find("sdk", "com.example.good").map(\.status), [.warning], text)
+        XCTAssertTrue(find("sdk", "com.example.good")[0].detail.contains("built with DynjectHook 0.0.1"), text)
+        XCTAssertEqual(find("sdk", "com.example.new"), [], "the Safe Mode warning already says it: \(text)")
+        XCTAssertEqual(find("safe mode support", "com.example.new").map(\.status), [.warning], text)
     }
 
     /// An agent whose copied dw isn't the app's is stale; one that matches is fine; missing agents and tokens.

@@ -121,8 +121,8 @@ first steps
 when you break something
 ------------------------
 
-- run `dw doctor` first. read-only: engine, sip, config, tweaks, the watcher and the
-  bridge, the apple menu, out-of-date apps, safe mode. every `!` and `✗` comes with the
+- run `dw doctor` first. read-only: engine, sip, config, tweaks (macos range, depends,
+  sdk build), the watcher and the bridge, the apple menu, out-of-date apps, safe mode. every `!` and `✗` comes with the
   command that fixes it. after a macos update, `dw doctor --apis` checks the private
   apis your tweaks declare they need.
 - hold shift while launching an app: no tweaks that launch.
