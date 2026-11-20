@@ -235,6 +235,7 @@ final class DoctorTests: XCTestCase {
         XCTAssertEqual(find("macos", "com.example.good").map(\.status), [.warning], text)
         XCTAssertEqual(find("version", "com.example.good").map(\.status), [.warning], text)
         XCTAssertTrue(find("version", "com.example.good")[0].fix?.contains("\"1.0.0\"") == true, text)
+        XCTAssertFalse(checks.contains { $0.check == "manifest" && $0.detail.contains("semantic version") }, "listed once: \(text)")
         XCTAssertEqual(find("depends", "com.example.good").map(\.status), [.problem], text)
         XCTAssertEqual(find("sdk", "com.example.good").map(\.status), [.warning], text)
         XCTAssertTrue(find("sdk", "com.example.good")[0].detail.contains("built with DynjectHook 0.0.1"), text)

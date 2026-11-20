@@ -521,7 +521,9 @@ public enum Doctor {
         var s = DoctorSection("tweaks")
         let (list, issues, _) = TweakInstaller.list(locations: c.locations)
         // A manifest without settings is fine here: it gives the tweak an id for Safe Mode and declares requirements.
-        for i in issues where i.message != "No usable settings items." {
+        // A non-semantic version is listed per tweak below, with the version to use.
+        for i in issues where i.message != "No usable settings items."
+            && !(i.message.hasPrefix("version ") && i.message.contains("is not a semantic version")) {
             let detail = "\(name(i.file)): \(i.message)"
             let fix = "fix the manifest (docs/tweak-format.md), then reload in workbench"
             if i.severity == .error { s.problem("manifest", detail, fix: fix) } else { s.warn("manifest", detail, fix: fix) }
