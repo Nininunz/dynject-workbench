@@ -11,6 +11,8 @@ unreleased
   tests, the app, each bundled tweak's build and test host, and a fresh `dw new` tweak taken
   through build, install, list and uninstall in a fake root. `--quick`, `--all` (adds the e2e
   scripts and the ui smoke test), `--stop`.
+- ci: github actions runs `scripts/test-all.sh` on every push to main and every pull
+  request (macos 27, xcode 27). the `--all` extras stay local.
 - `dw doctor`: a read-only health check. engine binaries and launchdaemon, one dynjectd
   running, recent log errors, sip, config diagnostics, every dylib (arm64e, signature),
   manifests, safe mode support, each tweak's macos range, depends, version format and the

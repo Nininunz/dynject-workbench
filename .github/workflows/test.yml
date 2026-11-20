@@ -1,0 +1,41 @@
+# scripts/test-all.sh on every push to main and every pull request. the e2e scripts and the ui smoke test
+# (test-all --all) need a real desktop session and permissions, so they stay local.
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-all:
+    # macOS 27, Xcode 27, arm64.
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: test-all
+        run: scripts/test-all.sh
+
+      - name: upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-all-logs
+          path: .build/test-all/
+          retention-days: 7

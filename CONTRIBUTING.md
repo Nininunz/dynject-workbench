@@ -8,7 +8,8 @@ issues and patches welcome.
 - no tooling for paid tweaks: no license checks, paywalls, drm or early-access gates.
 - run `./scripts/test-all.sh` before you send anything (unit tests, the app, every tweak and
   its test host, a fresh `dw new` tweak). if you touched the app, respring or the bridge, run
-  `./scripts/test-all.sh --all` too, when you can spare the screen for a minute.
+  `./scripts/test-all.sh --all` too, when you can spare the screen for a minute. ci runs the
+  default set on every pull request; the `--all` extras only run on your machine.
 - follow HACKING.md: the isolation rule (tests never touch the live config, /opt/dynject, real
   keys or real apps), one helper call per user-visible change, DynjectHook stays hidden and
   class-free.
