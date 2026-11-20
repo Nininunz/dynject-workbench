@@ -38,6 +38,19 @@ final class TweakManifestTests: XCTestCase {
         XCTAssertEqual(m?.perAppItems.map(\.key), ["enabled", "text", "showBundleID", "style", "color"])
     }
 
+    /// A tweak without settings: identity and dylib only. It parses; the parser only notes there is nothing to show.
+    func testOLEDFinderManifestParses() {
+        let path = repoRoot.appendingPathComponent("Examples/OLEDFinder/OLEDFinder.workbench.plist").path
+        let (m, issues) = TweakManifestParser.parse(data: FileManager.default.contents(atPath: path)!, path: path,
+                                                    fileExists: { _ in true })
+        XCTAssertEqual(issues.filter { $0.severity == .error }.map(\.message), [])
+        XCTAssertEqual(issues.map(\.message), ["No usable settings items."])
+        XCTAssertEqual(m?.id, "local.dynject.oledfinder")
+        XCTAssertEqual(m?.dylib, "/opt/dynject/lib/tweaks/libOLEDFinder.dylib")
+        XCTAssertEqual(m?.items.count, 0)
+        XCTAssertEqual(m?.takesEffect, .relaunch)
+    }
+
     func testRejectsUnusableManifests() {
         func errors(_ d: [String: Any]) -> [String] {
             TweakManifestParser.parse(data: manifestData(d), path: "/x", fileExists: { _ in true }).1.map(\.message)

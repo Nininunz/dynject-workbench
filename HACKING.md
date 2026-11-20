@@ -25,7 +25,8 @@ layout
     TweakSDK/                     DynjectTweak.h (settings, header only), DynjectHook.h + DynjectHook.m
                                   (hooking). also the DynjectTweakSDK target, so tests can compile against it.
     Tweaks/MenuLoader/            the apple-menu loader tweak, its build.sh and testhost/
-    Examples/                     ExampleTweak.workbench.plist (every item type), TitleBadge/ (example tweak)
+    Examples/                     ExampleTweak.workbench.plist (every item type), TitleBadge/ and
+                                  OLEDFinder/ (example tweaks)
     Tests/DynjectCoreTests/       unit tests + Fixtures/ (live.conf is a byte copy of a real config)
     Tests/DynjectHookTests/       objective-c tests for DynjectHook
     Tests/DynjectHookSwiftFixtures/  swift classes for DynjectHook's swift class lookup tests
@@ -48,6 +49,7 @@ building and tests
     ./scripts/respring-e2e.sh           # respring engine end to end against test apps it builds (~25 s)
     Tweaks/MenuLoader/testhost/run.sh   # MenuLoader in an appkit test host, sandboxed copy included
     (cd Examples/TitleBadge && ./build.sh test)   # TitleBadge in a local test app
+    Examples/OLEDFinder/build.sh test             # OLEDFinder in a finder-like test app, screenshots
     open "build/Dynject Workbench.app"
 
 current counts (2026-11-19): 201 DynjectCore (parser, editor, helper script, writer,

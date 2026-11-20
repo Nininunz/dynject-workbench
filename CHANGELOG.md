@@ -7,7 +7,8 @@ newest first. for testers; the commit log has the details.
 unreleased
 ----------
 
-nothing yet.
+- examples: OLEDFinder, pure black finder browser windows (no settings), with an offline
+  screenshot test (`Examples/OLEDFinder/build.sh test`).
 
 
 0.1.0 (2026-11-19)

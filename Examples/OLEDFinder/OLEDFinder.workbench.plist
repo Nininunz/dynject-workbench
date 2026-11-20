@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>formatVersion</key><integer>1</integer>
+	<key>identifier</key><string>local.dynject.oledfinder</string>
+	<key>name</key><string>OLED Finder</string>
+	<key>summary</key><string>Pure black Finder browser windows. No settings: the colours are constants in OLEDFinder.m.</string>
+	<key>version</key><string>0.1</string>
+	<key>author</key><string>Dynject Workbench example</string>
+	<key>dylib</key><string>/opt/dynject/lib/tweaks/libOLEDFinder.dylib</string>
+	<key>takesEffect</key><string>relaunch</string>
+</dict>
+</plist>

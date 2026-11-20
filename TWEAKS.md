@@ -3,8 +3,9 @@ writing tweaks
 
 for people writing tweaks. you know objective-c and you know what a dylib is.
 references: docs/hooking.md, docs/tweak-format.md, docs/safe-mode.md, docs/respring.md.
-working examples: Examples/TitleBadge (settings, no swizzling) and Tweaks/MenuLoader
-(hooks a private appkit class, listens for notifications).
+working examples: Examples/TitleBadge (settings, no swizzling), Examples/OLEDFinder (hook
+classes on appkit views, one app, no settings) and Tweaks/MenuLoader (hooks a private appkit
+class, listens for notifications).
 
 
 the loop
@@ -273,7 +274,8 @@ debugging
 - `dw respring --dry-run` says which running apps are out of date and why
   (missing, unwanted, updated, safe mode changed).
 - test without dynject: `DYLD_INSERT_LIBRARIES` into a test app you built.
-  `Examples/TitleBadge/build.sh test` and `Tweaks/MenuLoader/testhost/run.sh` do this.
+  `Examples/TitleBadge/build.sh test`, `Examples/OLEDFinder/build.sh test` (screenshots and
+  pixel checks) and `Tweaks/MenuLoader/testhost/run.sh` do this.
 
 
 other dw commands

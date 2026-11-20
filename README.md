@@ -130,6 +130,7 @@ what's in the box
 - safe mode: crash watcher, per-app auto-disable, panic switch. docs/safe-mode.md.
 - respring: relaunch running apps whose tweaks are out of date. docs/respring.md.
 - TitleBadge: example tweak with every kind of setting. Examples/TitleBadge.
+- OLEDFinder: example tweak, pure black finder windows, hooks, no settings. Examples/OLEDFinder.
 
 
 where to go next
