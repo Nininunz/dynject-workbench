@@ -79,9 +79,15 @@ public struct TweakLocations: Sendable, Equatable {
 
 public enum TweakInstallError: Error, LocalizedError, Equatable {
     case refused(String)
+    /// The files were written but the privileged step failed afterwards (typically the dynjectd restart).
+    case installedButNotRestarted(String)
 
     public var errorDescription: String? {
-        switch self { case let .refused(m): return m }
+        switch self {
+        case let .refused(m): return m
+        case let .installedButNotRestarted(m):
+            return "The tweak is installed, but dynjectd didn't restart: \(m)\nRestart it from Workbench → Daemon; apps launched until then don't get the change."
+        }
     }
 }
 
@@ -417,7 +423,19 @@ public enum TweakInstaller {
             // Fixture mode and tests start without the folder; the live one belongs to the engine's installer.
             try? FileManager.default.createDirectory(atPath: plan.locations.dylibFileDirectory, withIntermediateDirectories: true)
         }
-        let outcome = changes.isEmpty ? nil : try w.apply(changes, restartWith: plan.restartsDaemon ? restarter : nil)
+        let outcome: BatchOutcome?
+        do {
+            outcome = changes.isEmpty ? nil : try w.apply(changes, restartWith: plan.restartsDaemon ? restarter : nil)
+        } catch {
+            // The privileged step can fail after the files are in place (dynjectd didn't come back). Then the
+            // install itself happened: finish the user-level step so the tweak shows up, and say what failed.
+            let fm = FileManager.default
+            let dylibIn = plan.dylibAction == .unchanged || fm.contents(atPath: plan.dylibFilePath) == plan.dylibData
+            let configIn = plan.configNew.map { fm.contents(atPath: plan.locations.configPath) == Data($0.utf8) } ?? true
+            guard dylibIn, configIn, !changes.isEmpty else { throw error }
+            _ = try? writeManifest(plan, backups: writer.backups)
+            throw TweakInstallError.installedButNotRestarted(error.localizedDescription)
+        }
 
         var problems: [String] = []
         var written = false

@@ -159,6 +159,19 @@ each_op() {
 # Stop every dynjectd ourselves, confirm none remain, then start the job once.
 do_restart() {
   wait_gone dynject_loader 100 || fail 20 "dynject_loader is still running after 10s; not restarting"
+  # dynject_loader patches amfid before it starts dynjectd and gives up ("amfid not found") when amfid,
+  # which launchd starts on demand and stops when idle, isn't running. Start it first, before stopping
+  # the old daemon, so a failure here leaves the running dynjectd alone.
+  if ! ${B}pgrep -x amfid >/dev/null 2>&1; then
+    ${B}launchctl kickstart system/com.apple.MobileFileIntegrity >/dev/null 2>&1
+    k=0
+    while ! ${B}pgrep -x amfid >/dev/null 2>&1; do
+      k=$((k + 1))
+      if [ "$k" -gt 50 ]; then fail 25 "amfid did not start; dynject_loader needs it. dynjectd was left running"; fi
+      ${B}sleep 0.1
+    done
+    say "started amfid"
+  fi
   before=$(pids_of dynjectd)
   say "running-before ${before:-none}"
   if [ -n "$before" ]; then

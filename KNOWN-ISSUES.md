@@ -4,6 +4,12 @@ known issues
 alpha. this list is honest, not complete.
 
 platform
+- injection is inherited by child processes an app spawns (chess's engine helper got it).
+  DH_CTOR's bundle filter keeps DynjectHook tweaks out; other tweaks would run there too.
+- dynject_loader needs amfid running when it starts dynjectd and fails with "amfid not
+  found" if launchd has stopped the idle amfid. the restart helper now starts amfid first;
+  a reboot or a restart outside workbench/dw can still hit it (`sudo launchctl kickstart
+  system/com.apple.MobileFileIntegrity`, then start dynject again).
 - the engine needs SIP relaxed (`--without fs --without debug`). that weakens the whole
   machine, not just injected apps; see README "what you're giving up". macOS updates may
   re-enable SIP or break the engine.
@@ -30,9 +36,9 @@ safe mode
 - `defaults write -g dynject.safemode '{...}'` replaces every entry. use dw or workbench.
 
 install / uninstall
-- the live privileged path of `dw tweak install/uninstall` (and workbench's install tweak...)
-  hasn't been exercised on a real system yet. `dw install`, `dw enable` and `dw config apply`
-  have. use `--dry-run` first.
+- `dw tweak install/uninstall` were run live once (a dw new tweak in chess, 2026-11-19).
+  workbench's install tweak... button shares the code but hasn't been clicked live. `--dry-run`
+  first is still a good habit.
 - uninstall leaves global `allow:<App>` lines that were added for the tweak.
 - uninstall refuses to remove the config's last dylib (dynjectd won't start without one).
 - uninstall keeps the tweak's settings key `dynject.tweak.<id>`.

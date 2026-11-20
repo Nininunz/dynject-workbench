@@ -113,6 +113,23 @@ final class TweakInstallerTests: XCTestCase {
         XCTAssertEqual(again.alreadyEnabledFor.map(\.bundleID), ["com.apple.TextEdit"])
     }
 
+    func testFailedRestartAfterTheWritesStillInstallsTheManifestAndSaysSo() throws {
+        // Live, 2026-11-19: dynject_loader exited with "amfid not found", so the restart failed after the dylib
+        // and config were written, and the manifest step was skipped.
+        struct FailingRestarter: DaemonRestarter {
+            var isLive: Bool { false }
+            func restart() throws -> RestartReport { throw WriteError.helperFailed("dynjectd did not start") }
+        }
+        let plan = try planInstall()
+        XCTAssertThrowsError(try TweakInstaller.execute(plan, writer: writer(), restarter: FailingRestarter())) { error in
+            guard case TweakInstallError.installedButNotRestarted = error else { return XCTFail("\(error)") }
+            XCTAssertTrue(error.localizedDescription.contains("Workbench → Daemon"), error.localizedDescription)
+        }
+        XCTAssertEqual(FileManager.default.contents(atPath: loc.dylibFileDirectory + "/libMyTweak.dylib"), FakeMachO.universal)
+        XCTAssertTrue(config.contains("dylib:\(installPath):deny"))
+        XCTAssertEqual(FileManager.default.contents(atPath: loc.manifestsDirectory + "/MyTweak.workbench.plist"), Data(template.manifest.utf8))
+    }
+
     func testReinstallAfterRebuildReplacesOnlyTheDylibWithoutRestart() throws {
         _ = try TweakInstaller.execute(try planInstall(), writer: writer(), restarter: SimulatedRestarter())
         let configBefore = config

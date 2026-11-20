@@ -35,6 +35,10 @@ final class HelperScriptTests: XCTestCase {
         case "$1" in
           print) [ -f "$DW_STATE/job-loaded" ]; exit $? ;;
           kickstart|bootstrap)
+            if [ "$2" = system/com.apple.MobileFileIntegrity ]; then
+              [ -f "$DW_STATE/amfid-fails" ] || echo 900 > "$DW_STATE/amfid.pids"
+              exit 0
+            fi
             [ "$1" = bootstrap ] && touch "$DW_STATE/job-loaded"
             [ -f "$DW_STATE/start-fails" ] && exit 0
             n=$(cat "$DW_STATE/spawn-count" 2>/dev/null || echo 1)
@@ -49,6 +53,7 @@ final class HelperScriptTests: XCTestCase {
         stub("sleep", "exit 0")
         write("nextpid", "50000\n")
         write("job-loaded", "")
+        write("amfid.pids", "900\n")   // amfid awake unless a test says otherwise
     }
 
     override func tearDownWithError() throws {
@@ -77,6 +82,30 @@ final class HelperScriptTests: XCTestCase {
     var calls: [String] { read("calls").split(separator: "\n").map(String.init) }
 
     // MARK: restart
+
+    func testRestartStartsAnIdleAmfidFirst() throws {
+        // dynject_loader exits with "amfid not found" when launchd has stopped the idle amfid.
+        write("amfid.pids", "")
+        write("dynjectd.pids", "7237\n")
+        let out = try executor.run(["restart"], prompt: "")
+        XCTAssertTrue(out.contains("DW started amfid"), out)
+        let c = calls
+        let amfidStart = try XCTUnwrap(c.firstIndex(of: "launchctl kickstart system/com.apple.MobileFileIntegrity"))
+        let stopOld = try XCTUnwrap(c.firstIndex { $0.hasPrefix("kill -TERM") })
+        XCTAssertLessThan(amfidStart, stopOld, "amfid must be up before the old daemon is stopped")
+        XCTAssertEqual(read("dynjectd.pids").split(separator: "\n").count, 1)
+    }
+
+    func testRestartLeavesTheDaemonRunningWhenAmfidWontStart() throws {
+        write("amfid.pids", "")
+        write("amfid-fails", "")
+        write("dynjectd.pids", "7237\n")
+        XCTAssertThrowsError(try executor.run(["restart"], prompt: "")) { error in
+            XCTAssertTrue("\(error)".contains("amfid did not start"), "\(error)")
+        }
+        XCTAssertFalse(calls.contains { $0.hasPrefix("kill") }, "nothing may be stopped")
+        XCTAssertEqual(read("dynjectd.pids"), "7237\n")
+    }
 
     func testRestartStopsBothDetachedDaemonsAndStartsExactlyOne() throws {
         write("dynjectd.pids", "7237\n45044\n")      // the situation found on this machine
