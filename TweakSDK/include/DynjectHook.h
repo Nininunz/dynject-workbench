@@ -224,6 +224,76 @@ DH_HIDDEN IMP DHOriginalForSource(const char *prettyFunction, SEL sel, id self);
 #define DH_ORIG(FN_TYPE, ...) \
     ((FN_TYPE)DHOriginalForSource(__PRETTY_FUNCTION__, _cmd, self))(self, _cmd, ##__VA_ARGS__)
 
+#pragma mark - Hooking C functions (imports)
+
+/// A handle to one import hook. Opaque; lives for the rest of the process.
+typedef struct DHImportHook DHImportHook;
+
+/// Redirects the calls to the C function `symbol` that go through an image's imports to `replacement`, a C
+/// function of the same type. An image calls a function of another library through a pointer in its own
+/// imports (the __got / __auth_got / __la_symbol_ptr sections); this rewrites those pointers. No code is
+/// patched, so it works under the hardened runtime and with pointer authentication (arm64e).
+///
+/// - `symbol` is the name as C and dlsym spell it: "getenv", "CGEventSourceFlagsState", or a Swift
+///   function's mangled name such as "$s7SwiftUI4ViewPAAE7opacityyQrSdF".
+/// - `library` limits it to imports bound to one library, matched against the image's load command by
+///   full path or file name: "libSystem.B.dylib", "SwiftUI", "AppKit". NULL: any library.
+/// - Covered: the main executable and every other image outside the dyld shared cache (an app's own
+///   frameworks and plug-ins, other tweaks), including images loaded later, which are patched as they
+///   load. Images that are unloaded are forgotten.
+/// - Not covered: calls inside one image (a function calling a function of its own image), calls
+///   between libraries of the dyld shared cache (the system frameworks call each other directly),
+///   calls through a pointer from dlsym, inlined calls, and calls from your own tweak: the image that
+///   contains `replacement` is skipped, so the tweak keeps calling what the imports held. Still call
+///   the original through the hook from the replacement: another tweak may have hooked it first.
+/// - The original is what the first patched import held (image load order, the main executable
+///   first): the function itself, or another hook's replacement, so hooks chain with the latest
+///   outermost. Before any import is patched it is the function dlsym finds, and NULL if there is
+///   none. A lazy import that was never called yet holds the binder, and dlsym's answer is used then.
+/// - Groups: disabling the group puts back every import that still points at the replacement; an
+///   import another hook has since been put on top of stays (the hook is marked inactive, see
+///   DHImportHookIsActive). Enabling installs it again, on top of what each import holds then.
+///
+/// Returns NULL (and logs) if `symbol` or `replacement` is NULL. A hook is returned, and logged, even
+/// when no loaded image imports the function yet (DHImportHookSiteCount is 0 then). Install hooks before
+/// other threads call the function, typically in DH_CTOR; otherwise use DHHookImportEx.
+///
+///   static DHImportHook *sCopyValue;
+///   static CFPropertyListRef MyCopyValue(CFStringRef key, CFStringRef app) {
+///       DHLog(@"reads %@ of %@", key, app);
+///       return DH_CALL_IMPORT_ORIG(sCopyValue, CFPropertyListRef (*)(CFStringRef, CFStringRef), key, app);
+///   }
+///   DH_CTOR("com.you.tweak", "com.apple.TextEdit") {
+///       sCopyValue = DHHookImport("CFPreferencesCopyAppValue", NULL, (void *)MyCopyValue, NULL);
+///   }
+///
+/// The ABI rule above applies: the replacement and FN_TYPE must have the function's exact type. Don't
+/// hook variadic functions (open, printf, NSLog): on arm64 their variadic arguments are on the stack,
+/// where a C replacement can't reach them to pass them on. Hook a non-variadic form (vprintf) instead.
+DH_HIDDEN DHImportHook *DHHookImport(const char *symbol, const char *library, void *replacement, DHGroup *group);
+
+/// DHHookImport for a function other threads may already be calling: `*outHook` is written before the
+/// first import is patched, so a call racing in never finds the handle variable still NULL. On failure
+/// NULL is returned and `*outHook` keeps its value. `outHook` may be NULL.
+DH_HIDDEN DHImportHook *DHHookImportEx(const char *symbol, const char *library, void *replacement, DHGroup *group,
+                                       DHImportHook **outHook);
+
+/// The function to call as "the original" (see DHHookImport). NULL for a NULL hook, and while no import
+/// was patched and dlsym found nothing.
+DH_HIDDEN void *DHImportOriginal(DHImportHook *hook);
+
+/// NO for NULL and for every hook whose group is disabled, YES otherwise.
+DH_HIDDEN BOOL DHImportHookIsActive(DHImportHook *hook);
+
+/// How many imports point at the replacement right now: 0 when no loaded image imports the function (or
+/// none bound to `library`), or while the group is disabled.
+DH_HIDDEN NSUInteger DHImportHookSiteCount(DHImportHook *hook);
+
+/// Calls the original behind an import hook. FN_TYPE is the function's exact non-variadic type:
+///
+///   DH_CALL_IMPORT_ORIG(sCopyValue, CFPropertyListRef (*)(CFStringRef, CFStringRef), key, app);
+#define DH_CALL_IMPORT_ORIG(hook, FN_TYPE, ...) ((FN_TYPE)DHImportOriginal(hook))(__VA_ARGS__)
+
 #pragma mark - Class lookup
 
 /// objc_getClass(name); NULL if there is no such class or `name` is NULL.

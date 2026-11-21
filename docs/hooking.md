@@ -1,6 +1,7 @@
 # DynjectHook: Objective-C method hooking for Dynject tweaks
 
-DynjectHook is a small Objective-C method-hooking library for tweaks that Dynject injects into macOS apps.
+DynjectHook is a small Objective-C method-hooking library for tweaks that Dynject injects into macOS apps. It can also
+redirect calls to C and Swift functions that go through an image's imports.
 Think of it as a slimmed-down Substrate/Logos with ZKSwizzle-style hook classes, built for
 the arm64 calling convention. It is two files that you compile into your tweak dylib:
 
@@ -352,6 +353,58 @@ Two edge cases remain, and both follow from "only touch what we still own":
 Switching a group changes method implementations, and each change makes the Objective-C runtime flush method caches.
 Do it in response to a setting or a user action, not on a hot path.
 
+## Hooking C functions: `DHHookImport`
+
+```objc
+static DHImportHook *sCopyValue;
+static CFPropertyListRef MyCopyValue(CFStringRef key, CFStringRef app) {
+    DHLog(@"reads %@ of %@", key, app);
+    return DH_CALL_IMPORT_ORIG(sCopyValue, CFPropertyListRef (*)(CFStringRef, CFStringRef), key, app);
+}
+
+DH_CTOR("com.you.prefspy", "com.apple.TextEdit") {
+    sCopyValue = DHHookImport("CFPreferencesCopyAppValue", NULL, (void *)MyCopyValue, NULL);
+}
+```
+
+A call from one image to a function in another library goes through a pointer in the calling image's imports (its
+`__got`, `__auth_got` or `__la_symbol_ptr` section). `DHHookImport` rewrites those pointers for one symbol, in every
+image outside the dyld shared cache: the app's executable, its own frameworks and plug-ins, other tweaks, and images
+loaded later, as they load. No code is patched, so it works under the hardened runtime, and on arm64e it signs the
+pointers the way dyld does (an entry signed any other way is left alone and logged).
+
+**What it reaches, and what not.** It sees exactly the calls that go through an import pointer:
+
+- yes: the app calling a system function (`CFPreferencesCopyAppValue`, `getenv`, `CGEventSourceFlagsState`), the app
+  calling into its own frameworks, a Swift app calling a SwiftUI function by its mangled name;
+- no: calls inside one image (a function of the app calling another function of the app), calls between system
+  libraries (they are bound to each other directly inside the shared cache), calls through a pointer from `dlsym`,
+  inlined calls, and your own tweak's calls (the image holding the replacement is skipped, so it keeps calling what the
+  imports held).
+
+So a hook on `open` catches the app's own `open` calls but not the ones Foundation makes for it. Start from what the
+app's executable imports: `otool -Iv /Applications/X.app/Contents/MacOS/X` (or `nm -u`) lists them.
+
+**Arguments.**
+
+- `symbol`: the name C and `dlsym` use, without the leading underscore: `"getenv"`, or a Swift function's mangled name
+  `"$s7SwiftUI…"` (`swift demangle` reads them).
+- `library`: NULL, or only imports bound to that library, matched against the calling image's load command by full
+  path or file name: `"libSystem.B.dylib"` (libc and friends are imported from there), `"AppKit"`, `"SwiftUI"`.
+- `group`: as for methods (see [Groups](#groups)). Disabling puts back every import that still points at the
+  replacement; one that another hook has been put on top of stays, and the hook is marked inactive (check
+  `DHImportHookIsActive`). Enabling installs it again on top of what is there.
+
+**The original** (`DHImportOriginal`, `DH_CALL_IMPORT_ORIG`) is what the first patched import held: the function, or
+another tweak's replacement, so hooks chain with the latest outermost. With nothing patched yet it is what `dlsym`
+finds (NULL if nothing). `DHImportHookSiteCount` says how many imports point at the replacement; 0 means no loaded
+image imports the function (the log says so too). `DHHookImportEx` writes the handle before the first import is
+patched, for functions other threads may already be calling.
+
+**The ABI rule applies twice:** the replacement must have the function's exact C type, and so must the type you call the
+original through. Don't hook variadic functions (`open`, `printf`, `NSLog`): on arm64 their variadic arguments are on
+the stack, where a C replacement can't reach them. Hook the non-variadic form (`vprintf`) instead.
+
 ## Finding classes
 
 ```objc
@@ -499,7 +552,10 @@ The library's tests are the `DynjectHookTests` target (Objective-C XCTest, with 
 `DynjectHookSwiftFixtures`). Because every symbol is hidden, the test bundle compiles its own copy of `DynjectHook.m`
 (`Tests/DynjectHookTests/DHTLibrary.m`), the same way a tweak does. A second copy with prefixed symbols
 (`DHTSecondCopy.m`) plays a second tweak in the same process. One test compiles a small dylib with `xcrun clang` and
-loads it, to exercise `DHWhenClassLoads` through dyld; it is skipped if no compiler is available.
+loads it, to exercise `DHWhenClassLoads` through dyld; it is skipped if no compiler is available. The import hook tests
+(`DHTImportTests.m`) compile a provider and callers the same way. `Tests/ImportHost/run.sh` runs import hooks in real
+processes, injected with `DYLD_INSERT_LIBRARIES`: an arm64e host (signed `__auth_got` entries), an arm64 one, and an
+x86_64 one under Rosetta when it is installed.
 
 ```sh
 swift test --filter DynjectHookTests   # the DynjectHook tests only
@@ -508,9 +564,10 @@ swift test                             # everything
 
 ## Limits
 
-- **Objective-C methods only.** DynjectHook can't hook C functions or Swift functions (there is no `MSHookFunction` / `%hookf`
-  equivalent). The hardened runtime and code signing block inline patching of executable pages. Chained fixups and the dyld
-  shared cache, whose calls between system libraries are bound directly, make symbol rebinding (fishhook-style) unreliable.
+- **C and Swift functions only through imports.** `DHHookImport` redirects calls that go through an image's imports
+  (see [Hooking C functions](#hooking-c-functions-dhhookimport)); there is no inline hooking (`MSHookFunction`): the
+  hardened runtime and code signing block patching executable pages. Calls between system libraries inside the dyld
+  shared cache are bound directly and can't be redirected.
 - **Swift methods** can be hooked only when they are reached through `objc_msgSend`: `@objc` methods called from
   Objective-C (for example AppKit calling an `@objc override`), or `@objc dynamic` methods. Swift-to-Swift calls use the
   vtable or direct dispatch and bypass the hook.
@@ -533,5 +590,5 @@ swift test                             # everything
 | Substrate safe mode | `dynject.safemode` key and the Shift bypass |
 | `%new` | Not supported; use `class_addMethod` |
 | `%property` | `objc_setAssociatedObject` |
-| `%hookf` / `MSHookFunction` | Not supported (see [Limits](#limits)) |
+| `%hookf` / `MSHookFunction` | `DHHookImport("name", NULL, (void *)replacement, group)`, then `DH_CALL_IMPORT_ORIG`. Only calls through an image's imports (see [Limits](#limits)). |
 | `%log` / `NSLog` | `DHLog(@"…")` |

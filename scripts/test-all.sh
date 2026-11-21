@@ -95,6 +95,7 @@ if [ "$mode" != quick ]; then
   step inspector-host  in_dir Tweaks/Inspector ./build.sh test
   step oledfinder-host in_dir Examples/OLEDFinder ./build.sh test
   step titlebadge-host in_dir Examples/TitleBadge ./build.sh test
+  step imports-host    Tests/ImportHost/run.sh
 fi
 
 if [ "$mode" = all ]; then

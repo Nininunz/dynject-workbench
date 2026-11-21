@@ -12,6 +12,12 @@ unreleased
   architecture and signature, the tweak's target apps, safe mode, its macos minimum), then the
   running app and the tweak's last log line about it. names the first check that stops it and
   the command that fixes it; read-only. `--json`, `--no-log`, `--minutes N`.
+- DynjectHook: `DHHookImport` hooks c and swift functions by rewriting the import pointers of the
+  app's executable, its frameworks and later-loaded images (signed `__auth_got` entries on arm64e).
+  groups, chaining with other tweaks, `DH_CALL_IMPORT_ORIG`. calls inside the shared cache and
+  inside one image aren't reached. `Tests/ImportHost` runs it in arm64e, arm64 and x86_64 processes.
+- `dw why`: an arm64 app loads a dylib's arm64e slice (dyld prefers it), so an arm64e-only build
+  no longer gets a "may not load" warning there.
 - `DH_CTOR` compiles in its tweak id and target apps (`dynject.ctor:` marker) so `dw why` can
   read them. rebuild tweaks to get it; older builds show the targets as unknown.
 

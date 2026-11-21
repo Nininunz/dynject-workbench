@@ -249,7 +249,11 @@ final class TweakWhyTests: XCTestCase {
         i.appArchs = ["arm64", "x86_64"]
         i.ctorMarkers = [CtorMarker(tweakID: Self.id, bundleIDs: [])]
         i.dylibSlices = slices(["arm64e"])
-        XCTAssertEqual(step(Why.explain(i), "architecture")?.status, .warning, "arm64 process, arm64e-only dylib")
+        XCTAssertEqual(step(Why.explain(i), "architecture")?.status, .pass, "an arm64 process loads arm64e slices too")
+        XCTAssertEqual(step(Why.explain(i), "architecture")?.detail,
+                       "TextEdit runs as arm64; the dylib has arm64e (it loads the arm64e slice)")
+        i.dylibSlices = slices(["x86_64"])
+        XCTAssertEqual(step(Why.explain(i), "architecture")?.status, .fail)
 
         i = inputs()
         i.appArchs = nil

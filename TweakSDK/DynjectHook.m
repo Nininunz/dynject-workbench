@@ -135,6 +135,9 @@ struct DHGroup {
     DHHook **hooks;           // install order; guarded by sLock
     size_t count;
     size_t capacity;
+    struct DHImportHook **imports;   // install order; guarded by sImportLock
+    size_t importCount;
+    size_t importCapacity;
 };
 
 // A class passed to DHHookClass as `source`.
@@ -510,6 +513,8 @@ BOOL DHHookIsActive(DHHook *hook) {
 
 #pragma mark - Groups
 
+static void DHImportsApplyGroup(DHGroup *group);   // Import hooks, below
+
 DHGroup *DHGroupCreate(const char *name) {
     DHGroup *group = calloc(1, sizeof(DHGroup));
     char *copy = strdup(name ?: "unnamed");
@@ -641,6 +646,7 @@ void DHGroupSetEnabled(DHGroup *group, BOOL enabled) {
     size_t count = group->count;
     os_unfair_lock_unlock(&sLock);
     os_unfair_lock_unlock(processLock);
+    DHImportsApplyGroup(group);
 
     if (!exceptions) return;
     if (enable) {
@@ -1101,6 +1107,510 @@ void DHWhenClassLoads(const char *name, void (^block)(Class cls)) {
     }
     // The class may have appeared between the lookup above and the registration.
     DHCheckPendingClasses();
+}
+
+#pragma mark - Import hooks
+
+// Design notes
+// - An image calls into other libraries through pointers in its own imports: the indirect symbol table names the
+//   symbol behind each entry of the __got, __auth_got and __la_symbol_ptr sections. A hook rewrites the entries for
+//   its symbol in every image outside the shared cache, except the image holding the replacement (the tweak).
+// - The image list comes only from dyld's add-image and remove-image callbacks, which run with dyld's own lock held.
+//   So nothing here calls dyld (dladdr, dlsym, the image list) while sImportLock is held; dlsym and dladdr run before
+//   it is taken. sImportLock is separate from sLock so that callbacks never wait on a method hook in progress.
+// - Writing an entry may need its page made writable for a moment. Two tweaks' copies doing that to one page at once
+//   could fault, so every write holds the process-wide lock (taken after sImportLock, never the other way), and the
+//   entry is replaced with a compare-and-swap so a writer outside DynjectHook is never overwritten blindly.
+// - arm64e: an arm64e image's __auth_got entries are signed with the IA key and their own address as discriminator
+//   (an arm64 image in the same process, such as the main executable of an arm64 app, has plain ones). Before writing, the
+//   current value is checked to be signed that way (signing doesn't fault; authenticating a wrong guess would); an
+//   entry signed any other way is left alone and logged. The replacement is re-signed for the entry, the original
+//   re-signed as a plain C function pointer.
+// - Hook records and their entries are never freed (handles stay valid); entries of an unloaded image are dropped.
+
+#import <dlfcn.h>
+#import <mach-o/loader.h>
+#import <mach-o/nlist.h>
+#import <mach/mach.h>
+#import <mach/mach_vm.h>
+#if __has_feature(ptrauth_calls)
+#import <ptrauth.h>
+#endif
+
+#ifndef MH_DYLIB_IN_CACHE
+#define MH_DYLIB_IN_CACHE 0x80000000
+#endif
+
+typedef struct DHImportSite {
+    const struct mach_header *image;
+    void **entry;
+    void *previous;           // what the entry held before this hook wrote it (as stored: signed for the entry)
+    void *mine;               // what this hook wrote
+    void *callable;           // `previous` as a plain C function pointer (dlsym's answer for an unbound lazy import)
+    BOOL installed;           // the entry holds `mine` as far as this hook knows
+    BOOL authenticated;       // an __auth_got entry (signed values)
+    struct DHImportSite *next;
+} DHImportSite;
+
+struct DHImportHook {
+    // Immutable after creation.
+    char *symbol;             // as in the symbol table: "_" + the C name
+    char *library;            // NULL: any
+    void *replacement;        // as passed (a signed C function pointer on arm64e)
+    void *fallback;           // dlsym's answer at creation
+    const struct mach_header *ownImage;
+    DHGroup *group;
+    DHImportHook **handle;
+    // Read without the lock by DHImportOriginal() and DHImportHookIsActive().
+    _Atomic(void *) original;
+    atomic_bool active;
+    // Guarded by sImportLock.
+    DHImportSite *sites;
+    struct DHImportHook *next;
+};
+
+typedef struct DHImportImage {
+    const struct mach_header *header;
+    intptr_t slide;
+    struct DHImportImage *next;
+} DHImportImage;
+
+static os_unfair_lock sImportLock = OS_UNFAIR_LOCK_INIT;
+// Guarded by sImportLock.
+static DHImportHook *sImportHooks;       // install order
+static DHImportImage *sImportImages;     // load order
+static atomic_bool sImportCallbacksRegistered;
+
+// Sums logged after the lock is released.
+typedef struct {
+    size_t patched;
+    size_t oddlySigned;
+    size_t unwritable;
+} DHImportTally;
+
+static void *DHImportStrip(void *value) {
+#if __has_feature(ptrauth_calls)
+    return ptrauth_strip(value, ptrauth_key_asia);
+#else
+    return value;
+#endif
+}
+
+// Whether the entry holds a value signed the way an __auth_got entry is (always YES without pointer authentication).
+static BOOL DHImportEntrySignedAsExpected(void **entry, void *value, BOOL authenticated) {
+#if __has_feature(ptrauth_calls)
+    if (!authenticated) return YES;
+    return ptrauth_sign_unauthenticated(ptrauth_strip(value, ptrauth_key_asia), ptrauth_key_asia, (uintptr_t)entry) == value;
+#else
+    (void)entry; (void)value; (void)authenticated;
+    return YES;
+#endif
+}
+
+// `function` (any signature) signed for storing in `entry`.
+static void *DHImportValueForEntry(void **entry, void *function, BOOL authenticated) {
+#if __has_feature(ptrauth_calls)
+    if (authenticated) return ptrauth_sign_unauthenticated(ptrauth_strip(function, ptrauth_key_asia), ptrauth_key_asia, (uintptr_t)entry);
+    return ptrauth_strip(function, ptrauth_key_asia);
+#else
+    (void)entry; (void)authenticated;
+    return function;
+#endif
+}
+
+// An entry's value as a plain C function pointer.
+static void *DHImportCallable(void *value) {
+#if __has_feature(ptrauth_calls)
+    return value ? ptrauth_sign_unauthenticated(ptrauth_strip(value, ptrauth_key_asia), ptrauth_key_asia, 0) : NULL;
+#else
+    return value;
+#endif
+}
+
+// Compare-and-swap on an import entry, making its page writable for the write if it isn't. Caller holds sImportLock.
+static BOOL DHImportWrite(void **entry, void *expected, void *value, DHImportTally *tally) {
+    os_unfair_lock *processLock = DHProcessLock();
+    os_unfair_lock_lock(processLock);
+    mach_vm_address_t address = (mach_vm_address_t)entry;
+    mach_vm_size_t size = 0;
+    vm_region_basic_info_data_64_t info;
+    mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
+    mach_port_t object = MACH_PORT_NULL;
+    kern_return_t kr = mach_vm_region(mach_task_self(), &address, &size, VM_REGION_BASIC_INFO_64, (vm_region_info_t)&info,
+                                      &count, &object);
+    vm_prot_t protection = kr == KERN_SUCCESS ? info.protection : VM_PROT_READ;
+    mach_vm_address_t page = (mach_vm_address_t)entry & ~((mach_vm_address_t)vm_page_size - 1);
+    BOOL madeWritable = NO;
+    if (!(protection & VM_PROT_WRITE)) {
+        kr = mach_vm_protect(mach_task_self(), page, vm_page_size, FALSE, VM_PROT_READ | VM_PROT_WRITE);
+        if (kr != KERN_SUCCESS) {
+            kr = mach_vm_protect(mach_task_self(), page, vm_page_size, FALSE, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
+        }
+        if (kr != KERN_SUCCESS) {
+            os_unfair_lock_unlock(processLock);
+            if (tally) tally->unwritable++;
+            return NO;
+        }
+        madeWritable = YES;
+    }
+    BOOL swapped = atomic_compare_exchange_strong((_Atomic(void *) *)entry, &expected, value) ? YES : NO;
+    if (madeWritable) mach_vm_protect(mach_task_self(), page, vm_page_size, FALSE, protection);
+    os_unfair_lock_unlock(processLock);
+    return swapped;
+}
+
+// Whether the load command `name` (a dylib's install name) is `library`: the full path or its last component.
+static BOOL DHImportLibraryMatches(const char *name, const char *library) {
+    if (!library) return YES;
+    if (!name) return NO;
+    if (strcmp(name, library) == 0) return YES;
+    const char *slash = strrchr(name, '/');
+    return slash && strcmp(slash + 1, library) == 0;
+}
+
+static BOOL DHImportHasSite(DHImportHook *hook, void **entry) {
+    for (DHImportSite *s = hook->sites; s; s = s->next) {
+        if (s->entry == entry) return YES;
+    }
+    return NO;
+}
+
+// Patches `hook` into every import of its symbol in `image` it doesn't have yet. Caller holds sImportLock.
+static void DHImportPatchImageLocked(DHImportHook *hook, DHImportImage *image, DHImportTally *tally) {
+    const struct mach_header *mh = image->header;
+    if (mh == hook->ownImage || (mh->flags & MH_DYLIB_IN_CACHE) || mh->magic != MH_MAGIC_64) return;
+    if (mh->filetype != MH_EXECUTE && mh->filetype != MH_DYLIB && mh->filetype != MH_BUNDLE) return;
+    const struct mach_header_64 *header = (const struct mach_header_64 *)mh;
+#if __has_feature(ptrauth_calls)
+    BOOL arm64e = mh->cputype == CPU_TYPE_ARM64 && (mh->cpusubtype & ~CPU_SUBTYPE_MASK) == CPU_SUBTYPE_ARM64E;
+#else
+    BOOL arm64e = NO;   // code without pointer authentication never shares a process with arm64e images
+#endif
+    const struct segment_command_64 *linkedit = NULL;
+    const struct symtab_command *symtab = NULL;
+    const struct dysymtab_command *dysymtab = NULL;
+    const char *libraries[256];
+    size_t libraryCount = 0;
+    const uint8_t *cursor = (const uint8_t *)(header + 1);
+    for (uint32_t i = 0; i < header->ncmds; i++) {
+        const struct load_command *lc = (const struct load_command *)cursor;
+        switch (lc->cmd) {
+            case LC_SEGMENT_64:
+                if (strcmp(((const struct segment_command_64 *)lc)->segname, SEG_LINKEDIT) == 0) {
+                    linkedit = (const struct segment_command_64 *)lc;
+                }
+                break;
+            case LC_SYMTAB: symtab = (const struct symtab_command *)lc; break;
+            case LC_DYSYMTAB: dysymtab = (const struct dysymtab_command *)lc; break;
+            case LC_LOAD_DYLIB:
+            case LC_LOAD_WEAK_DYLIB:
+            case LC_REEXPORT_DYLIB:
+            case LC_LAZY_LOAD_DYLIB:
+            case LC_LOAD_UPWARD_DYLIB:
+                if (libraryCount < 256) {
+                    const struct dylib_command *d = (const struct dylib_command *)lc;
+                    libraries[libraryCount++] = (const char *)lc + d->dylib.name.offset;
+                }
+                break;
+        }
+        cursor += lc->cmdsize;
+    }
+    if (!linkedit || !symtab || !dysymtab || !dysymtab->nindirectsyms) return;
+    uintptr_t base = (uintptr_t)image->slide + (uintptr_t)(linkedit->vmaddr - linkedit->fileoff);
+    const struct nlist_64 *symbols = (const struct nlist_64 *)(base + symtab->symoff);
+    const char *strings = (const char *)(base + symtab->stroff);
+    const uint32_t *indirect = (const uint32_t *)(base + dysymtab->indirectsymoff);
+
+    // __TEXT,__stub_helper: where a lazy import points before its first call.
+    uintptr_t helperStart = 0, helperEnd = 0;
+    cursor = (const uint8_t *)(header + 1);
+    for (uint32_t i = 0; i < header->ncmds; i++) {
+        const struct load_command *lc = (const struct load_command *)cursor;
+        cursor += lc->cmdsize;
+        if (lc->cmd != LC_SEGMENT_64) continue;
+        const struct segment_command_64 *seg = (const struct segment_command_64 *)lc;
+        const struct section_64 *sections = (const struct section_64 *)(seg + 1);
+        for (uint32_t k = 0; k < seg->nsects; k++) {
+            if (strcmp(sections[k].sectname, "__stub_helper") == 0) {
+                helperStart = (uintptr_t)image->slide + (uintptr_t)sections[k].addr;
+                helperEnd = helperStart + (uintptr_t)sections[k].size;
+            }
+        }
+    }
+
+    cursor = (const uint8_t *)(header + 1);
+    for (uint32_t i = 0; i < header->ncmds; i++) {
+        const struct load_command *lc = (const struct load_command *)cursor;
+        cursor += lc->cmdsize;
+        if (lc->cmd != LC_SEGMENT_64) continue;
+        const struct segment_command_64 *seg = (const struct segment_command_64 *)lc;
+        const struct section_64 *sections = (const struct section_64 *)(seg + 1);
+        for (uint32_t k = 0; k < seg->nsects; k++) {
+            const struct section_64 *sect = &sections[k];
+            uint32_t type = sect->flags & SECTION_TYPE;
+            if (type != S_LAZY_SYMBOL_POINTERS && type != S_NON_LAZY_SYMBOL_POINTERS) continue;
+            // An arm64e image keeps its function imports in __auth_got, signed; its plain __got holds data. Other images
+            // (arm64, x86_64) hold plain pointers, also when this code is arm64e: dyld loads a tweak's arm64e slice into
+            // an arm64 process too.
+            BOOL authenticated = arm64e && strncmp(sect->sectname, "__auth", 6) == 0;
+            if (arm64e && !authenticated) continue;
+            void **entries = (void **)((uintptr_t)image->slide + (uintptr_t)sect->addr);
+            uint64_t n = sect->size / sizeof(void *);
+            for (uint64_t e = 0; e < n; e++) {
+                if (sect->reserved1 + e >= dysymtab->nindirectsyms) break;
+                uint32_t index = indirect[sect->reserved1 + e];
+                if (index == INDIRECT_SYMBOL_ABS || index == INDIRECT_SYMBOL_LOCAL ||
+                    index == (INDIRECT_SYMBOL_LOCAL | INDIRECT_SYMBOL_ABS) || index >= symtab->nsyms) continue;
+                uint32_t strx = symbols[index].n_un.n_strx;
+                if (strx >= symtab->strsize || strcmp(strings + strx, hook->symbol) != 0) continue;
+                if (hook->library) {
+                    int ordinal = GET_LIBRARY_ORDINAL(symbols[index].n_desc);
+                    if (ordinal < 1 || (size_t)ordinal > libraryCount ||
+                        !DHImportLibraryMatches(libraries[ordinal - 1], hook->library)) continue;
+                }
+                void **entry = &entries[e];
+                if (DHImportHasSite(hook, entry)) continue;
+                void *value = atomic_load((_Atomic(void *) *)entry);
+                if (!value) continue;   // a weak import that isn't there
+                if (!DHImportEntrySignedAsExpected(entry, value, authenticated)) {
+                    tally->oddlySigned++;
+                    continue;
+                }
+                uintptr_t raw = (uintptr_t)DHImportStrip(value);
+                BOOL unbound = type == S_LAZY_SYMBOL_POINTERS && raw >= helperStart && raw < helperEnd;
+                void *callable = unbound ? hook->fallback : DHImportCallable(value);
+                if (!callable) continue;
+                void *mine = DHImportValueForEntry(entry, hook->replacement, authenticated);
+                if (!DHImportWrite(entry, value, mine, tally)) continue;
+                DHImportSite *site = calloc(1, sizeof(DHImportSite));
+                if (!site) {   // can't record it: undo
+                    DHImportWrite(entry, mine, value, NULL);
+                    continue;
+                }
+                site->image = mh;
+                site->entry = entry;
+                site->previous = value;
+                site->mine = mine;
+                site->callable = callable;
+                site->installed = YES;
+                site->authenticated = authenticated;
+                DHImportSite **tail = &hook->sites;
+                while (*tail) tail = &(*tail)->next;
+                *tail = site;
+                if (!atomic_load(&hook->original) || hook->sites == site) atomic_store(&hook->original, callable);
+                tally->patched++;
+            }
+        }
+    }
+}
+
+// Removes `hook` from every import it holds. Returns how many it had to leave (another hook sits on top). Caller
+// holds sImportLock.
+static size_t DHImportUninstallLocked(DHImportHook *hook) {
+    size_t buried = 0;
+    for (DHImportSite *s = hook->sites; s; s = s->next) {
+        if (!s->installed) continue;
+        if (DHImportWrite(s->entry, s->mine, s->previous, NULL)) {
+            s->installed = NO;
+        } else {
+            buried++;
+        }
+    }
+    return buried;
+}
+
+// Puts `hook` back on every import it was removed from, on top of what each holds now, and onto imports of images
+// that appeared meanwhile. Caller holds sImportLock.
+static void DHImportInstallLocked(DHImportHook *hook, DHImportTally *tally) {
+    BOOL first = YES;
+    for (DHImportSite *s = hook->sites; s; s = s->next, first = NO) {
+        if (s->installed) continue;
+        void *value = atomic_load((_Atomic(void *) *)s->entry);
+        if (!value || !DHImportEntrySignedAsExpected(s->entry, value, s->authenticated)) continue;
+        if (DHImportWrite(s->entry, value, s->mine, tally)) {
+            if (value != s->previous) s->callable = DHImportCallable(value);   // something else is beneath it now
+            s->previous = value;
+            s->installed = YES;
+            if (first) atomic_store(&hook->original, s->callable);
+        }
+    }
+    for (DHImportImage *image = sImportImages; image; image = image->next) DHImportPatchImageLocked(hook, image, tally);
+}
+
+static BOOL DHImportGroupEnabled(DHImportHook *hook) {
+    return !hook->group || atomic_load(&hook->group->enabled);
+}
+
+static void DHImportLogTally(const char *what, const DHImportTally *tally) {
+    if (tally->oddlySigned) {
+        DHLog(@"%s: left %zu import(s) alone: not signed the way an __auth_got entry is", what, tally->oddlySigned);
+    }
+    if (tally->unwritable) DHLog(@"%s: %zu import(s) could not be made writable", what, tally->unwritable);
+}
+
+static void DHImportImageAdded(const struct mach_header *header, intptr_t slide) {
+    DHImportImage *image = calloc(1, sizeof(DHImportImage));
+    if (!image) return;
+    image->header = header;
+    image->slide = slide;
+    DHImportTally tally = {0};
+    os_unfair_lock_lock(&sImportLock);
+    BOOL known = NO;
+    for (DHImportImage *i = sImportImages; i && !known; i = i->next) known = (i->header == header);
+    if (known) {
+        os_unfair_lock_unlock(&sImportLock);
+        free(image);
+        return;
+    }
+    DHImportImage **tail = &sImportImages;
+    while (*tail) tail = &(*tail)->next;
+    *tail = image;
+    for (DHImportHook *hook = sImportHooks; hook; hook = hook->next) {
+        if (DHImportGroupEnabled(hook)) DHImportPatchImageLocked(hook, image, &tally);
+    }
+    os_unfair_lock_unlock(&sImportLock);
+    DHImportLogTally("image loaded", &tally);
+}
+
+static void DHImportImageRemoved(const struct mach_header *header, intptr_t slide) {
+    (void)slide;
+    os_unfair_lock_lock(&sImportLock);
+    for (DHImportImage **i = &sImportImages; *i; i = &(*i)->next) {
+        if ((*i)->header != header) continue;
+        DHImportImage *gone = *i;
+        *i = gone->next;
+        free(gone);
+        break;
+    }
+    for (DHImportHook *hook = sImportHooks; hook; hook = hook->next) {
+        for (DHImportSite **s = &hook->sites; *s;) {
+            if ((*s)->image != header) { s = &(*s)->next; continue; }
+            DHImportSite *gone = *s;
+            *s = gone->next;
+            free(gone);
+        }
+        atomic_store(&hook->original, hook->sites ? hook->sites->callable : hook->fallback);
+    }
+    os_unfair_lock_unlock(&sImportLock);
+}
+
+static void DHImportsApplyGroup(DHGroup *group) {
+    size_t buried = 0, count = 0;
+    DHImportTally tally = {0};
+    os_unfair_lock_lock(&sImportLock);
+    bool enabled = atomic_load(&group->enabled);
+    for (size_t i = 0; i < group->importCount; i++) {
+        DHImportHook *hook = group->imports[i];
+        count++;
+        if (enabled) {
+            DHImportInstallLocked(hook, &tally);
+            atomic_store(&hook->active, true);
+        } else {
+            atomic_store(&hook->active, false);
+        }
+    }
+    if (!enabled) {
+        for (size_t i = group->importCount; i > 0; i--) buried += DHImportUninstallLocked(group->imports[i - 1]);
+    }
+    os_unfair_lock_unlock(&sImportLock);
+    DHImportLogTally(group->name, &tally);
+    if (buried) {
+        DHLog(@"group '%s' disabled: %zu import(s) of its %zu import hook(s) stay patched (marked inactive) because other hooks were placed on top of them",
+              group->name, buried, count);
+    }
+}
+
+DHImportHook *DHHookImportEx(const char *symbol, const char *library, void *replacement, DHGroup *group,
+                             DHImportHook **outHook) {
+    if (!symbol || !symbol[0] || !replacement) {
+        DHLog(@"DHHookImport: %s is NULL; not hooking", !symbol || !symbol[0] ? "the symbol" : "the replacement");
+        return NULL;
+    }
+    // dyld calls, outside sImportLock (see the design notes).
+    Dl_info info;
+    const struct mach_header *ownImage = dladdr(DHImportStrip(replacement), &info) ? (const struct mach_header *)info.dli_fbase : NULL;
+    void *fallback = dlsym(RTLD_DEFAULT, symbol);
+    if (!atomic_exchange(&sImportCallbacksRegistered, true)) {
+        _dyld_register_func_for_add_image(DHImportImageAdded);   // replays every image already loaded
+        _dyld_register_func_for_remove_image(DHImportImageRemoved);
+    }
+
+    DHImportHook *hook = calloc(1, sizeof(DHImportHook));
+    size_t length = strlen(symbol);
+    char *name = malloc(length + 2);
+    char *libraryCopy = library ? strdup(library) : NULL;
+    if (!hook || !name || (library && !libraryCopy)) {
+        free(hook); free(name); free(libraryCopy);
+        DHLog(@"DHHookImport: out of memory");
+        return NULL;
+    }
+    name[0] = '_';
+    memcpy(name + 1, symbol, length + 1);
+    hook->symbol = name;
+    hook->library = libraryCopy;
+    hook->replacement = replacement;
+    hook->fallback = fallback;
+    hook->ownImage = ownImage;
+    hook->group = group;
+    hook->handle = outHook;
+    atomic_init(&hook->original, fallback);
+    atomic_init(&hook->active, DHGroupIsEnabled(group) ? true : false);
+
+    DHImportTally tally = {0};
+    os_unfair_lock_lock(&sImportLock);
+    if (group) {
+        if (group->importCount == group->importCapacity) {
+            size_t capacity = group->importCapacity ? group->importCapacity * 2 : 4;
+            DHImportHook **grown = realloc(group->imports, capacity * sizeof(DHImportHook *));
+            if (!grown) {
+                os_unfair_lock_unlock(&sImportLock);
+                free(name); free(libraryCopy); free(hook);
+                DHLog(@"DHHookImport: out of memory");
+                return NULL;
+            }
+            group->imports = grown;
+            group->importCapacity = capacity;
+        }
+        group->imports[group->importCount++] = hook;
+    }
+    DHImportHook **tail = &sImportHooks;
+    while (*tail) tail = &(*tail)->next;
+    *tail = hook;
+    if (outHook) *outHook = hook;
+    if (DHImportGroupEnabled(hook)) {
+        for (DHImportImage *image = sImportImages; image; image = image->next) DHImportPatchImageLocked(hook, image, &tally);
+    }
+    os_unfair_lock_unlock(&sImportLock);
+
+    DHImportLogTally(symbol, &tally);
+    if (tally.patched) {
+        DHLog(@"hooked %s%s%s in %zu import(s)", symbol, library ? " from " : "", library ?: "", tally.patched);
+    } else if (DHImportGroupEnabled(hook)) {
+        DHLog(@"DHHookImport: no loaded image imports %s%s%s yet (calls inside the shared cache and the tweak's own calls are not covered); images loaded later will be patched",
+              symbol, library ? " from " : "", library ?: "");
+    }
+    return hook;
+}
+
+DHImportHook *DHHookImport(const char *symbol, const char *library, void *replacement, DHGroup *group) {
+    return DHHookImportEx(symbol, library, replacement, group, NULL);
+}
+
+void *DHImportOriginal(DHImportHook *hook) {
+    return hook ? atomic_load(&hook->original) : NULL;
+}
+
+BOOL DHImportHookIsActive(DHImportHook *hook) {
+    return (hook && atomic_load(&hook->active)) ? YES : NO;
+}
+
+NSUInteger DHImportHookSiteCount(DHImportHook *hook) {
+    if (!hook) return 0;
+    NSUInteger n = 0;
+    os_unfair_lock_lock(&sImportLock);
+    for (DHImportSite *s = hook->sites; s; s = s->next) n += s->installed ? 1 : 0;
+    os_unfair_lock_unlock(&sImportLock);
+    return n;
 }
 
 #pragma mark - Load policy

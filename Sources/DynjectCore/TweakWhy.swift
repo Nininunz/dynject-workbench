@@ -480,15 +480,15 @@ public enum Why {
                 let archs = slices.map(\.arch)
                 if let arch = processArch(appArchs: appArchs, bundleID: bundle, appleSilicon: i.appleSilicon) {
                     let has = "the dylib has \(archs.joined(separator: " "))"
-                    if let slice = slices.first(where: { $0.arch == arch }) {
-                        add(dyld, "architecture", .pass, "\(app.displayName) runs as \(arch); \(has)")
-                        if arch != "x86_64", !slice.isSigned {
-                            add(dyld, "signature", .fail, "its \(arch) slice isn't code signed; Apple silicon won't run unsigned code",
+                    // dyld loads a dylib's arm64e slice into an arm64 process too, and prefers it.
+                    let loadable = arch == "arm64" ? ["arm64e", "arm64"] : [arch]
+                    if let slice = loadable.lazy.compactMap({ a in slices.first { $0.arch == a } }).first {
+                        let which = slice.arch == arch ? "" : " (it loads the \(slice.arch) slice)"
+                        add(dyld, "architecture", .pass, "\(app.displayName) runs as \(arch); \(has)\(which)")
+                        if slice.arch != "x86_64", !slice.isSigned {
+                            add(dyld, "signature", .fail, "its \(slice.arch) slice isn't code signed; Apple silicon won't run unsigned code",
                                 fix: "sign it (codesign -s - <dylib>; the tweak's build.sh does) and reinstall")
                         }
-                    } else if arch == "arm64", archs.contains("arm64e") {
-                        add(dyld, "architecture", .warning, "\(app.displayName) runs as arm64; \(has) (no arm64 slice), which may not load",
-                            fix: "build with -arch arm64 too, as the tweak template does")
                     } else {
                         add(dyld, "architecture", .fail, "\(app.displayName) runs as \(arch); \(has), so dyld can't load it",
                             fix: "build with -arch \(arch) too, as the tweak template does, and reinstall")

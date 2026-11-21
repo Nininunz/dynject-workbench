@@ -9,8 +9,6 @@ todo
   from sandboxed apps.
 - a dynject menu bar extra (status, panic switch, respring).
 - tweaks for Dock and ControlCenter, and restarting them in respring.
-- import rebinding in DynjectHook (DHRebindImport, arm64e-signed GOT rebinding) for hooking
-  swift functions like SwiftUI's Glass.tint.
 - `dw diagnose`: bundle logs, config, state.json and crash reports for bug reports.
 - reinstall the safe mode watcher automatically when workbench is updated.
 - test on intel.

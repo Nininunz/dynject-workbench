@@ -27,4 +27,9 @@
 #define DHSystemVersionAtLeast DHT2_DHSystemVersionAtLeast
 #define DHRequireSystemVersion DHT2_DHRequireSystemVersion
 #define DHSetSystemVersionForTesting DHT2_DHSetSystemVersionForTesting
+#define DHHookImport DHT2_DHHookImport
+#define DHHookImportEx DHT2_DHHookImportEx
+#define DHImportOriginal DHT2_DHImportOriginal
+#define DHImportHookIsActive DHT2_DHImportHookIsActive
+#define DHImportHookSiteCount DHT2_DHImportHookSiteCount
 #include "../../TweakSDK/DynjectHook.m"
