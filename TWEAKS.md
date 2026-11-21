@@ -14,11 +14,12 @@ the loop
 
     dw new WindowTitles --app com.apple.TextEdit     # folder with source, manifest, build.sh, sdk/
     cd WindowTitles && ./build.sh                    # build/libWindowTitles.dylib
+    ./build.sh test                                  # its test host: checks it in a local app, nothing installed
     dw tweak install . --for com.apple.TextEdit      # one password prompt
     dw respring                                      # or workbench -> respring...
     dw log local.windowtitles 10                     # last 10 minutes of its log
 
-change code, `./build.sh`, `dw tweak install .` again, `dw respring`. a rebuild only
+change code, `./build.sh test`, `dw tweak install .` again, `dw respring`. a rebuild only
 replaces the dylib (old one backed up) and doesn't restart dynjectd. add `--dry-run`
 to install/uninstall to see the plan first.
 
@@ -39,7 +40,13 @@ what `dw new` gives you:
                                       bound to a hook group via DTPrefBool + DTPrefObserve, os_log
       WindowTitles.workbench.plist    manifest: id, install path, version 0.1.0, settings
       build.sh                        universal (x86_64 arm64 arm64e), ad-hoc or SIGN_IDENTITY,
-                                      fails if anything is exported
+                                      fails if anything is exported. `./build.sh test` also builds a
+                                      test copy (-DTWEAK_TEST: tweak id <id>.test, so it never
+                                      touches your settings, and the host's bundle id added to
+                                      DH_CTOR) and runs testhost/ with it injected
+      testhost/TestHost.m             the test host: an accessory app whose steps set the title,
+                                      switch the setting off live and back on per app, and check
+                                      the result. change the steps when you change the tweak
       README.md
       sdk/                            copies of DynjectHook.h, DynjectHook.m, DynjectTweak.h
       build/                          output, gitignored
@@ -425,8 +432,9 @@ debugging
   Tweaks/Inspector --for <bundleID>`, respring), hold ⌃⌥⌘ and point at a view, L for
   layers, click. class, image, hierarchy, properties, methods with readable signatures,
   ivars, a runtime class search, and copy hook for a DynjectHook skeleton with exact types.
-- test without dynject: `DYLD_INSERT_LIBRARIES` into a test app you built.
-  `Examples/TitleBadge/build.sh test`, `Examples/OLEDFinder/build.sh test` (screenshots and
+- a tweak doesn't load in one app: `dw why <tweak> <app>` names the check that stops it.
+- test without dynject: `DYLD_INSERT_LIBRARIES` into a test app you built. a `dw new`
+  tweak has one already (`./build.sh test`, `testhost/`). `Examples/TitleBadge/build.sh test`, `Examples/OLEDFinder/build.sh test` (screenshots and
   pixel checks), `Tweaks/MenuLoader/testhost/run.sh` and `Tweaks/Inspector/build.sh test` do this.
 
 - testing in the real app from a script (pointer, keys, screenshots, logs): tools/live/README.md.

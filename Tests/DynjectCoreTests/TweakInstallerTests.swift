@@ -389,8 +389,8 @@ final class TweakInstallerTests: XCTestCase {
         let dir = root.appendingPathComponent("WindowTitles")
         let sdk = try XCTUnwrap(TweakSDKFiles.at(Self.repoSDK))
         let files = try t.write(to: dir, sdk: sdk)
-        XCTAssertEqual(Set(files), ["WindowTitles.m", "WindowTitles.workbench.plist", "build.sh", "README.md", ".gitignore",
-                                    "sdk/DynjectHook.h", "sdk/DynjectHook.m", "sdk/DynjectTweak.h"])
+        XCTAssertEqual(Set(files), ["WindowTitles.m", "WindowTitles.workbench.plist", "build.sh", "testhost/TestHost.m",
+                                    "README.md", ".gitignore", "sdk/DynjectHook.h", "sdk/DynjectHook.m", "sdk/DynjectTweak.h"])
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: dir.appendingPathComponent("build.sh").path))
         let data = try Data(contentsOf: dir.appendingPathComponent("WindowTitles.workbench.plist"))
         let (m, issues) = TweakManifestParser.parse(data: data, path: "x", fileExists: { _ in true })
@@ -401,7 +401,13 @@ final class TweakInstallerTests: XCTestCase {
         XCTAssertEqual(m?.item("enabled")?.kind, .switch)
         XCTAssertNil(TweakLocations.live().installPathProblem(m!.dylib))
         let source = try String(contentsOf: dir.appendingPathComponent("WindowTitles.m"), encoding: .utf8)
-        XCTAssertTrue(source.contains("DH_CTOR(TWEAK_ID_C, \"com.apple.TextEdit\")"))
+        XCTAssertTrue(source.contains("DH_CTOR(TWEAK_ID_C, TWEAK_APPS)"))
+        XCTAssertTrue(source.contains("#define TWEAK_APPS \"com.apple.TextEdit\", \"local.windowtitles.testhost\""), "the test build")
+        XCTAssertTrue(source.contains("#define TWEAK_ID_C \"local.windowtitles.test\""), "its own tweak ID")
+        let host = try String(contentsOf: dir.appendingPathComponent("testhost/TestHost.m"), encoding: .utf8)
+        XCTAssertTrue(host.contains("kTweakID = @\"local.windowtitles.test\""))
+        let build = try String(contentsOf: dir.appendingPathComponent("build.sh"), encoding: .utf8)
+        XCTAssertTrue(build.contains("<string>local.windowtitles.testhost</string>"), "the host's bundle ID matches TWEAK_APPS")
         XCTAssertEqual(try Data(contentsOf: dir.appendingPathComponent("sdk/DynjectHook.m")), try Data(contentsOf: sdk.hookSource))
         XCTAssertThrowsError(try t.write(to: dir, sdk: sdk), "an existing folder is never overwritten")
 

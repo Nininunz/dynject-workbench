@@ -12,6 +12,10 @@ unreleased
   architecture and signature, the tweak's target apps, safe mode, its macos minimum), then the
   running app and the tweak's last log line about it. names the first check that stops it and
   the command that fixes it; read-only. `--json`, `--no-log`, `--minutes N`.
+- `dw new` makes a test host too: `./build.sh test` builds a test copy of the tweak (its own
+  tweak id, so the test never touches your settings) and `testhost/`, a small accessory app that
+  checks what the tweak does with it injected, natively and under rosetta. `scripts/test-all.sh`
+  runs a generated one (`template-host`).
 - DynjectHook: `DHHookImport` hooks c and swift functions by rewriting the import pointers of the
   app's executable, its frameworks and later-loaded images (signed `__auth_got` entries on arm64e).
   groups, chaining with other tweaks, `DH_CALL_IMPORT_ORIG`. calls inside the shared cache and

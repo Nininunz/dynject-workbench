@@ -69,7 +69,7 @@ in_dir() { (cd "$1" && shift && "$@"); }
 template() {
   dw="$ROOT/.build/debug/dw" t="$LOGS/template"
   swift build --product dw &&
-  "$dw" new TestAllTweak --dir "$t/TestAllTweak" &&
+  "$dw" new TestAllTweak --app com.apple.TextEdit --dir "$t/TestAllTweak" &&
   in_dir "$t/TestAllTweak" ./build.sh &&
   # dynjectd won't run with no dylib line, so uninstall refuses to remove the last one: start with another.
   mkdir -p "$t/root/etc" && echo "dylib:/opt/dynject/lib/tweaks/libOther.dylib:deny" > "$t/root/etc/dynjectd.conf" &&
@@ -78,6 +78,11 @@ template() {
   grep -q "DynjectHook" "$t/list.txt" &&
   "$dw" tweak uninstall "$t/TestAllTweak/TestAllTweak.workbench.plist" --root "$t/root" &&
   ! grep -q TestAllTweak "$t/root/etc/dynjectd.conf"
+}
+
+# The generated tweak's own test host (`./build.sh test`), in the folder the template step made.
+template_host() {
+  in_dir "$LOGS/template/TestAllTweak" ./build.sh test
 }
 
 echo "test-all ($mode), logs in ${LOGS#"$ROOT"/}/"
@@ -96,6 +101,7 @@ if [ "$mode" != quick ]; then
   step oledfinder-host in_dir Examples/OLEDFinder ./build.sh test
   step titlebadge-host in_dir Examples/TitleBadge ./build.sh test
   step imports-host    Tests/ImportHost/run.sh
+  step template-host   template_host
 fi
 
 if [ "$mode" = all ]; then

@@ -74,7 +74,9 @@ public struct TweakTemplate: Sendable {
         try fm.createDirectory(at: dir.appendingPathComponent(Self.sdkFolder), withIntermediateDirectories: true)
         var written: [String] = []
         for (file, text) in files {
-            try Data(text.utf8).write(to: dir.appendingPathComponent(file), options: .withoutOverwriting)
+            let url = dir.appendingPathComponent(file)
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(text.utf8).write(to: url, options: .withoutOverwriting)
             written.append(file)
         }
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.appendingPathComponent("build.sh").path)
@@ -90,14 +92,28 @@ public struct TweakTemplate: Sendable {
     /// File name → contents (the SDK copies are added by `write`).
     public var files: [(String, String)] {
         [("\(name).m", source), ("\(name)\(TweakManifest.fileSuffix)", manifest), ("build.sh", buildScript),
-         ("README.md", readme), (".gitignore", "build/\n")]
+         ("testhost/TestHost.m", testHost), ("README.md", readme), (".gitignore", "build/\n")]
     }
+
+    /// The test build's tweak ID (`./build.sh test`, -DTWEAK_TEST): its own settings key, notification and Safe Mode entry.
+    public var testIdentifier: String { identifier + ".test" }
+    /// The bundle ID of the test host app.
+    public var testHostBundleID: String { identifier + ".testhost" }
+    public var testHostName: String { name + "TestHost" }
 
     var appForDocs: String { bundleID ?? "com.apple.TextEdit" }
 
     public var source: String {
-        let ctor = bundleID.map { "DH_CTOR(TWEAK_ID_C, \"\($0)\") {   // loads only in \($0), even if the config injects it elsewhere" }
+        let ctor = bundleID.map { "DH_CTOR(TWEAK_ID_C, TWEAK_APPS) {   // loads only in \($0) (and the test host), even if the config injects it elsewhere" }
             ?? "DH_CTOR(TWEAK_ID_C) {   // every app the config injects it into; add bundle IDs to narrow it down"
+        let apps = bundleID.map { """
+
+            #ifdef TWEAK_TEST
+            #define TWEAK_APPS "\($0)", "\(testHostBundleID)"
+            #else
+            #define TWEAK_APPS "\($0)"
+            #endif
+            """ } ?? ""
         return """
         // \(name): a Dynject tweak (made with `dw new`).
         //
@@ -105,6 +121,7 @@ public struct TweakTemplate: Sendable {
         // The "enabled" switch in Dynject Workbench turns the hook on and off while the app runs.
         //
         //   ./build.sh                                        build/\(dylibName)
+        //   ./build.sh test                                   also runs testhost/ (checks the tweak in a local app)
         //   dw tweak install . --for \(appForDocs)    install, enable for that app, restart dynjectd
         //   dw respring                                       relaunch apps so they load it
         //   log stream --level default --predicate 'subsystem == "\(identifier)"'
@@ -113,8 +130,14 @@ public struct TweakTemplate: Sendable {
         #import "DynjectHook.h"
         #import "DynjectTweak.h"
 
+        // `./build.sh test` compiles a test copy (-DTWEAK_TEST) for testhost/: it has a tweak ID of its own, so the test
+        // never touches your real settings\(bundleID == nil ? "" : ", and it also loads into the test host")\(".").
+        #ifdef TWEAK_TEST
+        #define TWEAK_ID_C "\(testIdentifier)"
+        #else
         #define TWEAK_ID_C "\(identifier)"
-        #define TWEAK_ID @TWEAK_ID_C
+        #endif
+        #define TWEAK_ID @TWEAK_ID_C\(apps)
 
         /// The hooks the "enabled" switch controls.
         static DHGroup *gMain;
@@ -212,19 +235,181 @@ public struct TweakTemplate: Sendable {
         CC=$(xcrun -find clang)
         mkdir -p "$OUT"
 
-        # DynjectHook.m is compiled in (hooks, DH_CTOR's Safe Mode check); with -fvisibility=hidden nothing is exported,
-        # so several tweaks in one app don't clash.
-        "$CC" -Wall -Wextra -O2 -fobjc-arc -fvisibility=hidden -isysroot "$SDK" -I "$DIR/sdk" \\
-          -mmacosx-version-min=14.0 -arch x86_64 -arch arm64 -arch arm64e -dynamiclib \\
-          -install_name @rpath/\(dylibName) \\
-          -framework AppKit -framework Foundation -framework CoreGraphics \\
-          "$DIR/\(name).m" "$DIR/sdk/DynjectHook.m" -o "$OUT/\(dylibName)"
-        if [ "${SIGN_IDENTITY:--}" = "-" ]; then codesign --force --sign - --timestamp=none "$OUT/\(dylibName)"
-        else codesign --force --sign "$SIGN_IDENTITY" --timestamp "$OUT/\(dylibName)"; fi
+        # dylib <output folder> [extra flags]. DynjectHook.m is compiled in (hooks, DH_CTOR's Safe Mode check); with
+        # -fvisibility=hidden nothing is exported, so several tweaks in one app don't clash.
+        dylib() {
+          out="$1"; shift
+          mkdir -p "$out"
+          "$CC" -Wall -Wextra -O2 -fobjc-arc -fvisibility=hidden -isysroot "$SDK" -I "$DIR/sdk" "$@" \\
+            -mmacosx-version-min=14.0 -arch x86_64 -arch arm64 -arch arm64e -dynamiclib \\
+            -install_name @rpath/\(dylibName) \\
+            -framework AppKit -framework Foundation -framework CoreGraphics \\
+            "$DIR/\(name).m" "$DIR/sdk/DynjectHook.m" -o "$out/\(dylibName)"
+          if [ "${SIGN_IDENTITY:--}" = "-" ]; then codesign --force --sign - --timestamp=none "$out/\(dylibName)"
+          else codesign --force --sign "$SIGN_IDENTITY" --timestamp "$out/\(dylibName)"; fi
+          exported=$(nm -gU "$out/\(dylibName)" 2>/dev/null | grep -cv -e '^$' -e ':$' || true)
+          echo "Built $out/\(dylibName) ($(lipo -archs "$out/\(dylibName)"); exported symbols: $exported)"
+          [ "$exported" = 0 ] || { nm -gU "$out/\(dylibName)"; echo "error: exported symbols" >&2; exit 1; }
+        }
 
-        exported=$(nm -gU "$OUT/\(dylibName)" 2>/dev/null | grep -cv -e '^$' -e ':$' || true)
-        echo "Built $OUT/\(dylibName) ($(lipo -archs "$OUT/\(dylibName)"); exported symbols: $exported)"
-        [ "$exported" = 0 ] || { nm -gU "$OUT/\(dylibName)"; echo "error: exported symbols" >&2; exit 1; }
+        dylib "$OUT"
+        [ "${1:-}" = "test" ] || exit 0
+
+        # ./build.sh test: the test copy (TWEAK_TEST, see \(name).m) and testhost/ as a small app in build/test/, run with
+        # the test copy injected through DYLD_INSERT_LIBRARIES. No Dynject involved, nothing installed.
+        T="$OUT/test"
+        dylib "$T" -DTWEAK_TEST
+        HOST="$T/\(testHostName).app"
+        rm -rf "$HOST"
+        mkdir -p "$HOST/Contents/MacOS"
+        cat > "$HOST/Contents/Info.plist" <<'PLIST'
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0"><dict>
+          <key>CFBundleIdentifier</key><string>\(testHostBundleID)</string>
+          <key>CFBundleExecutable</key><string>\(testHostName)</string>
+          <key>CFBundlePackageType</key><string>APPL</string>
+          <key>LSUIElement</key><true/>
+        </dict></plist>
+        PLIST
+        "$CC" -Wall -Wextra -fobjc-arc -isysroot "$SDK" -mmacosx-version-min=14.0 -arch arm64 -arch x86_64 \\
+          -framework AppKit "$DIR/testhost/TestHost.m" -o "$HOST/Contents/MacOS/\(testHostName)"
+        # A plain ad-hoc signature (no hardened runtime), so DYLD_INSERT_LIBRARIES is honoured for this app.
+        codesign --force --sign - --timestamp=none "$HOST"
+
+        EXE="$HOST/Contents/MacOS/\(testHostName)"
+        status=0
+        echo "== $(uname -m) =="
+        DYLD_INSERT_LIBRARIES="$T/\(dylibName)" "$EXE" || status=1
+        if arch -x86_64 /usr/bin/true 2>/dev/null; then   # the x86_64 slice too, when Rosetta is installed
+          echo "== x86_64 (Rosetta) =="
+          arch -x86_64 -e DYLD_INSERT_LIBRARIES="$T/\(dylibName)" "$EXE" || status=1
+        fi
+        defaults delete -g dynject.tweak.\(testIdentifier) 2>/dev/null || true   # in case the host didn't get to it
+        exit $status
+
+        """
+    }
+
+    public var testHost: String {
+        """
+        // Test host for \(name), run by `./build.sh test` (no Dynject involved):
+        //   DYLD_INSERT_LIBRARIES=build/test/\(dylibName) build/test/\(testHostName).app/Contents/MacOS/\(testHostName)
+        //
+        // A small app (no Dock icon, it never takes focus) that opens a window and checks what the injected tweak does.
+        // It talks to the test copy of the tweak (tweak ID \(testIdentifier), see TWEAK_TEST in \(name).m), so the settings
+        // it writes never touch your real ones, and it removes them at the end.
+        //
+        // The steps below run one after another on the main thread, each a moment after the previous one so the tweak has
+        // time to react (to a settings change, for example). When you change what the tweak does, change them to match.
+        #import <AppKit/AppKit.h>
+        #import <notify.h>
+
+        static NSString *const kTweakID = @"\(testIdentifier)";
+        static int sChecks, sFailures;
+
+        static void Check(BOOL ok, NSString *what) {
+            sChecks++;
+            if (!ok) sFailures++;
+            printf("  [%s] %s\\n", ok ? "PASS" : "FAIL", what.UTF8String);
+        }
+
+        // Publishes settings for the test copy the way Dynject Workbench does (docs/tweak-format.md), then tells it.
+        // `perApp` maps bundle IDs to overrides. nil `values` removes the settings.
+        static void SetSettings(NSDictionary *values, NSDictionary *perApp) {
+            NSString *key = [@"dynject.tweak." stringByAppendingString:kTweakID];
+            NSDictionary *payload = values ? @{@"formatVersion": @1, @"values": values, @"perApp": perApp ?: @{},
+                                               @"defaults": @{@"enabled": @YES}} : nil;
+            CFPreferencesSetValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)payload, kCFPreferencesAnyApplication,
+                                  kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
+            CFPreferencesSynchronize(kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
+            notify_post([NSString stringWithFormat:@"dynject.tweak.%@.changed", kTweakID].UTF8String);
+        }
+
+        @interface Host : NSObject <NSApplicationDelegate>
+        @property NSWindow *window;
+        @property NSArray<void (^)(void)> *steps;
+        @end
+
+        @implementation Host
+
+        - (NSArray<void (^)(void)> *)makeSteps {
+            NSString *suffix = @" [\(name)]";
+            NSString *me = NSBundle.mainBundle.bundleIdentifier;
+            NSWindow *window = self.window;
+            return @[
+                ^{
+                    window.title = @"Hello";
+                    BOOL added = [window.title isEqualToString:[@"Hello" stringByAppendingString:suffix]];
+                    Check(added, added ? [NSString stringWithFormat:@"the tweak adds \\"%@\\" to the title", suffix]
+                                       : [NSString stringWithFormat:@"the tweak adds \\"%@\\" to the title (got \\"%@\\": did it load? see its log)",
+                                                                    suffix, window.title]);
+                    window.title = window.title;
+                    Check(![window.title hasSuffix:[suffix stringByAppendingString:suffix]], @"only once");
+                    SetSettings(@{@"enabled": @NO}, nil);   // the next step checks it took effect
+                },
+                ^{
+                    window.title = @"Off";
+                    Check([window.title isEqualToString:@"Off"], @"switched off while running: no suffix");
+                    SetSettings(@{@"enabled": @NO}, @{me: @{@"enabled": @YES}});
+                },
+                ^{
+                    window.title = @"Per app";
+                    Check([window.title hasSuffix:suffix], @"a per-app override for this app switches it back on");
+                },
+                // Add your own steps here.
+            ];
+        }
+
+        - (void)applicationDidFinishLaunching:(NSNotification *)note {
+            self.window = [[NSWindow alloc] initWithContentRect:NSMakeRect(200, 200, 420, 160)
+                                                      styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
+                                                        backing:NSBackingStoreBuffered
+                                                          defer:NO];
+            [self.window orderFront:nil];
+            self.steps = [self makeSteps];
+            // Never hang: fail after 20 s.
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 20 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+                Check(NO, @"finished within 20 s");
+                [self finish];
+            });
+            [self runStep:0];
+        }
+
+        - (void)runStep:(NSUInteger)index {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 300 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+                if (index == self.steps.count) {
+                    [self finish];
+                    return;
+                }
+                self.steps[index]();
+                [self runStep:index + 1];
+            });
+        }
+
+        - (void)finish {
+            SetSettings(nil, nil);
+            printf("%d checks, %s\\n", sChecks, sFailures ? "FAILED" : "all passed");
+            exit(sFailures ? 1 : 0);
+        }
+
+        @end
+
+        int main(void) {
+            @autoreleasepool {
+                if (!getenv("DYLD_INSERT_LIBRARIES")) {
+                    fprintf(stderr, "run it with ./build.sh test (it needs the test copy injected)\\n");
+                    return 2;
+                }
+                SetSettings(nil, nil);   // start from the manifest's defaults, whatever an earlier run left
+                Host *host = [Host new];
+                NSApplication *app = [NSApplication sharedApplication];
+                app.activationPolicy = NSApplicationActivationPolicyAccessory;   // no Dock icon, no focus
+                app.delegate = host;
+                [app run];
+            }
+            return 0;
+        }
 
         """
     }
@@ -244,7 +429,8 @@ public struct TweakTemplate: Sendable {
         | --- | --- |
         | `\(name).m` | The tweak: `DH_CTOR` entry point, the hook class, settings through `DTPrefBool`/`DTPrefObserve`. |
         | `\(name).workbench.plist` | Manifest: identifier `\(identifier)`, install path `\(installPath)`, the settings page. |
-        | `build.sh` | Builds `build/\(dylibName)` (x86_64, arm64, arm64e; ad-hoc signed unless `SIGN_IDENTITY` is set). |
+        | `build.sh` | Builds `build/\(dylibName)` (x86_64, arm64, arm64e; ad-hoc signed unless `SIGN_IDENTITY` is set). `./build.sh test` also runs the test host. |
+        | `testhost/TestHost.m` | The test host: a small app that checks what the tweak does, run with the tweak injected. |
         | `sdk/` | Copies of DynjectHook.h, DynjectHook.m and DynjectTweak.h, so the folder builds on its own. |
 
         ## Build
@@ -253,6 +439,22 @@ public struct TweakTemplate: Sendable {
         ./build.sh
         SIGN_IDENTITY="Apple Development: Jane Doe (ABCDE12345)" ./build.sh   # with your own certificate
         ```
+
+        ## Test
+
+        ```sh
+        ./build.sh test
+        ```
+
+        Builds a test copy of the tweak and `testhost/` as a small app (no Dock icon, it never takes focus), then runs
+        the app with the tweak injected through `DYLD_INSERT_LIBRARIES`: no Dynject, nothing installed. It prints a
+        line per check and `N checks, all passed`, and exits non-zero when one fails. With Rosetta installed it runs
+        again as x86_64.
+
+        The test copy is compiled with `TWEAK_TEST`, which gives it a tweak ID of its own, `\(testIdentifier)`, so the
+        settings the host writes never touch your real ones (it removes them when it's done)\(bundleID == nil ? "" : ", and adds the host's bundle ID, `\(testHostBundleID)`, to the apps in `DH_CTOR`").
+        When you change what the tweak does, change the steps in `TestHost.m` to match: each step runs on the main thread
+        a moment after the previous one, so the tweak has time to react.
 
         ## Install
 
