@@ -1185,7 +1185,9 @@ static atomic_bool sImportCallbacksRegistered;
 typedef struct {
     size_t patched;
     size_t oddlySigned;
-    size_t unwritable;
+    size_t locked;            // macOS keeps the page read-only (Apple's own apps and their libraries)
+    size_t unwritable;        // making it writable failed some other way
+    kern_return_t lastError;
 } DHImportTally;
 
 static void *DHImportStrip(void *value) {
@@ -1233,7 +1235,7 @@ static BOOL DHImportWrite(void **entry, void *expected, void *value, DHImportTal
     os_unfair_lock_lock(processLock);
     mach_vm_address_t address = (mach_vm_address_t)entry;
     mach_vm_size_t size = 0;
-    vm_region_basic_info_data_64_t info;
+    vm_region_basic_info_data_64_t info = {0};
     mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
     mach_port_t object = MACH_PORT_NULL;
     kern_return_t kr = mach_vm_region(mach_task_self(), &address, &size, VM_REGION_BASIC_INFO_64, (vm_region_info_t)&info,
@@ -1248,7 +1250,13 @@ static BOOL DHImportWrite(void **entry, void *expected, void *value, DHImportTal
         }
         if (kr != KERN_SUCCESS) {
             os_unfair_lock_unlock(processLock);
-            if (tally) tally->unwritable++;
+            if (tally) {
+                // The page allows writing at most, yet can't be made writable: the kernel holds it read-only for good. On
+                // macOS 27 that is the __DATA_CONST of Apple's platform binaries once dyld is done (seen in Calculator).
+                if (kr == KERN_PROTECTION_FAILURE && (info.max_protection & VM_PROT_WRITE)) tally->locked++;
+                else tally->unwritable++;
+                tally->lastError = kr;
+            }
             return NO;
         }
         madeWritable = YES;
@@ -1445,7 +1453,13 @@ static void DHImportLogTally(const char *what, const DHImportTally *tally) {
     if (tally->oddlySigned) {
         DHLog(@"%s: left %zu import(s) alone: not signed the way an __auth_got entry is", what, tally->oddlySigned);
     }
-    if (tally->unwritable) DHLog(@"%s: %zu import(s) could not be made writable", what, tally->unwritable);
+    if (tally->locked) {
+        DHLog(@"%s: %zu import(s) are in pages macOS keeps read-only (Apple's own apps and libraries lock their imports after launch); not hooked there",
+              what, tally->locked);
+    }
+    if (tally->unwritable) {
+        DHLog(@"%s: %zu import(s) could not be made writable (%s)", what, tally->unwritable, mach_error_string(tally->lastError));
+    }
 }
 
 static void DHImportImageAdded(const struct mach_header *header, intptr_t slide) {

@@ -373,6 +373,12 @@ image outside the dyld shared cache: the app's executable, its own frameworks an
 loaded later, as they load. No code is patched, so it works under the hardened runtime, and on arm64e it signs the
 pointers the way dyld does (an entry signed any other way is left alone and logged).
 
+**Third-party apps only.** macOS keeps the imports of its own apps and libraries (platform binaries: Calculator,
+Finder, TextEdit, …) read-only once dyld has bound them: the page allows writing, but the kernel refuses to make it
+writable (`KERN_PROTECTION_FAILURE`, seen live in Calculator on macOS 27.2). `DHHookImport` then patches nothing in
+that image and logs "pages macOS keeps read-only". In third-party apps (VS Code, Electron apps, UTM, your own) and
+their frameworks it works, arm64, arm64e and x86_64 alike. For Apple's apps, hook Objective-C methods instead.
+
 **What it reaches, and what not.** It sees exactly the calls that go through an import pointer:
 
 - yes: the app calling a system function (`CFPreferencesCopyAppValue`, `getenv`, `CGEventSourceFlagsState`), the app
@@ -564,10 +570,11 @@ swift test                             # everything
 
 ## Limits
 
-- **C and Swift functions only through imports.** `DHHookImport` redirects calls that go through an image's imports
-  (see [Hooking C functions](#hooking-c-functions-dhhookimport)); there is no inline hooking (`MSHookFunction`): the
-  hardened runtime and code signing block patching executable pages. Calls between system libraries inside the dyld
-  shared cache are bound directly and can't be redirected.
+- **C and Swift functions only through imports, and only in third-party apps.** `DHHookImport` redirects calls that go
+  through an image's imports (see [Hooking C functions](#hooking-c-functions-dhhookimport)); there is no inline hooking
+  (`MSHookFunction`): the hardened runtime and code signing block patching executable pages. Calls between system
+  libraries inside the dyld shared cache are bound directly, and Apple's own apps keep their imports read-only, so
+  neither can be redirected.
 - **Swift methods** can be hooked only when they are reached through `objc_msgSend`: `@objc` methods called from
   Objective-C (for example AppKit calling an `@objc override`), or `@objc dynamic` methods. Swift-to-Swift calls use the
   vtable or direct dispatch and bypass the hook.

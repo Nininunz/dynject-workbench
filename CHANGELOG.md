@@ -16,6 +16,8 @@ unreleased
   app's executable, its frameworks and later-loaded images (signed `__auth_got` entries on arm64e).
   groups, chaining with other tweaks, `DH_CALL_IMPORT_ORIG`. calls inside the shared cache and
   inside one image aren't reached. `Tests/ImportHost` runs it in arm64e, arm64 and x86_64 processes.
+  third-party apps only: a live check in calculator showed macos keeps the imports of its own apps
+  read-only after launch (`KERN_PROTECTION_FAILURE`); that's logged, nothing is patched there.
 - `dw why`: an arm64 app loads a dylib's arm64e slice (dyld prefers it), so an arm64e-only build
   no longer gets a "may not load" warning there.
 - `DH_CTOR` compiles in its tweak id and target apps (`dynject.ctor:` marker) so `dw why` can

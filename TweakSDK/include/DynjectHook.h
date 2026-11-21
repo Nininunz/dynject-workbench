@@ -241,6 +241,9 @@ typedef struct DHImportHook DHImportHook;
 /// - Covered: the main executable and every other image outside the dyld shared cache (an app's own
 ///   frameworks and plug-ins, other tweaks), including images loaded later, which are patched as they
 ///   load. Images that are unloaded are forgotten.
+/// - Not in Apple's own apps: macOS keeps the imports of its platform binaries read-only once they are
+///   bound (Calculator, Finder and the rest, on macOS 27), so nothing there can be patched; this is
+///   logged. Third-party apps (arm64, arm64e and x86_64) and their frameworks work.
 /// - Not covered: calls inside one image (a function calling a function of its own image), calls
 ///   between libraries of the dyld shared cache (the system frameworks call each other directly),
 ///   calls through a pointer from dlsym, inlined calls, and calls from your own tweak: the image that
