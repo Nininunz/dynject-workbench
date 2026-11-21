@@ -4,6 +4,18 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
+unreleased
+----------
+
+- `dw why <tweak> <app>`: why a tweak does or doesn't load into an app. every check in the order
+  it happens (dynjectd, the config's service and process gates and dylib rule, dyld's
+  architecture and signature, the tweak's target apps, safe mode, its macos minimum), then the
+  running app and the tweak's last log line about it. names the first check that stops it and
+  the command that fixes it; read-only. `--json`, `--no-log`, `--minutes N`.
+- `DH_CTOR` compiles in its tweak id and target apps (`dynject.ctor:` marker) so `dw why` can
+  read them. rebuild tweaks to get it; older builds show the targets as unknown.
+
+
 0.1.1 (2026-11-20)
 ------------------
 

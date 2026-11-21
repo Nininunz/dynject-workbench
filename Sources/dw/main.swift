@@ -144,6 +144,7 @@ case ("bridge", _): bridgeCommand(Array(a.dropFirst()))
 case ("respring", _): respringCommand(Array(a.dropFirst()))
 case ("tweak", _): tweakCommand(Array(a.dropFirst()))
 case ("doctor", _): doctorCommand(Array(a.dropFirst()))
+case ("why", _): whyCommand(Array(a.dropFirst()))
 case ("new", _): newTweak(Array(a.dropFirst()))
 case ("install", 2): install(a[1])
 case ("enable", 3): setEnabled(true, dylib: a[1], bundleID: a[2])
@@ -169,6 +170,7 @@ default:
       dw config apply <new.conf> [--yes]
       dw menu publish                   republish MenuLoader's list from the installed manifests
       dw doctor [--apis] [--json] [--quiet]   check the setup (read-only); --apis: private apis after a macos update
+      dw why <tweak> <app> [--no-log] [--json]   why a tweak does or doesn't load into an app (read-only)
       dw log <subsystem> [minutes]
       dw safemode ...   (dw safemode help)
       dw bridge ...     (dw bridge help)

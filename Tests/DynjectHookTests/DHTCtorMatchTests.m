@@ -8,6 +8,7 @@
 // off, see DHTShouldLoadTests.m); the last undoes both.
 
 #import <XCTest/XCTest.h>
+#import <dlfcn.h>
 #import "DynjectHook.h"
 
 static int gDHTCtorMatchRuns;
@@ -36,6 +37,18 @@ __attribute__((constructor)) static void DHTCtorMatchRestore(void) {
 
 - (void)testCtorWithMatchingBundleIDRunsBody {
     XCTAssertEqual(gDHTCtorMatchRuns, 1, @"DH_CTOR runs its body once when the app is in its bundle-ID list");
+}
+
+/// DH_CTOR compiles in "dynject.ctor:<id>|<bundle IDs>" as written, for `dw why` (CtorMarker in DynjectCore).
+- (void)testCtorMarkerIsInTheImage {
+    Dl_info info;
+    XCTAssertNotEqual(dladdr((const void *)&gDHTCtorMatchRuns, &info), 0);
+    NSData *image = [NSData dataWithContentsOfFile:@(info.dli_fname) options:NSDataReadingMappedIfSafe error:NULL];
+    XCTAssertNotNil(image);
+    const char marker[] = "dynject.ctor:\"dht.tests.ctor.match\"|\"com.example.dht.first\", "
+                          "\"com.dynject.tests.ctor-host\", \"com.example.dht.last\"";
+    NSData *needle = [NSData dataWithBytes:marker length:sizeof(marker)];   // with the terminating NUL
+    XCTAssertNotEqual([image rangeOfData:needle options:0 range:NSMakeRange(0, image.length)].location, (NSUInteger)NSNotFound);
 }
 
 @end

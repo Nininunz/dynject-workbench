@@ -648,24 +648,27 @@ public enum Doctor {
         for p in pending {
             let label = "\(p.app.name) (\(p.app.bundleID))"
             var detail = "\(label): \(p.reasonSummary)"
-            var fix: String? = "dw respring"
-            if let e = p.exclusion {
-                detail += "; \(e.note)"
-                switch e {
-                case .protectedSystem: fix = nil
-                case .injectionBlocked: fix = "check its hardened runtime / library validation; a relaunch won't fix it"
-                case .hostsThisProcess: fix = "quit and reopen it yourself"
-                case .developerTool: fix = "relaunch it yourself, or dw respring --include \(p.app.bundleID)"
-                case .finder, .workbench: fix = "dw respring --include \(p.app.bundleID)"
-                }
-            }
-            s.warn("out of date", detail, fix: fix)
+            if let e = p.exclusion { detail += "; \(e.note)" }
+            s.warn("out of date", detail, fix: respringFix(p))
         }
         let blind = plan.notInspected
         if !blind.isEmpty {
             s.warn("not inspected", "couldn't inspect with lsof: " + blind.map(\.app.name).joined(separator: ", "), fix: nil)
         }
         return s.checks
+    }
+
+    /// How to relaunch an out-of-date app; nil for system processes that are never relaunched.
+    /// `only`: relaunch just this app (dw why) rather than every out-of-date one (doctor).
+    static func respringFix(_ p: RespringCandidate, only: Bool = false) -> String? {
+        switch p.exclusion {
+        case nil: return only ? "dw respring --only \(p.app.bundleID)" : "dw respring"
+        case .protectedSystem?: return nil
+        case .injectionBlocked?: return "check its hardened runtime / library validation; a relaunch won't fix it"
+        case .hostsThisProcess?: return "quit and reopen it yourself"
+        case .developerTool?: return "relaunch it yourself, or dw respring --include \(p.app.bundleID)"
+        case .finder?, .workbench?: return "dw respring --include \(p.app.bundleID)"
+        }
     }
 
     // MARK: safe mode

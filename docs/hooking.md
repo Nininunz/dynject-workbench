@@ -394,10 +394,17 @@ DH_CTOR("com.you.tweak") { ... }                                                
 The body runs while dyld loads your dylib, before the app's `main`. Install hooks there, and defer UI work (for example with
 `dispatch_async(dispatch_get_main_queue(), …)`). Use one `DH_CTOR` per tweak.
 
+It also compiles in a marker, `dynject.ctor:"<tweak ID>"|"<bundle ID>", …` (macros expanded), so `dw why <tweak> <app>`
+can tell which apps the tweak targets without loading it. Write the tweak ID and bundle IDs as string literals, or
+macros that expand to them; anything else (a variable, a function call) still works, but `dw why` reports the targets
+as unknown. Builds from before 0.1.2 have no marker.
+
 `DHShouldLoad` (also callable directly) returns NO for a `NULL` or empty tweak ID, and in these cases:
 
-- **Bundle filter.** A bundle-ID list was given and the app's `CFBundleIdentifier` isn't in it. This filter runs inside the
-  processes Dynject has already injected; `dynjectd.conf` still decides which apps load the dylib at all.
+- **Bundle filter.** A bundle-ID list was given and the app's `CFBundleIdentifier` isn't in it. The comparison is exact,
+  case included: Finder is `com.apple.finder`, though its service name in `dynjectd.conf` is `com.apple.Finder`. This
+  filter runs inside the processes Dynject has already injected; `dynjectd.conf` still decides which apps load the
+  dylib at all.
 - **Safe Mode.** The user's global preferences (`kCFPreferencesAnyApplication`, current user, any host) contain
   `dynject.safemode`: a dictionary that maps tweak IDs to arrays of bundle IDs. If the array for your tweak ID contains
   the current bundle ID or `"*"`, the tweak is skipped. The tweak-ID key `"*"` is the panic switch: its array applies

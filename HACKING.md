@@ -18,7 +18,8 @@ layout
                                   the bridge (Bridge.swift: rules, actions, limits, log; BridgeSystem.swift:
                                   xpc, code identity, token, agent), version and notices (WorkbenchInfo.swift),
                                   `dw doctor` (Doctor.swift) and manifests' `requires` + the api canary
-                                  (TweakRequirements.swift)
+                                  (TweakRequirements.swift), `dw why` (TweakWhy.swift: the checks in launch
+                                  order, DH_CTOR's marker)
     Sources/DynjectWorkbench/     the swiftui app. AppEnvironment.swift: launch arguments.
                                   RespringModel.swift: the respring sheet. SafeModeModel.swift. BridgeModel.swift.
                                   TweakInstallModel.swift. SmokeTest.swift: the ui smoke test runner.
@@ -26,7 +27,7 @@ layout
     Sources/dw/                   the cli. main.swift (install, enable/disable, relaunch, config apply, log),
                                   TweakCommands.swift (tweak install/uninstall/list, new),
                                   SafeModeCommands.swift, RespringCommand.swift, BridgeCommands.swift,
-                                  DoctorCommand.swift
+                                  DoctorCommand.swift, WhyCommand.swift
     Sources/DynjectLiveTrial/     live privileged trial runner against /opt/dynject. run only when you mean it.
     TweakSDK/                     DynjectTweak.h (settings, header only), DynjectHook.h + DynjectHook.m
                                   (hooking), DynjectBridge.h + DynjectBridge.m (the bridge client). also the
@@ -58,7 +59,7 @@ building and tests
     ./scripts/test-all.sh               # everything below that leaves your screen alone, one summary (~2.5 min)
     ./scripts/test-all.sh --quick       # unit tests and builds only
     ./scripts/test-all.sh --all         # plus the e2e scripts and the ui smoke test (they open test apps)
-    swift test                          # 407 tests, ~20 s
+    swift test                          # 424 tests, ~20 s
     swift test --filter DynjectHookTests
     ./scripts/build-app.sh              # build/Dynject Workbench.app, release, ad-hoc unless SIGN_IDENTITY
     ./scripts/ui-smoke-test.sh          # drives the built app against fixtures
@@ -70,10 +71,10 @@ building and tests
     Tweaks/Inspector/build.sh test                # Inspector in an appkit + swiftui test app, screenshots
     open "build/Dynject Workbench.app"
 
-current counts (2026-11-20): 291 DynjectCore (parser, editor, helper script, writer,
+current counts (2026-11-20): 307 DynjectCore (parser, editor, helper script, writer,
 plists, tweaks, apple menu, safe mode, respring, tweak install and template, version
-notice, bridge, doctor, requires, versions and compatibility), 90 DynjectHook (3 of them
-the bridge sdk, 6 the macos guard and sdk marker), 26 DynjectWorkbench (launch arguments,
+notice, bridge, doctor, why, requires, versions and compatibility), 91 DynjectHook (3 of them
+the bridge sdk, 7 the macos guard and the sdk and ctor markers), 26 DynjectWorkbench (launch arguments,
 the respring sheet's model and links, install tweak in fixture mode incl. downgrade and
 depends confirmation, bridge isolation).
 
@@ -263,7 +264,8 @@ conventions
   use `SimulatedAppController`.
 - `dw doctor` only reads. a new check takes its inputs through `DoctorContext` (paths
   or a closure) so tests can fake them, reuses the code the feature itself uses, and
-  gives every `!`/`✗` a one-line fix. bump `DoctorTests` when you add one.
+  gives every `!`/`✗` a one-line fix. bump `DoctorTests` when you add one. `dw why` is
+  the same for one tweak in one app: `WhyInputs` holds everything, `Why.explain` is pure.
 - a tweak of ours that looks something up by name declares it in `requires`.
 - keep `swift test` and `scripts/build-app.sh` green.
 

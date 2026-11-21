@@ -125,6 +125,8 @@ when you break something
   sdk build), the watcher and the bridge, the apple menu, out-of-date apps, safe mode. every `!` and `✗` comes with the
   command that fixes it. after a macos update, `dw doctor --apis` checks the private
   apis your tweaks declare they need.
+- a tweak doesn't show up in one app: `dw why <tweak> <app>`. every check between the app
+  launching and the tweak running, in that order, the first one that stops it, and the fix.
 - hold shift while launching an app: no tweaks that launch.
 - workbench -> safe mode -> panic switch (`dw safemode panic on`): no tweaks anywhere.
 - crashes get your tweak switched off for that app automatically, once the watcher

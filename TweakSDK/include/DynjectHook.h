@@ -263,6 +263,11 @@ DH_HIDDEN void DHCheckPendingClasses(void);
 ///  or when `tweakID` is NULL or empty. Otherwise returns YES.
 DH_HIDDEN BOOL DHShouldLoad(const char *tweakID, const char *const *bundleIDs);
 
+/// Implementation detail of DH_CTOR's marker: the arguments' text after macro expansion, so a tweak ID or bundle
+/// list written as a macro (#define MY_ID "local.me.tweak") is marked by its value, not its name.
+#define DH_STRINGIFY_(...) DH_STRINGIFY_IMPL_(__VA_ARGS__)
+#define DH_STRINGIFY_IMPL_(...) #__VA_ARGS__
+
 /// Defines the tweak's entry point. Use it once per tweak, followed by the body:
 ///
 ///   DH_CTOR("local.dynject.calcskin", "com.apple.calculator", "com.apple.TextEdit") { ... }
@@ -271,7 +276,13 @@ DH_HIDDEN BOOL DHShouldLoad(const char *tweakID, const char *const *bundleIDs);
 /// When the dylib is loaded (before main()), this sets the log subsystem to TWEAK_ID, asks
 /// DHShouldLoad(TWEAK_ID, the listed bundle IDs) and, if it says YES, runs the body. Exceptions
 /// raised by the body are logged with their name and reason and never propagate into the app.
+///
+/// It also compiles in the C string `dynject.ctor:<TWEAK_ID>|<the bundle IDs>` (macros expanded), e.g.
+/// `dynject.ctor:"local.dynject.calcskin"|"com.apple.calculator", "com.apple.TextEdit"`, so `dw why` can read which
+/// apps the tweak targets without loading it. Keep the "dynject.ctor:" prefix exactly as it is.
 #define DH_CTOR(TWEAK_ID, ...) \
+    __attribute__((used)) static const char DHCtorMarker_[] = \
+        "dynject.ctor:" DH_STRINGIFY_(TWEAK_ID) "|" DH_STRINGIFY_(__VA_ARGS__); \
     static void DHTweakBody_(void); \
     __attribute__((constructor)) static void DHTweakConstructor_(void) { \
         static const char *const dhBundleIDs_[] = { NULL, ##__VA_ARGS__, NULL }; \
