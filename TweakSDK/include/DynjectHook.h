@@ -397,6 +397,12 @@ DH_HIDDEN BOOL DHRequireSystemVersion(const char *version);
 #define DH_REQUIRE_SYSTEM(VERSION) \
     do { if (!DHRequireSystemVersion(VERSION)) return; } while (0)
 
+/// TEST ONLY. Sends the lines a hook report (`dw hooks`) writes to `sink` instead of the log; NULL restores the log.
+DH_HIDDEN void DHSetReportSinkForTesting(void (*sink)(const char *line));
+
+/// TEST ONLY. Answers a hook report request right away, on this thread: low 32 bits the request ID, bit 32 the scan.
+DH_HIDDEN void DHReportForTesting(uint64_t request);
+
 /// TEST ONLY. Makes DHSystemVersionAtLeast compare against `version` ("26.4") instead of the
 /// running macOS. NULL restores the default.
 DH_HIDDEN void DHSetSystemVersionForTesting(const char *version);

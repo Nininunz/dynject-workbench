@@ -30,6 +30,8 @@
 #import <os/log.h>
 #import <stdatomic.h>
 #import <stdlib.h>
+#import <notify.h>
+#import <stdarg.h>
 #import <string.h>
 
 #if !__has_feature(objc_arc)
@@ -186,6 +188,8 @@ static char *sTestBundleIdentifier;
 static char *sTestSystemVersion;
 
 static const CFIndex kDHParsedFunctionLimit = 4096;
+
+static void DHReportRegister(void);   // Hook reports, below
 
 #pragma mark - The process-wide lock
 
@@ -384,6 +388,7 @@ static BOOL DHGroupReserveLocked(DHGroup *group) {
 // the source's table before it is installed, so DH_ORIG works from the very first call.
 static DHHook *DHHookCreate(Class cls, SEL sel, IMP replacement, DHGroup *group, DHHook **handle,
                             DHSource *source, BOOL isClassMethod) {
+    DHReportRegister();   // a copy that hooks something answers dw hooks, DH_CTOR or not
     if (!cls || !sel || !replacement) {
         DHLog(@"DHHookMessage: class, selector and replacement must not be NULL (class %s, selector %s, replacement %p)",
               cls ? class_getName(cls) : "NULL", sel ? sel_getName(sel) : "NULL", (void *)replacement);
@@ -1536,6 +1541,7 @@ static void DHImportsApplyGroup(DHGroup *group) {
 
 DHImportHook *DHHookImportEx(const char *symbol, const char *library, void *replacement, DHGroup *group,
                              DHImportHook **outHook) {
+    DHReportRegister();
     if (!symbol || !symbol[0] || !replacement) {
         DHLog(@"DHHookImport: %s is NULL; not hooking", !symbol || !symbol[0] ? "the symbol" : "the replacement");
         return NULL;
@@ -1625,6 +1631,207 @@ NSUInteger DHImportHookSiteCount(DHImportHook *hook) {
     for (DHImportSite *s = hook->sites; s; s = s->next) n += s->installed ? 1 : 0;
     os_unfair_lock_unlock(&sImportLock);
     return n;
+}
+
+#pragma mark - Hook reports (dw hooks)
+
+// `dw hooks <app>` asks every DynjectHook copy in a process what it has hooked. It sets the state of the Darwin
+// notification "dynject.hooks.report.<pid>" to a request (low 32 bits: an ID; bit 32: also scan for methods replaced
+// from tweak dylibs by other means) and posts it. Every copy that is active (DHShouldLoad said yes, or it installed a
+// hook) answers with lines in the unified log, subsystem "dynject.hooks": begin, one line per method hook and per
+// import hook, end. One copy per request, elected through an associated object of NSObject, also runs the scan.
+// Darwin notifications and logging both work in sandboxed apps. dw parses the lines (DynjectCore/HookReport.swift):
+// keep their format and the "dynject.hooks:" marker below as they are.
+__attribute__((used)) static const char *const DHHookReportCapability = "dynject.hooks:report-v1";
+
+static atomic_bool sReportRegistered;
+static int sReportToken = -1;
+static void (*sReportSinkForTesting)(const char *line);
+
+static os_log_t DHReportLog(void) {
+    static os_log_t log;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ log = os_log_create("dynject.hooks", "report"); });
+    return log;
+}
+
+static void DHReportLine(const char *format, ...) __attribute__((format(printf, 1, 2)));
+static void DHReportLine(const char *format, ...) {
+    char line[960];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(line, sizeof line, format, args);
+    va_end(args);
+    if (sReportSinkForTesting) sReportSinkForTesting(line);
+    else os_log(DHReportLog(), "%{public}s", line);
+}
+
+static const char *DHReportStateName(DHHookState state) {
+    switch (state) {
+        case DHHookStatePending: return "pending";
+        case DHHookStateInstalled: return "installed";
+        case DHHookStateRestored: return "restored";
+        case DHHookStateBuried: return "buried";
+    }
+    return "?";
+}
+
+typedef struct {
+    __unsafe_unretained Class cls;
+    SEL sel;
+    DHHookState state;
+    IMP replacement;
+    const char *group;
+    BOOL active;
+} DHReportHook;
+
+typedef struct {
+    char *symbol;
+    const char *library;
+    size_t sites;
+    BOOL active;
+} DHReportImport;
+
+// Whether this copy is the one that scans for request `request` (the first to ask).
+static BOOL DHReportElected(uint32_t request) {
+    id host = (id)objc_getClass("NSObject");
+    char name[64];
+    snprintf(name, sizeof name, "dynject.hooks.scan.%u", request);
+    const void *key = sel_registerName(name);
+    BOOL mine = NO;
+    if (host && objc_sync_enter(host) == OBJC_SYNC_SUCCESS) {
+        if (!objc_getAssociatedObject(host, key)) {
+            objc_setAssociatedObject(host, key, @YES, OBJC_ASSOCIATION_RETAIN);
+            mine = YES;
+        }
+        objc_sync_exit(host);
+    }
+    return mine;
+}
+
+// Methods of classes from other images whose implementation is in a tweak dylib (one in a "lib/tweaks/" folder):
+// what every hooking library leaves behind, DynjectHook's own hooks included (dw sets those apart), and categories.
+static void DHReportScan(uint32_t request) {
+    CFAbsoluteTime start = CFAbsoluteTimeGetCurrent();
+    typedef struct { uintptr_t start, end; const char *path; } DHRange;
+    DHRange ranges[64];
+    size_t rangeCount = 0;
+    uint32_t images = _dyld_image_count();
+    for (uint32_t i = 0; i < images && rangeCount < 64; i++) {
+        const char *path = _dyld_get_image_name(i);
+        const struct mach_header *mh = _dyld_get_image_header(i);
+        if (!path || !strstr(path, "/lib/tweaks/") || !mh || mh->magic != MH_MAGIC_64) continue;
+        intptr_t slide = _dyld_get_image_vmaddr_slide(i);
+        const uint8_t *cursor = (const uint8_t *)((const struct mach_header_64 *)mh + 1);
+        for (uint32_t c = 0; c < mh->ncmds; c++) {
+            const struct load_command *lc = (const struct load_command *)cursor;
+            cursor += lc->cmdsize;
+            if (lc->cmd != LC_SEGMENT_64 || strcmp(((const struct segment_command_64 *)lc)->segname, SEG_TEXT) != 0) continue;
+            const struct segment_command_64 *seg = (const struct segment_command_64 *)lc;
+            ranges[rangeCount++] = (DHRange){(uintptr_t)(seg->vmaddr + slide), (uintptr_t)(seg->vmaddr + slide + seg->vmsize), path};
+            break;
+        }
+    }
+    DHReportLine("R %u scan-begin tweak-images=%zu", request, rangeCount);
+    size_t found = 0;
+    if (rangeCount) {
+        unsigned int classCount = 0;
+        Class *classes = objc_copyClassList(&classCount);
+        for (unsigned int i = 0; i < classCount && found < 500; i++) {
+            const char *classImage = class_getImageName(classes[i]) ?: "?";
+            for (int meta = 0; meta < 2; meta++) {
+                Class k = meta ? object_getClass(classes[i]) : classes[i];
+                unsigned int methodCount = 0;
+                Method *methods = class_copyMethodList(k, &methodCount);
+                for (unsigned int m = 0; m < methodCount && found < 500; m++) {
+                    uintptr_t imp = (uintptr_t)DHImportStrip((void *)method_getImplementation(methods[m]));
+                    for (size_t r = 0; r < rangeCount; r++) {
+                        if (imp < ranges[r].start || imp >= ranges[r].end || strcmp(ranges[r].path, classImage) == 0) continue;
+                        DHReportLine("R %u foreign %c %s %s imp=%s class=%s", request, meta ? '+' : '-', class_getName(classes[i]),
+                                     sel_getName(method_getName(methods[m])), ranges[r].path, classImage);
+                        found++;
+                        break;
+                    }
+                }
+                free(methods);
+            }
+        }
+        free(classes);
+    }
+    DHReportLine("R %u scan-end found=%zu ms=%.0f", request, found, (CFAbsoluteTimeGetCurrent() - start) * 1000);
+}
+
+static void DHReportAnswer(uint64_t state) {
+    uint32_t request = (uint32_t)state;
+    if (!request) return;
+    BOOL scan = ((state >> 32) & 1) != 0;
+    char tweak[256];
+    os_unfair_lock_lock(&sLogLock);
+    snprintf(tweak, sizeof tweak, "%s", sLogSubsystem ?: "-");
+    os_unfair_lock_unlock(&sLogLock);
+    Dl_info info;
+    const char *image = dladdr((const void *)&DHReportAnswer, &info) && info.dli_fname ? info.dli_fname : "?";
+
+    os_unfair_lock_lock(&sLock);
+    size_t hookCount = 0;
+    for (DHSite *s = sSites; s; s = s->next) for (DHHook *h = s->hooks; h; h = h->nextAtSite) hookCount++;
+    DHReportHook *hooks = calloc(hookCount ? hookCount : 1, sizeof *hooks);
+    size_t n = 0;
+    for (DHSite *s = sSites; s && hooks; s = s->next) {
+        for (DHHook *h = s->hooks; h; h = h->nextAtSite) {
+            hooks[n++] = (DHReportHook){h->cls, h->sel, h->state, h->replacement, h->group ? h->group->name : NULL,
+                                        atomic_load(&h->active) ? YES : NO};
+        }
+    }
+    os_unfair_lock_unlock(&sLock);
+
+    os_unfair_lock_lock(&sImportLock);
+    size_t importCount = 0;
+    for (DHImportHook *h = sImportHooks; h; h = h->next) importCount++;
+    DHReportImport *imports = calloc(importCount ? importCount : 1, sizeof *imports);
+    size_t m = 0;
+    for (DHImportHook *h = sImportHooks; h && imports; h = h->next) {
+        size_t sites = 0;
+        for (DHImportSite *s = h->sites; s; s = s->next) sites += s->installed ? 1 : 0;
+        imports[m++] = (DHReportImport){h->symbol, h->library, sites, atomic_load(&h->active) ? YES : NO};
+    }
+    os_unfair_lock_unlock(&sImportLock);
+
+    DHReportLine("R %u begin %s sdk=%s image=%s", request, tweak, DH_SDK_VERSION, image);
+    for (size_t i = 0; i < n; i++) {
+        Method method = class_getInstanceMethod(hooks[i].cls, hooks[i].sel);
+        BOOL top = method && method_getImplementation(method) == hooks[i].replacement;
+        DHReportLine("R %u hook %s %c %s %s %s %s group=%s", request, tweak, class_isMetaClass(hooks[i].cls) ? '+' : '-',
+                     class_getName(hooks[i].cls), sel_getName(hooks[i].sel), DHReportStateName(hooks[i].state),
+                     top ? "top" : "beneath", hooks[i].group ?: "-");
+    }
+    for (size_t i = 0; i < m; i++) {
+        DHReportLine("R %u import %s %s lib=%s sites=%zu %s", request, tweak, imports[i].symbol + 1, imports[i].library ?: "-",
+                     imports[i].sites, imports[i].active ? "active" : "inactive");
+    }
+    DHReportLine("R %u end %s hooks=%zu imports=%zu", request, tweak, n, m);
+    free(hooks);
+    free(imports);
+    if (scan && DHReportElected(request)) DHReportScan(request);
+}
+
+// Called when the copy becomes active: DHShouldLoad says yes, or a hook is installed.
+static void DHReportRegister(void) {
+    if (atomic_exchange(&sReportRegistered, true)) return;
+    char name[64];
+    snprintf(name, sizeof name, "dynject.hooks.report.%d", getpid());
+    notify_register_dispatch(name, &sReportToken, dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^(int token) {
+        uint64_t state = 0;
+        notify_get_state(token, &state);
+        DHReportAnswer(state);
+    });
+}
+
+void DHSetReportSinkForTesting(void (*sink)(const char *line)) { sReportSinkForTesting = sink; }
+
+void DHReportForTesting(uint64_t request) {
+    DHReportRegister();
+    DHReportAnswer(request);
 }
 
 #pragma mark - Load policy
@@ -1775,6 +1982,7 @@ BOOL DHShouldLoad(const char *tweakID, const char *const *bundleIDs) {
         DHLog(@"%s: not loading into %@: %@", tweakID, bundleID ? (__bridge NSString *)bundleID : @"(no bundle identifier)", reason);
     }
     if (bundleID) CFRelease(bundleID);
+    if (!reason) DHReportRegister();
     return reason ? NO : YES;
 }
 

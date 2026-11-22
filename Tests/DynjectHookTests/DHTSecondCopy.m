@@ -32,4 +32,6 @@
 #define DHImportOriginal DHT2_DHImportOriginal
 #define DHImportHookIsActive DHT2_DHImportHookIsActive
 #define DHImportHookSiteCount DHT2_DHImportHookSiteCount
+#define DHSetReportSinkForTesting DHT2_DHSetReportSinkForTesting
+#define DHReportForTesting DHT2_DHReportForTesting
 #include "../../TweakSDK/DynjectHook.m"

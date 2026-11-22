@@ -551,6 +551,13 @@ Each tweak compiles its own copy of DynjectHook, so the copies must not interfer
   **prefix your hook classes** with something unique to your tweak (`TSFX_NSWindowHook`, not `NSWindowHook`). If two dylibs define the same
   class name, the runtime uses one of them and logs a "Class X is implemented in both…" warning.
 - **One `DH_CTOR` per tweak** and **one target per hook class**.
+- **Seeing who hooked what.** `dw hooks <app>` asks every copy in a running app for its hooks: each method hook with
+  its state and whether it's on top, its group, and each import hook. It warns when two tweaks hook the same method.
+  A copy answers once it is active: when `DHShouldLoad` lets it load, or when it installs a hook. `dw` sets the state
+  of the Darwin notification `dynject.hooks.report.<pid>` to a request ID and posts it, and each copy writes its list to
+  the unified log under the subsystem `dynject.hooks`. Both work in sandboxed apps. `--scan` also lists methods of other
+  images' classes implemented in tweak dylibs, which catches hooks made without DynjectHook. Builds from before 0.1.3
+  don't answer, and `dw hooks` says so.
 
 ## Tests
 

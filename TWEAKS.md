@@ -436,6 +436,9 @@ debugging
   layers, click. class, image, hierarchy, properties, methods with readable signatures,
   ivars, a runtime class search, and copy hook for a DynjectHook skeleton with exact types.
 - a tweak doesn't load in one app: `dw why <tweak> <app>` names the check that stops it.
+- two tweaks fighting over a method: `dw hooks <app>` lists what each tweak in the running
+  app hooked, which hook is on top, and the methods more than one tweak hooks. `--scan`
+  also finds hooks made without DynjectHook.
 - test without dynject: `DYLD_INSERT_LIBRARIES` into a test app you built. a `dw new`
   tweak has one already (`./build.sh test`, `testhost/`). `Examples/TitleBadge/build.sh test`, `Examples/OLEDFinder/build.sh test` (screenshots and
   pixel checks), `Tweaks/MenuLoader/testhost/run.sh` and `Tweaks/Inspector/build.sh test` do this.

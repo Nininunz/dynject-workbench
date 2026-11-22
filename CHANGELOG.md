@@ -7,6 +7,12 @@ newest first. for testers; the commit log has the details.
 unreleased
 ----------
 
+- `dw hooks <app>`: what the tweaks in a running app have hooked, per tweak: each method hook's
+  state (installed, buried beneath another, restored by a group, pending), whether it's on top,
+  its group, and import hooks with their call sites. warns when two tweaks hook one method; lists
+  loaded tweak dylibs that didn't answer and why. `--scan` adds methods of other images' classes
+  implemented in tweak dylibs (hooks made without DynjectHook). DynjectHook answers a darwin
+  notification for its pid by logging the list (`dynject.hooks`), so tweaks need a rebuild.
 - `dw dev [folder] [--for <bundleID>]`: the tweak loop. builds, runs the test host, installs
   (skipped when the dylib didn't change), relaunches the apps its `DH_CTOR` lists (or `--for`),
   and shows its log; then watches the folder and does it again on every save. a failed build or

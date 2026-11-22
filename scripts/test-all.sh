@@ -114,6 +114,7 @@ if [ "$mode" != quick ]; then
   step imports-host    Tests/ImportHost/run.sh
   step template-host   template_host
   step dev-once        dev_once
+  step hooks-host      Tests/HooksHost/run.sh
 fi
 
 if [ "$mode" = all ]; then
