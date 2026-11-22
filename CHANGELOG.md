@@ -4,8 +4,8 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
-unreleased
-----------
+0.1.3 (2026-11-21)
+------------------
 
 - `dw hooks <app>`: what the tweaks in a running app have hooked, per tweak: each method hook's
   state (installed, buried beneath another, restored by a group, pending), whether it's on top,
