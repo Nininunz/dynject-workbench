@@ -57,7 +57,7 @@ static NSArray<NSString *> *DYITabNames(void) { return @[@"Hierarchy", @"Propert
 @property (nonatomic, strong) NSTextField *header;
 @property (nonatomic, strong) NSPathControl *chain;
 @property (nonatomic, strong) NSSegmentedControl *tabs;
-@property (nonatomic, strong) NSButton *backButton, *forwardButton, *pickButton, *hookButton;
+@property (nonatomic, strong) NSButton *backButton, *forwardButton, *pickButton, *hookButton, *traceButton;
 @property (nonatomic, strong) NSSearchField *search;
 @property (nonatomic, strong) NSTableView *table;
 @property (nonatomic, strong) NSTextField *status;
@@ -168,8 +168,11 @@ static NSButton *DYIButton(NSString *title, NSString *symbol, id target, SEL act
     CGFloat x = 8;
     NSArray *buttons = @[DYIButton(@"Copy Class Name", @"doc.on.doc", self, @selector(copyClassName:)),
                          DYIButton(@"Copy Description", @"text.quote", self, @selector(copyDescription:)),
-                         DYIButton(@"Copy Hook", @"curlybraces", self, @selector(copyHook:))];
+                         DYIButton(@"Copy Hook", @"curlybraces", self, @selector(copyHook:)),
+                         DYIButton(@"Trace", @"waveform.path.ecg", self, @selector(toggleTrace:))];
     self.hookButton = buttons[2];
+    self.traceButton = buttons[3];
+    self.traceButton.toolTip = @"log every call of the selected method (arguments, return value, time) to the log, category trace";
     for (NSButton *b in buttons) {
         b.frame = NSMakeRect(x, y, NSWidth(b.frame) + 6, 24);
         b.autoresizingMask = NSViewMinYMargin | NSViewMaxXMargin;
@@ -403,6 +406,7 @@ static NSButton *DYIButton(NSString *title, NSString *symbol, id target, SEL act
     l.width = floor(total * split);
     r.width = floor(total * (1 - split));
     self.hookButton.enabled = self.tab == DYITabMethods;
+    self.traceButton.enabled = self.tab == DYITabMethods;
     self.search.placeholderString = self.tab == DYITabRuntime ? @"Search all classes in this process" : @"Filter";
 }
 
@@ -661,6 +665,7 @@ static NSString *DYILayerInfo(CALayer *l) {
         for (DYIMethodInfo *m in methods) {
             // An implementation from another image is a category or a hook: worth seeing.
             NSString *image = [m.image isEqualToString:classImage] ? m.image : [NSString stringWithFormat:@"%@ (not %@)", m.image, classImage];
+            if (DYITraceIsActive(m.cls, m.selector, m.classMethod)) image = [image stringByAppendingString:@" · traced"];
             DYIRow *r = [DYIRow left:m.signature right:image];
             r.method = m;
             [rows addObject:r];
@@ -773,6 +778,7 @@ static NSString *DYILayerInfo(CALayer *l) {
     (void)note;
     DYIRow *r = [self selectedRow];
     if (self.tab == DYITabMethods && r.method) self.status.stringValue = r.method.signature;
+    [self updateTraceButton];
 }
 
 - (nullable DYIRow *)selectedRow {
@@ -820,6 +826,17 @@ static NSString *DYILayerInfo(CALayer *l) {
         [[menu addItemWithTitle:@"Copy Hook" action:@selector(menuCopyHook:) keyEquivalent:@""] setTarget:self];
         [[menu addItemWithTitle:@"Copy Signature" action:@selector(menuCopyLeft:) keyEquivalent:@""] setTarget:self];
         [[menu addItemWithTitle:@"Copy Selector" action:@selector(menuCopySelector:) keyEquivalent:@""] setTarget:self];
+        [menu addItem:[NSMenuItem separatorItem]];
+        BOOL traced = DYITraceIsActive(r.method.cls, r.method.selector, r.method.classMethod);
+        [[menu addItemWithTitle:traced ? @"Stop Tracing" : @"Trace" action:@selector(menuTrace:) keyEquivalent:@""] setTarget:self];
+        NSString *all = [NSString stringWithFormat:@"Trace All Methods of %@", NSStringFromClass(r.method.cls)];
+        [[menu addItemWithTitle:all action:@selector(menuTraceClass:) keyEquivalent:@""] setTarget:self];
+        if (DYITraceActiveCount()) {
+            [[menu addItemWithTitle:@"Stop All Traces" action:@selector(menuUntraceAll:) keyEquivalent:@""] setTarget:self];
+        }
+        NSMenuItem *bt = [menu addItemWithTitle:@"Backtraces in Trace Lines" action:@selector(menuToggleBacktraces:) keyEquivalent:@""];
+        bt.target = self;
+        bt.state = DYITraceBacktraces() ? NSControlStateValueOn : NSControlStateValueOff;
         return;
     }
     [[menu addItemWithTitle:@"Copy Name" action:@selector(menuCopyLeft:) keyEquivalent:@""] setTarget:self];
@@ -839,6 +856,93 @@ static NSString *DYILayerInfo(CALayer *l) {
 - (void)menuCopySelector:(id)sender { (void)sender; DYIRow *r = [self clickedRow]; if (r.method) [self copyString:NSStringFromSelector(r.method.selector) what:@"selector"]; }
 - (void)menuInspect:(id)sender { (void)sender; DYIRow *r = [self clickedRow]; if (r) [self activateRow:r column:1]; }
 - (void)menuCopyHook:(id)sender { (void)sender; DYIRow *r = [self clickedRow]; if (r.method) [self copyHookFor:r.method]; }
+
+#pragma mark Trace
+
+static NSString *DYIMethodLabel(DYIMethodInfo *m) {
+    return [NSString stringWithFormat:@"%@[%@ %@]", m.classMethod ? @"+" : @"-", NSStringFromClass(m.cls), NSStringFromSelector(m.selector)];
+}
+
+- (void)updateTraceButton {
+    DYIRow *r = [self selectedRow];
+    BOOL on = r.method && DYITraceIsActive(r.method.cls, r.method.selector, r.method.classMethod);
+    self.traceButton.title = on ? @"Stop Trace" : @"Trace";
+}
+
+/// Rebuilds the rows (for the traced marks) and keeps the selection.
+/// Rebuilds the rows (for the traced marks) and keeps the selected method selected: rows can move, since tracing a
+/// method adds the tracer's forwardInvocation: to its class.
+- (void)refreshKeepingSelection {
+    DYIMethodInfo *selected = [self selectedRow].method;
+    NSInteger index = self.table.selectedRow;
+    [self rebuildRows];
+    if (selected) {
+        index = -1;
+        for (NSUInteger i = 0; i < self.rows.count && index < 0; i++) {
+            DYIMethodInfo *m = self.rows[i].method;
+            if (m && m.cls == selected.cls && m.selector == selected.selector && m.classMethod == selected.classMethod) index = (NSInteger)i;
+        }
+    }
+    if (index >= 0 && index < (NSInteger)self.rows.count) {
+        [self.table selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)index] byExtendingSelection:NO];
+        [self.table scrollRowToVisible:index];
+    }
+    [self updateTraceButton];
+}
+
+- (void)traceMethod:(DYIMethodInfo *)m on:(BOOL)on {
+    NSString *label = DYIMethodLabel(m);
+    if (on) {
+        NSString *why = DYITraceMethod(m.cls, m.selector, m.classMethod);
+        self.status.stringValue = why ? [NSString stringWithFormat:@"can't trace %@: %@", label, why]
+            : [NSString stringWithFormat:@"tracing %@ (%lu traced) · dw log %@ 5", label, (unsigned long)DYITraceActiveCount(), DYI_ID];
+    } else {
+        DYIUntraceMethod(m.cls, m.selector, m.classMethod);
+        self.status.stringValue = [NSString stringWithFormat:@"stopped tracing %@ (%lu traced)", label, (unsigned long)DYITraceActiveCount()];
+    }
+    [self refreshKeepingSelection];
+}
+
+- (void)toggleTrace:(id)sender {
+    (void)sender;
+    DYIRow *r = [self selectedRow];
+    if (!r.method) { self.status.stringValue = @"select a method on the Methods tab first"; return; }
+    [self traceMethod:r.method on:!DYITraceIsActive(r.method.cls, r.method.selector, r.method.classMethod)];
+}
+
+- (void)menuTrace:(id)sender {
+    (void)sender;
+    DYIRow *r = [self clickedRow];
+    if (r.method) [self traceMethod:r.method on:!DYITraceIsActive(r.method.cls, r.method.selector, r.method.classMethod)];
+}
+
+- (void)traceAllOf:(Class)cls {
+    NSUInteger refusedInstance = 0, refusedClass = 0;
+    NSUInteger n = DYITraceClass(cls, NO, &refusedInstance) + DYITraceClass(cls, YES, &refusedClass);
+    NSUInteger refused = refusedInstance + refusedClass;
+    self.status.stringValue = [NSString stringWithFormat:@"tracing %lu method(s) of %@%@ · dw log %@ 5", (unsigned long)n,
+                               NSStringFromClass(cls), refused ? [NSString stringWithFormat:@" (%lu can't be traced)", (unsigned long)refused] : @"", DYI_ID];
+    [self refreshKeepingSelection];
+}
+
+- (void)menuTraceClass:(id)sender {
+    (void)sender;
+    DYIRow *r = [self clickedRow];
+    [self traceAllOf:r.method ? r.method.cls : self.current.context];
+}
+
+- (void)menuUntraceAll:(id)sender {
+    (void)sender;
+    DYIUntraceAll();
+    self.status.stringValue = @"stopped all traces";
+    [self refreshKeepingSelection];
+}
+
+- (void)menuToggleBacktraces:(id)sender {
+    (void)sender;
+    DYITraceSetBacktraces(!DYITraceBacktraces());
+    self.status.stringValue = DYITraceBacktraces() ? @"trace lines get a backtrace" : @"trace lines without backtraces";
+}
 
 - (void)copyHookFor:(DYIMethodInfo *)m {
     [self copyString:DYIHookSkeleton(m) what:[NSString stringWithFormat:@"hook for %@[%@ %@]", m.classMethod ? @"+" : @"-",
@@ -910,6 +1014,34 @@ static NSString *DYILayerInfo(CALayer *l) {
             }
         }
         reply[@"text"] = [DYIPasteboard() stringForType:NSPasteboardTypeString] ?: @"";
+    } else if ([name isEqualToString:@"trace"]) {   // select the method of the context class and press Trace if needed
+        self.tab = DYITabMethods;
+        self.search.stringValue = @"";
+        [self refresh];
+        BOOL classMethod = [cmd[@"classMethod"] boolValue], want = cmd[@"on"] ? [cmd[@"on"] boolValue] : YES;
+        BOOL found = NO;
+        for (NSUInteger i = 0; i < self.rows.count && !found; i++) {
+            DYIMethodInfo *m = self.rows[i].method;
+            if (!m || m.classMethod != classMethod || ![NSStringFromSelector(m.selector) isEqualToString:cmd[@"sel"]]) continue;
+            found = YES;
+            [self.table selectRowIndexes:[NSIndexSet indexSetWithIndex:i] byExtendingSelection:NO];
+            if (DYITraceIsActive(m.cls, m.selector, m.classMethod) != want) [self toggleTrace:nil];
+            reply[@"traceButton"] = self.traceButton.title;
+            reply[@"traced"] = @(DYITraceIsActive(m.cls, m.selector, m.classMethod));
+        }
+        reply[@"found"] = @(found);
+    } else if ([name isEqualToString:@"traceClass"]) {
+        [self traceAllOf:self.current.context];
+    } else if ([name isEqualToString:@"traceDirect"]) {   // the engine without the panel: {class, sel, classMethod}
+        NSString *why = DYITraceMethod(NSClassFromString(cmd[@"class"]), NSSelectorFromString(cmd[@"sel"]), [cmd[@"classMethod"] boolValue]);
+        reply[@"error"] = why ?: @"";
+    } else if ([name isEqualToString:@"untraceAll"]) {
+        [self menuUntraceAll:nil];
+    } else if ([name isEqualToString:@"traceLines"]) {
+        reply[@"lines"] = DYITraceRecentLines();
+        if ([cmd[@"clear"] boolValue]) DYITraceClearRecent();
+    } else if ([name isEqualToString:@"traceBacktraces"]) {
+        DYITraceSetBacktraces([cmd[@"on"] boolValue]);
     } else if ([name isEqualToString:@"copyName"]) {
         [self copyClassName:nil];
         reply[@"text"] = [DYIPasteboard() stringForType:NSPasteboardTypeString] ?: @"";
@@ -944,6 +1076,7 @@ static NSString *DYILayerInfo(CALayer *l) {
     reply[@"historyCount"] = @(self.history.count);
     reply[@"status"] = self.status.stringValue ?: @"";
     reply[@"panelIsKey"] = @(self.panel.isKeyWindow);
+    reply[@"tracedCount"] = @(DYITraceActiveCount());
     NSMutableArray *rows = [NSMutableArray array];
     for (DYIRow *r in self.rows) {
         [rows addObject:@{@"left": r.left ?: @"", @"right": r.right ?: @"", @"group": @(r.group),

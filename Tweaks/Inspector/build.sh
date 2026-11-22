@@ -14,7 +14,7 @@ OUT="$DIR/build"
 SDKDIR="$DIR/../../TweakSDK"
 SDK=$(xcrun --show-sdk-path)
 CC=$(xcrun -find clang)
-SOURCES="$DIR/Inspector.m $DIR/DYIPicker.m $DIR/DYIPanel.m $DIR/DYIRuntime.m $SDKDIR/DynjectHook.m"
+SOURCES="$DIR/Inspector.m $DIR/DYIPicker.m $DIR/DYIPanel.m $DIR/DYIRuntime.m $DIR/DYITrace.m $SDKDIR/DynjectHook.m"
 
 # $1 output dylib, rest: extra compiler flags. DynjectHook.m is compiled in for DH_CTOR (safe mode, shift bypass).
 build_dylib() {

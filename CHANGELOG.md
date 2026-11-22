@@ -4,6 +4,16 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
+unreleased
+----------
+
+- inspector: method tracer. select a method, press trace: every call is logged with receiver,
+  arguments, return value, duration and thread (`dw log local.dynject.inspector`), nested
+  calls indented, exceptions logged and passed on, 40 lines per method per second. trace all
+  methods of a class, stop all, optional backtraces. built on message forwarding and
+  DynjectHook groups, so stopping restores the method.
+
+
 0.1.2 (2026-11-21)
 ------------------
 

@@ -5,11 +5,13 @@ an in-app inspector for macOS apps, in the spirit of FLEX. point at a view or a 
 animation layer in any app it's injected into and see what it is: class, image,
 superclass chain, view/layer hierarchy, properties, methods with readable signatures,
 ivars, and every class loaded in the process. copy a DynjectHook skeleton for any
-method. read-only.
+method, or trace it: every call logged with its arguments and return value. read-only
+apart from tracing.
 
 tweak id `local.dynject.inspector`, dylib `/opt/dynject/lib/tweaks/libInspector.dylib`,
 logs under that id. no `DH_CTOR` bundle filter: the config decides which apps get it,
-so enable it only for the apps you want to look inside. it hooks nothing.
+so enable it only for the apps you want to look inside. it hooks nothing until you trace
+a method.
 
 built with dynject-workbench's sdk: free and noncommercial; don't sell tweaks built with it.
 
@@ -70,7 +72,8 @@ the panel (an ordinary window of the app: resizable, in mission control and spac
     methods       class and instance methods of the class context as
                   `- (void)setCornerRadius:(double)arg1`, with the image each one comes
                   from ("AppKit (not QuartzCore)" = a category or someone's hook).
-                  select one, Copy Hook (or right-click).
+                  select one, Copy Hook (or right-click). Trace / Stop Trace: see below;
+                  traced methods say "traced" in the image column.
     ivars         name, type, offset, for the whole chain.
     runtime       search every class in the process by substring; click to open the
                   class without an instance.
@@ -101,6 +104,45 @@ without a layout, `-dealloc`, retain/release and methods that look variadic (`..
 `#import <QuartzCore/QuartzCore.h>` for CA types.
 
 
+trace
+-----
+
+select a method on the methods tab and press trace (or right-click → trace). every call
+from then on is logged, one line each, until you press stop trace:
+
+    -[NSButton 0x6000017a0b40 setTitle:"OK"] → void  (0.004 ms, main)
+    +[NSColor colorNamed:"AccentColor"] → <NSDynamicNamedColor 0x600002b8c0c0>  (0.010 ms, main)
+    → -[MyController 0x600003f4c000 reload]
+      -[MyModel 0x6000021d8d80 items] → __NSArrayM (12 items)  (0.002 ms, main)
+    ← -[MyController reload] → void  (0.310 ms, main)
+
+receiver, arguments by name, return value, duration and thread. a traced call made inside
+another opens with → and closes with ←, indented. arguments and results are described
+the same way as properties (no `-description`; structs field by field). an exception
+passing through is logged as `raised <name>` and goes on as before.
+
+    dw log local.dynject.inspector 5                    # the last 5 minutes
+    log stream --level default --predicate 'subsystem == "local.dynject.inspector" && category == "trace"'
+
+right-click a method for: trace all methods of <class> (the ones that class itself
+defines, up to 400), stop all traces, and backtraces in trace lines (each line gets the
+six callers above it).
+
+- at most 40 lines per method per second; the next line says how many calls weren't shown.
+- one class per method along a chain: to trace `-[NSView setFrame:]` and an override
+  of it in a subclass, trace one, then the other after stopping the first.
+- not traced: the methods forwarding and memory management use (retain, release,
+  dealloc, respondsToSelector:, forwardInvocation:, …), classes that forward messages on
+  their own or don't descend from NSObject, and methods with union or bitfield arguments.
+  the status line says why.
+- cost: a traced call goes through objective-c message forwarding, a few microseconds.
+  stop traces you don't need; they're gone when the app quits anyway.
+- how: the method is pointed at `_objc_msgForward` through a DynjectHook group and the
+  call arrives as an NSInvocation, which knows every argument's type; it's logged and the
+  original implementation is called. stopping turns the group off, so the method gets its
+  implementation back (beneath another tweak's hook it stays and passes straight through).
+
+
 settings
 --------
 
@@ -113,7 +155,8 @@ both per app, both live.
 safety
 ------
 
-- read-only. nothing is set. the overview only calls getters known to be cheap and
+- read-only, apart from tracing (above), which only adds logging around the methods you
+  pick. nothing is set. the overview only calls getters known to be cheap and
   side-effect free on NSView, CALayer and NSWindow; any other property is read only
   when you click its row: one getter call (KVC for numbers and structs, a typed call for
   objects and pointers), on the main thread, in `@try` catching objective-c and c++

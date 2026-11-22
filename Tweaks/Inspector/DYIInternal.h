@@ -28,6 +28,24 @@ DYI_HIDDEN NSPasteboard *DYIPasteboard(void);
 /// Runs `block` in @try, catching Objective-C and C++ exceptions. Returns the exception's description, or nil.
 DYI_HIDDEN NSString *_Nullable DYITry(NS_NOESCAPE void (^block)(void));
 
+#pragma mark - DYITrace.m: the method tracer
+
+/// Starts tracing the method (see DYITrace.m). nil on success, else why it can't be traced.
+DYI_HIDDEN NSString *_Nullable DYITraceMethod(Class cls, SEL sel, BOOL classMethod);
+DYI_HIDDEN void DYIUntraceMethod(Class cls, SEL sel, BOOL classMethod);
+/// Traces every method `cls` itself defines (class methods with `classMethods`). Returns how many; the ones that
+/// can't be traced go to *outRefused.
+DYI_HIDDEN NSUInteger DYITraceClass(Class cls, BOOL classMethods, NSUInteger *_Nullable outRefused);
+DYI_HIDDEN void DYIUntraceAll(void);
+DYI_HIDDEN BOOL DYITraceIsActive(Class cls, SEL sel, BOOL classMethod);
+DYI_HIDDEN NSUInteger DYITraceActiveCount(void);
+/// The last trace lines (also in the log, category "trace"), oldest first.
+DYI_HIDDEN NSArray<NSString *> *DYITraceRecentLines(void);
+DYI_HIDDEN void DYITraceClearRecent(void);
+/// Adds a short backtrace to every line.
+DYI_HIDDEN void DYITraceSetBacktraces(BOOL on);
+DYI_HIDDEN BOOL DYITraceBacktraces(void);
+
 #pragma mark - DYIRuntime.m: introspection, never calls anything but getters the caller asks for
 
 /// The image (framework or dylib) that defines `cls`, and the one an implementation lives in.

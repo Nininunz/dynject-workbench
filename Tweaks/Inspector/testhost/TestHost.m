@@ -43,6 +43,35 @@ static void check(BOOL ok, NSString *what) {
 - (void)takeUnion:(ITUnion)u { (void)u; }
 @end
 
+// Tracer fixtures: plain values, a class method, a nested call, a struct, an exception, recursion, and an override
+// that calls super.
+@interface ITTraceBase : NSObject
+- (NSInteger)value:(NSInteger)x;
++ (NSString *)classValue;
+- (NSInteger)outer;
+- (NSInteger)inner;
+- (CGRect)rectFor:(CGFloat)w;
+- (void)boom;
+- (NSInteger)fib:(NSInteger)n;
+@end
+@implementation ITTraceBase
+- (NSInteger)value:(NSInteger)x { return x * 2; }
++ (NSString *)classValue { return @"cv"; }
+- (NSInteger)outer { return [self inner] + 1; }
+- (NSInteger)inner { return 3; }
+- (CGRect)rectFor:(CGFloat)w { return CGRectMake(0, 0, w, w); }
+- (void)boom { [NSException raise:NSInvalidArgumentException format:@"boom on purpose"]; }
+- (NSInteger)fib:(NSInteger)n { return n < 2 ? n : [self fib:n - 1] + [self fib:n - 2]; }
+@end
+@interface ITTraceChild : ITTraceBase
+@end
+@implementation ITTraceChild
+- (NSInteger)value:(NSInteger)x { return [super value:x] + 1; }
+@end
+
+static NSDictionary *DYI(NSString *cmd, NSDictionary *args);
+static NSArray<NSString *> *ITTraceLines(void) { return DYI(@"traceLines", @{@"clear": @YES})[@"lines"]; }
+
 @interface ITHost : NSObject <NSApplicationDelegate, NSTableViewDataSource, NSTableViewDelegate>
 @property (nonatomic, strong) NSWindow *window;
 @property (nonatomic, strong) ITLeafView *leaf;
@@ -581,9 +610,95 @@ static CALayer *ITFindLayer(CALayer *l, BOOL (^match)(CALayer *)) {
         s = DYI(@"tab", @{@"name": @"Properties"});
         check(ITRowsContain(s, @"smoothness", @"double") && !ITRowsContain(s, nil, @"evaluate"), @"class view: properties with types, nothing to evaluate");
 
+    }];
+    __block ITTraceBase *base = nil;
+    [self step:0.1 do:^{
+        printf("== trace ==\n");
+        base = [ITTraceBase new];
+        ITTraceChild *child = [ITTraceChild new];
+        DYI(@"openClass", @{@"name": @"ITTraceBase"});
+        NSDictionary *s = DYI(@"trace", @{@"sel": @"value:"});
+        check([s[@"traced"] boolValue] && [s[@"traceButton"] isEqualToString:@"Stop Trace"],
+              [NSString stringWithFormat:@"traced from the panel (button \"%@\"; %@)", s[@"traceButton"], s[@"status"]]);
+        check(ITRowsContain(s, @"value:", @"traced"), @"its method row says traced");
+        ITTraceLines();
+        check([base value:5] == 10, @"a traced method still returns its value");
+        NSArray *lines = ITTraceLines();
+        check(lines.count == 1 && [lines.firstObject containsString:@"-[ITTraceBase 0x"] && [lines.firstObject containsString:@"value:5] → 10  ("] &&
+              [lines.firstObject containsString:@"ms, main)"], [NSString stringWithFormat:@"one line: %@", lines.firstObject]);
+        check([child value:5] == 11, @"an untraced override calling super into it");
+        lines = ITTraceLines();
+        check(lines.count == 1 && [lines.firstObject containsString:@"value:5] → 10"], [NSString stringWithFormat:@"the super call is logged once: %@", lines]);
+        s = DYI(@"traceDirect", @{@"class": @"ITTraceChild", @"sel": @"value:"});
+        check([s[@"error"] containsString:@"traced already"], [NSString stringWithFormat:@"its subclass can't be traced as well: %@", s[@"error"]]);
+        s = DYI(@"trace", @{@"sel": @"value:", @"on": @NO});
+        check(![s[@"traced"] boolValue] && [s[@"traceButton"] isEqualToString:@"Trace"], @"stopped from the panel");
+        s = DYI(@"traceDirect", @{@"class": @"ITTraceChild", @"sel": @"value:"});
+        check([s[@"error"] isEqualToString:@""], @"then the subclass can be");
+        check([child value:5] == 11 && [base value:5] == 10, @"values unchanged");
+        lines = ITTraceLines();
+        check(lines.count == 1 && [lines.firstObject containsString:@"-[ITTraceChild 0x"] && [lines.firstObject containsString:@"value:5] → 11"],
+              [NSString stringWithFormat:@"only the subclass is logged: %@", lines]);
+
+        for (NSString *sel in @[@"outer", @"inner", @"rectFor:", @"boom", @"fib:"]) DYI(@"trace", @{@"sel": sel});
+        s = DYI(@"trace", @{@"sel": @"classValue", @"classMethod": @YES});
+        check([s[@"traced"] boolValue], [NSString stringWithFormat:@"a class method (%@)", s[@"status"]]);
+        check([[ITTraceBase classValue] isEqualToString:@"cv"] && [base outer] == 4 && CGRectEqualToRect([base rectFor:2], CGRectMake(0, 0, 2, 2)),
+              @"traced methods return their values");
+        BOOL raised = NO;
+        @try { [base boom]; } @catch (NSException *e) { raised = [e.name isEqualToString:NSInvalidArgumentException]; }
+        check(raised, @"an exception passes through a traced method");
+        NSString *all = [ITTraceLines() componentsJoinedByString:@"\n"];
+        check([all containsString:@"+[ITTraceBase classValue] → \"cv\""], @"class method line");
+        check([all containsString:@"→ -[ITTraceBase 0x"] && [all containsString:@"\n  -[ITTraceBase 0x"] && [all containsString:@"inner] → 3"] &&
+              [all containsString:@"← -[ITTraceBase outer] → 4"], @"nested: outer opens, inner indented, outer closes with its value");
+        check([all containsString:@"rectFor:2] → {{0, 0}, {2, 2}}"], @"a CGFloat argument and a CGRect result");
+        check([all containsString:@"boom] raised NSInvalidArgumentException"], @"the exception is logged");
+        check([base fib:12] == 144, @"a recursive traced method");
+        lines = ITTraceLines();
+        check(lines.count >= 40 && lines.count <= 80, [NSString stringWithFormat:@"rate limited: %lu lines for 465 calls", (unsigned long)lines.count]);
+        if (!raised || ![all containsString:@"← -[ITTraceBase outer] → 4"]) printf("%s\n", all.UTF8String);
+    }];
+    [self step:1.1 do:^{
+        check([base fib:1] == 1, @"recursion again after a second");
+        NSArray *lines = ITTraceLines();
+        check(lines.count == 1 && [lines.firstObject containsString:@"calls not shown"], [NSString stringWithFormat:@"says what wasn't shown: %@", lines.firstObject]);
+
+        DYI(@"openClass", @{@"name": @"ITLeafView"});
+        DYI(@"trace", @{@"sel": @"setPair:flag:"});
+        DYI(@"trace", @{@"sel": @"pair"});
+        ITLeafView *leaf = self.leaf;
+        [leaf setPair:(ITPair){1.5, 2} flag:YES];
+        ITPair p = [leaf pair];
+        NSString *all = [ITTraceLines() componentsJoinedByString:@"\n"];
+        check(p.weight == 1.5 && p.count == 2, @"a struct result comes back intact");
+        check([all containsString:@"setPair:{1.5, 2} flag:YES] → void"] && [all containsString:@"pair] → {1.5, 2}"],
+              [NSString stringWithFormat:@"struct arguments and results, field by field: %@", all]);
+        NSDictionary *s = DYI(@"traceDirect", @{@"class": @"NSObject", @"sel": @"retain"});
+        check([s[@"error"] containsString:@"runtime itself"], [NSString stringWithFormat:@"refused: -retain (%@)", s[@"error"]]);
+        s = DYI(@"traceDirect", @{@"class": @"ITLeafView", @"sel": @"takeUnion:"});
+        check([s[@"error"] containsString:@"union"], [NSString stringWithFormat:@"refused: a union argument (%@)", s[@"error"]]);
+        DYI(@"traceBacktraces", @{@"on": @YES});
+        [base inner];
+        all = [ITTraceLines() componentsJoinedByString:@"\n"];
+        DYI(@"traceBacktraces", @{@"on": @NO});
+        check([all containsString:@"\n    at "], @"backtraces when asked for");
+
+        DYI(@"openClass", @{@"name": @"ITTraceBase"});
+        s = DYI(@"traceClass", nil);
+        check([s[@"status"] hasPrefix:@"tracing "] && [s[@"tracedCount"] integerValue] >= 7,
+              [NSString stringWithFormat:@"trace all methods of a class: %@", s[@"status"]]);
+        s = DYI(@"untraceAll", nil);
+        check([s[@"tracedCount"] integerValue] == 0, @"stop all");
+        ITTraceLines();
+        BOOL raised = NO;
+        @try { [base boom]; } @catch (__unused NSException *e) { raised = YES; }
+        check([base outer] == 4 && [base fib:10] == 55 && raised && ITTraceLines().count == 0, @"untraced: same behaviour, nothing logged");
+    }];
+    [self step:0.1 do:^{
         printf("== settings and cleanup ==\n");
         DYI(@"setEnabled", @{@"value": @NO});
-        s = DYI(@"pick", nil);
+        NSDictionary *s = DYI(@"pick", nil);
         check(![s[@"pickActive"] boolValue] && ![s[@"panelVisible"] boolValue], @"enabled off: panel closed, no pick mode");
         ITPostFlags(w, hot);
     }];
