@@ -20,6 +20,11 @@ static NSArray<NSString *> *DYITabNames(void) { return @[@"Hierarchy", @"Propert
 @property (nonatomic) BOOL evaluated;
 @property (nonatomic, strong, nullable) DYIMethodInfo *method;
 @property (nonatomic) NSInteger indent;
+// A row naming a method that runs (a menu item's action): opening it filters the class's methods to it, and its
+// context menu can trace it.
+@property (nonatomic, unsafe_unretained, nullable) Class traceClass;
+@property (nonatomic, nullable) SEL traceSelector;
+@property (nonatomic, copy, nullable) NSString *methodFilter;
 @end
 @implementation DYIRow
 + (instancetype)group:(NSString *)title {
@@ -58,6 +63,7 @@ static NSArray<NSString *> *DYITabNames(void) { return @[@"Hierarchy", @"Propert
 @property (nonatomic, strong) NSPathControl *chain;
 @property (nonatomic, strong) NSSegmentedControl *tabs;
 @property (nonatomic, strong) NSButton *backButton, *forwardButton, *pickButton, *hookButton, *traceButton;
+@property (nonatomic, strong) NSPopUpButton *menusButton;
 @property (nonatomic, strong) NSSearchField *search;
 @property (nonatomic, strong) NSTableView *table;
 @property (nonatomic, strong) NSTextField *status;
@@ -143,6 +149,17 @@ static NSButton *DYIButton(NSString *title, NSString *symbol, id target, SEL act
     self.pickButton = DYIButton(@"Pick", @"scope", self, @selector(pick:));
     self.pickButton.frame = NSMakeRect(W - NSWidth(self.pickButton.frame) - 10, y, NSWidth(self.pickButton.frame), 24);
     self.pickButton.autoresizingMask = NSViewMinXMargin | NSViewMinYMargin;
+    self.menusButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:YES];
+    self.menusButton.controlSize = NSControlSizeSmall;
+    self.menusButton.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    [self.menusButton addItemWithTitle:@"Menus"];   // a pull-down's first item is its title
+    [[self.menusButton.menu addItemWithTitle:@"Inspect the Menu Bar" action:@selector(inspectMenuBar:) keyEquivalent:@""] setTarget:self];
+    [[self.menusButton.menu addItemWithTitle:@"Pick a Menu Item…" action:@selector(beginMenuPick:) keyEquivalent:@""] setTarget:self];
+    [self.menusButton sizeToFit];
+    CGFloat mw = NSWidth(self.menusButton.frame) + 4;
+    self.menusButton.frame = NSMakeRect(NSMinX(self.pickButton.frame) - mw - 6, y, mw, 24);
+    self.menusButton.autoresizingMask = NSViewMinXMargin | NSViewMinYMargin;
+    self.menusButton.toolTip = @"the app's menu bar, or pick any menu item to see what it does instead of running it";
     for (NSView *v in @[self.backButton, self.forwardButton, self.tabs]) v.autoresizingMask = NSViewMinYMargin | NSViewMaxXMargin;
 
     y -= 66;
@@ -229,7 +246,7 @@ static NSButton *DYIButton(NSString *title, NSString *symbol, id target, SEL act
     self.status.lineBreakMode = NSLineBreakByTruncatingTail;
     self.status.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin;
 
-    for (NSView *v in @[self.backButton, self.forwardButton, self.tabs, self.pickButton, self.header, self.chain,
+    for (NSView *v in @[self.backButton, self.forwardButton, self.tabs, self.menusButton, self.pickButton, self.header, self.chain,
                         self.search, scroll, self.status]) [root addSubview:v];
     self.panel = p;
 }
@@ -250,6 +267,7 @@ static NSButton *DYIButton(NSString *title, NSString *symbol, id target, SEL act
 }
 
 - (void)close {
+    if (DYIMenuPickArmed()) DYIMenuPickSetArmed(NO, nil);
     [self.panel orderOut:nil];
     [self clearHistory];
 }
@@ -521,6 +539,36 @@ static NSString *DYILayerInfo(CALayer *l) {
             if (w.childWindows.count || w.parentWindow) [rows addObject:[DYIRow group:@"Windows"]];
             if (w.parentWindow) [rows addObject:DYILinkRow(NSStringFromClass(object_getClass(w.parentWindow)), w.parentWindow, @"parent window", 0)];
             for (NSWindow *c in w.childWindows) [rows addObject:DYILinkRow(NSStringFromClass(object_getClass(c)), c, @"child window", 0)];
+        } else if ([o isKindOfClass:[NSMenu class]] || [o isKindOfClass:[NSMenuItem class]]) {
+            BOOL isItem = [o isKindOfClass:[NSMenuItem class]];
+            NSMenu *menu = isItem ? ((NSMenuItem *)o).menu : o;
+            NSMutableArray<NSMenu *> *chain = [NSMutableArray array];
+            for (NSMenu *m = menu; m && chain.count < 30; m = m.supermenu) [chain insertObject:m atIndex:0];
+            [rows addObject:[DYIRow group:@"Menus"]];
+            NSInteger depth = 0;
+            for (NSMenu *m in chain) {
+                NSString *title = m == NSApp.mainMenu ? @"main menu" : m.title.length ? [NSString stringWithFormat:@"\"%@\"", m.title] : @"(untitled)";
+                NSString *right = [NSString stringWithFormat:@"%@ · %ld items", title, (long)m.numberOfItems];
+                if (m == o) {
+                    DYIRow *me = [DYIRow left:[DYIIndent(depth) stringByAppendingString:[@"▶ " stringByAppendingString:NSStringFromClass(object_getClass(m))]] right:right];
+                    me.emphasized = YES;
+                    [rows addObject:me];
+                } else {
+                    [rows addObject:DYILinkRow(NSStringFromClass(object_getClass(m)), m, right, depth)];
+                }
+                depth++;
+            }
+            if (isItem) {
+                NSMenuItem *it = o;
+                DYIRow *me = [DYIRow left:[DYIIndent(depth) stringByAppendingString:[@"▶ " stringByAppendingString:DYIMenuItemTitle(it)]] right:DYIMenuItemSummary(it)];
+                me.emphasized = YES;
+                [rows addObject:me];
+            }
+            NSMenu *items = isItem ? ((NSMenuItem *)o).submenu : menu;
+            if (items) {
+                [rows addObject:[DYIRow group:[NSString stringWithFormat:@"%@ (%ld)", isItem ? @"Submenu items" : @"Items", (long)items.numberOfItems]]];
+                for (NSMenuItem *it in items.itemArray) [rows addObject:DYILinkRow(DYIMenuItemTitle(it), it, DYIMenuItemSummary(it), 0)];
+            }
         } else if ([o isKindOfClass:[NSResponder class]]) {
             [rows addObject:[DYIRow group:@"Responder chain"]];
             NSInteger n = 0;
@@ -607,6 +655,55 @@ static NSString *DYILayerInfo(CALayer *l) {
             add(@"alphaValue", [NSString stringWithFormat:@"%g", w.alphaValue]);
             add(@"windowNumber", [NSString stringWithFormat:@"%ld", (long)w.windowNumber]);
             link(@"contentView", w.contentView);
+        }
+        if ([o isKindOfClass:[NSMenuItem class]]) {
+            NSMenuItem *it = o;
+            add(@"title", DYIMenuItemTitle(it));
+            NSString *key = DYIKeyEquivalentString(it);
+            add(@"keyEquivalent", key.length ? key : @"(none)");
+            add(@"action", it.action ? NSStringFromSelector(it.action) : @"nil");
+            link(@"target", it.target);
+            if (it.action) {
+                id receiver = DYIMenuItemReceiver(it);
+                DYIRow *sent = [DYIRow left:@"sent to" right:receiver ? [NSString stringWithFormat:@"%@%@", DYIPointerString(receiver),
+                                                                         it.target ? @"" : @" (the responder chain resolves it now)"]
+                                                                     : @"nobody responds to it now, so the item is disabled"];
+                sent.target = receiver;
+                [rows addObject:sent];
+                Class impl = DYIClassImplementing(receiver, it.action);
+                if (impl) {
+                    IMP imp = method_getImplementation(class_getInstanceMethod(impl, it.action));
+                    DYIRow *runs = [DYIRow left:@"runs" right:[NSString stringWithFormat:@"-[%@ %@] in %@%@", NSStringFromClass(impl),
+                                                               NSStringFromSelector(it.action), DYIShortImageName(DYIImageOfIMP(imp)),
+                                                               DYITraceIsActive(impl, it.action, NO) ? @" · traced" : @""]];
+                    runs.targetClass = impl;
+                    runs.methodFilter = NSStringFromSelector(it.action);
+                    runs.traceClass = impl;
+                    runs.traceSelector = it.action;
+                    [rows addObject:runs];
+                }
+            }
+            add(@"tag", [NSString stringWithFormat:@"%ld", (long)it.tag]);
+            add(@"state", it.state == NSControlStateValueOn ? @"on" : it.state == NSControlStateValueMixed ? @"mixed" : @"off");
+            add(@"isEnabled", it.isEnabled ? @"YES" : @"NO");
+            add(@"isHidden", it.isHidden ? @"YES" : @"NO");
+            add(@"isAlternate", it.isAlternate ? @"YES" : @"NO");
+            add(@"indentationLevel", [NSString stringWithFormat:@"%ld", (long)it.indentationLevel]);
+            add(@"identifier", it.identifier ?: @"nil");
+            link(@"representedObject", it.representedObject);
+            link(@"submenu", it.submenu);
+            link(@"menu", it.menu);
+            link(@"view", it.view);
+        }
+        if ([o isKindOfClass:[NSMenu class]]) {
+            NSMenu *m = o;
+            add(@"title", m.title.length ? [NSString stringWithFormat:@"\"%@\"", m.title] : @"(none)");
+            add(@"is the main menu", m == NSApp.mainMenu ? @"YES" : @"NO");
+            add(@"numberOfItems", [NSString stringWithFormat:@"%ld", (long)m.numberOfItems]);
+            add(@"autoenablesItems", m.autoenablesItems ? @"YES" : @"NO");
+            link(@"delegate", m.delegate);
+            link(@"supermenu", m.supermenu);
+            link(@"highlightedItem", m.highlightedItem);
         }
     });
     if (err) add(@"exception", err);
@@ -813,7 +910,17 @@ static NSString *DYILayerInfo(CALayer *l) {
     }
     BOOL valueClick = column != 0 || self.tab == DYITabHierarchy;   // on property rows, only the value column navigates
     if (r.target && valueClick) { [self inspectObject:r.target]; return; }
-    if (r.targetClass) { [self inspectClass:r.targetClass]; return; }
+    if (r.targetClass) {
+        NSString *filter = r.methodFilter;
+        [self inspectClass:r.targetClass];
+        if (filter) {
+            self.tab = DYITabMethods;
+            [self refresh];
+            self.search.stringValue = filter;
+            [self rebuildRows];
+        }
+        return;
+    }
 }
 
 #pragma mark Menu and copying
@@ -838,6 +945,13 @@ static NSString *DYILayerInfo(CALayer *l) {
         bt.target = self;
         bt.state = DYITraceBacktraces() ? NSControlStateValueOn : NSControlStateValueOff;
         return;
+    }
+    if (r.traceClass && r.traceSelector) {
+        BOOL on = DYITraceIsActive(r.traceClass, r.traceSelector, NO);
+        NSString *title = [NSString stringWithFormat:@"%@ -[%@ %@]", on ? @"Stop Tracing" : @"Trace", NSStringFromClass(r.traceClass),
+                           NSStringFromSelector(r.traceSelector)];
+        [[menu addItemWithTitle:title action:@selector(menuTraceRow:) keyEquivalent:@""] setTarget:self];
+        [menu addItem:[NSMenuItem separatorItem]];
     }
     [[menu addItemWithTitle:@"Copy Name" action:@selector(menuCopyLeft:) keyEquivalent:@""] setTarget:self];
     [[menu addItemWithTitle:@"Copy Value" action:@selector(menuCopyRight:) keyEquivalent:@""] setTarget:self];
@@ -914,6 +1028,56 @@ static NSString *DYIMethodLabel(DYIMethodInfo *m) {
     (void)sender;
     DYIRow *r = [self clickedRow];
     if (r.method) [self traceMethod:r.method on:!DYITraceIsActive(r.method.cls, r.method.selector, r.method.classMethod)];
+}
+
+- (void)traceRow:(DYIRow *)r {
+    if (!r.traceClass || !r.traceSelector) return;
+    NSString *label = [NSString stringWithFormat:@"-[%@ %@]", NSStringFromClass(r.traceClass), NSStringFromSelector(r.traceSelector)];
+    if (DYITraceIsActive(r.traceClass, r.traceSelector, NO)) {
+        DYIUntraceMethod(r.traceClass, r.traceSelector, NO);
+        self.status.stringValue = [NSString stringWithFormat:@"stopped tracing %@", label];
+    } else {
+        NSString *why = DYITraceMethod(r.traceClass, r.traceSelector, NO);
+        self.status.stringValue = why ? [NSString stringWithFormat:@"can't trace %@: %@", label, why]
+                                      : [NSString stringWithFormat:@"tracing %@ · dw log %@ 5", label, DYI_ID];
+    }
+    NSString *status = self.status.stringValue;
+    [self refreshKeepingSelection];
+    self.status.stringValue = status;
+}
+
+- (void)menuTraceRow:(id)sender {
+    (void)sender;
+    DYIRow *r = [self clickedRow];
+    if (r) [self traceRow:r];
+}
+
+#pragma mark Menus
+
+- (void)inspectMenuBar:(id)sender {
+    (void)sender;
+    if (!NSApp.mainMenu) { self.status.stringValue = @"this app has no menu bar"; return; }
+    self.tab = DYITabHierarchy;
+    [self inspectObject:NSApp.mainMenu];
+}
+
+- (void)beginMenuPick:(id)sender {
+    (void)sender;
+    __weak DYIPanelController *weakSelf = self;
+    DYIMenuPickSetArmed(YES, ^(NSMenuItem *item) {
+        DYIPanelController *me = weakSelf;
+        if (!me) return;
+        me.tab = DYITabProperties;
+        [me inspectObject:item];
+        [me showPanel];
+        me.status.stringValue = [NSString stringWithFormat:@"picked %@: its action wasn't sent", DYIMenuItemTitle(item)];
+    });
+    self.status.stringValue = DYIMenuPickArmed() ? @"choose a menu item (menu bar, context menu or its shortcut): it opens here instead of running · esc cancels"
+                                                 : @"can't pick menu items here (see the log)";
+}
+
+- (void)menuPickCancelled {
+    self.status.stringValue = @"menu pick cancelled";
 }
 
 - (void)traceAllOf:(Class)cls {
@@ -1030,6 +1194,15 @@ static NSString *DYIMethodLabel(DYIMethodInfo *m) {
             reply[@"traced"] = @(DYITraceIsActive(m.cls, m.selector, m.classMethod));
         }
         reply[@"found"] = @(found);
+    } else if ([name isEqualToString:@"menuBar"]) {
+        [self inspectMenuBar:nil];
+    } else if ([name isEqualToString:@"menuPick"]) {
+        if ([cmd[@"on"] boolValue]) [self beginMenuPick:nil];
+        else DYIMenuPickSetArmed(NO, nil);
+    } else if ([name isEqualToString:@"traceRuns"]) {   // the trace action of the current item's "runs" row
+        for (DYIRow *r in self.rows) if (r.traceClass && [r.left isEqualToString:@"runs"]) { [self traceRow:r]; break; }
+    } else if ([name isEqualToString:@"openRuns"]) {
+        for (DYIRow *r in self.rows) if (r.traceClass && [r.left isEqualToString:@"runs"]) { [self activateRow:r column:1]; break; }
     } else if ([name isEqualToString:@"traceClass"]) {
         [self traceAllOf:self.current.context];
     } else if ([name isEqualToString:@"traceDirect"]) {   // the engine without the panel: {class, sel, classMethod}
@@ -1077,6 +1250,8 @@ static NSString *DYIMethodLabel(DYIMethodInfo *m) {
     reply[@"status"] = self.status.stringValue ?: @"";
     reply[@"panelIsKey"] = @(self.panel.isKeyWindow);
     reply[@"tracedCount"] = @(DYITraceActiveCount());
+    reply[@"menuPickArmed"] = @(DYIMenuPickArmed());
+    reply[@"search"] = self.search.stringValue ?: @"";
     NSMutableArray *rows = [NSMutableArray array];
     for (DYIRow *r in self.rows) {
         [rows addObject:@{@"left": r.left ?: @"", @"right": r.right ?: @"", @"group": @(r.group),

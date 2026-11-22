@@ -4,6 +4,16 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
+unreleased
+----------
+
+- inspector: menus. inspect the menu bar and walk its items and submenus, or pick any menu item
+  (menu bar, context menu, or its shortcut) and it opens instead of running. for an item: its
+  shortcut, action, target, where the action goes now (`sent to`: its target, or what the
+  responder chain resolves), and the method that `runs`, which opens that class's methods or
+  traces it. picking hooks `sendAction:to:from:` only while picking.
+
+
 0.1.3 (2026-11-21)
 ------------------
 

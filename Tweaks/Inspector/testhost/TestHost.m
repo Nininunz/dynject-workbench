@@ -69,6 +69,8 @@ static void check(BOOL ok, NSString *what) {
 - (NSInteger)value:(NSInteger)x { return [super value:x] + 1; }
 @end
 
+static int gITMenuRuns, gITTargetedRuns;
+
 static NSDictionary *DYI(NSString *cmd, NSDictionary *args);
 static NSArray<NSString *> *ITTraceLines(void) { return DYI(@"traceLines", @{@"clear": @YES})[@"lines"]; }
 
@@ -225,6 +227,26 @@ static CALayer *ITFindLayer(CALayer *l, BOOL (^match)(CALayer *)) {
 }
 
 - (void)pushed:(id)sender { (void)sender; gITButtonPressed = YES; }
+- (void)itTestAction:(id)sender { (void)sender; gITMenuRuns++; }
+- (void)itTargeted:(id)sender { (void)sender; gITTargetedRuns++; }
+
+/// The menu bar the menu checks use: Host ▸ Test Action (⇧⌘T, first responder), Targeted (⌥↩, this object), —,
+/// No Responder (an action nobody implements).
+- (NSMenu *)buildMenus {
+    NSMenu *bar = [[NSMenu alloc] initWithTitle:@"Main"];
+    NSMenuItem *top = [bar addItemWithTitle:@"Host" action:nil keyEquivalent:@""];
+    NSMenu *sub = [[NSMenu alloc] initWithTitle:@"Host"];
+    NSMenuItem *test = [sub addItemWithTitle:@"Test Action" action:@selector(itTestAction:) keyEquivalent:@"t"];
+    test.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
+    NSMenuItem *targeted = [sub addItemWithTitle:@"Targeted" action:@selector(itTargeted:) keyEquivalent:@"\r"];
+    targeted.keyEquivalentModifierMask = NSEventModifierFlagOption;
+    targeted.target = self;
+    [sub addItem:[NSMenuItem separatorItem]];
+    [sub addItemWithTitle:@"No Responder" action:NSSelectorFromString(@"itNobodyImplementsThis:") keyEquivalent:@""];
+    top.submenu = sub;
+    NSApp.mainMenu = bar;
+    return sub;
+}
 
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tv { (void)tv; return 6; }
 
@@ -694,6 +716,81 @@ static CALayer *ITFindLayer(CALayer *l, BOOL (^match)(CALayer *)) {
         BOOL raised = NO;
         @try { [base boom]; } @catch (__unused NSException *e) { raised = YES; }
         check([base outer] == 4 && [base fib:10] == 55 && raised && ITTraceLines().count == 0, @"untraced: same behaviour, nothing logged");
+    }];
+    __block NSMenu *hostMenu = nil;
+    [self step:0.1 do:^{
+        printf("== menus ==\n");
+        hostMenu = [self buildMenus];
+        NSDictionary *s = DYI(@"menuBar", nil);
+        check([s[@"targetClass"] isEqualToString:@"NSMenu"] && ITRowsContain(s, @"\"Host\"", @"submenu (4 items)"),
+              [NSString stringWithFormat:@"the menu bar: %@ with its items", s[@"targetClass"]]);
+        s = DYI(@"navigate", @{@"contains": @"\"Host\""});
+        check([s[@"targetClass"] isEqualToString:@"NSMenuItem"] && ITRowsContain(s, @"\"Test Action\"", @"⇧⌘T · itTestAction:") &&
+              ITRowsContain(s, @"—", @"separator"), @"a menu bar item: its submenu's items, shortcut and action");
+        s = DYI(@"navigate", @{@"contains": @"\"Test Action\""});
+        check(ITRowsContain(s, @"NSMenu", @"main menu · 1 items") && ITRowsContain(s, @"NSMenu", @"\"Host\" · 4 items") &&
+              ITRowsContain(s, @"▶ \"Test Action\"", nil), @"an item's hierarchy: the menus above it");
+        s = DYI(@"tab", @{@"name": @"Properties"});
+        check([ITRow(s, @"keyEquivalent")[@"right"] isEqualToString:@"⇧⌘T"], [NSString stringWithFormat:@"keyEquivalent %@", ITRow(s, @"keyEquivalent")[@"right"]]);
+        check([ITRow(s, @"action")[@"right"] isEqualToString:@"itTestAction:"] && [ITRow(s, @"target")[@"right"] isEqualToString:@"nil"], @"action, no target");
+        NSString *sent = ITRow(s, @"sent to")[@"right"];
+        check([sent hasPrefix:@"<ITHost 0x"] && [sent containsString:@"responder chain"], [NSString stringWithFormat:@"sent to: %@", sent]);
+        NSString *runs = ITRow(s, @"runs")[@"right"];
+        check([runs hasPrefix:@"-[ITHost itTestAction:] in InspectorTestHost"], [NSString stringWithFormat:@"runs: %@", runs]);
+        s = DYI(@"traceRuns", nil);
+        check([s[@"status"] hasPrefix:@"tracing -[ITHost itTestAction:]"], [NSString stringWithFormat:@"trace it from its row: %@", s[@"status"]]);
+        ITTraceLines();
+        [hostMenu performActionForItemAtIndex:0];
+        NSString *lines = [ITTraceLines() componentsJoinedByString:@"\n"];
+        check(gITMenuRuns == 1 && [lines containsString:@"itTestAction:<NSMenuItem 0x"], [NSString stringWithFormat:@"choosing it is traced: %@", lines]);
+        s = DYI(@"traceRuns", nil);
+        check([s[@"status"] hasPrefix:@"stopped tracing"], @"and stopped again");
+        s = DYI(@"openRuns", nil);
+        check([s[@"context"] isEqualToString:@"ITHost"] && [s[@"tab"] isEqualToString:@"Methods"] && [s[@"search"] isEqualToString:@"itTestAction:"] &&
+              ITRowsContain(s, @"itTestAction:", nil), @"its runs row opens the method");
+
+        s = DYI(@"menuPick", @{@"on": @YES});
+        check([s[@"menuPickArmed"] boolValue] && [s[@"status"] hasPrefix:@"choose a menu item"], @"pick mode on");
+        [hostMenu performActionForItemAtIndex:0];
+    }];
+    [self step:0.3 do:^{
+        NSDictionary *s = DYI(@"tab", @{@"name": @"Properties"});
+        check(gITMenuRuns == 1, @"picking an item doesn't run its action");
+        check(![s[@"menuPickArmed"] boolValue] && [s[@"targetClass"] isEqualToString:@"NSMenuItem"] &&
+              [ITRow(s, @"title")[@"right"] isEqualToString:@"\"Test Action\""] && [s[@"status"] hasPrefix:@"picked"],
+              [NSString stringWithFormat:@"the picked item opens: %@", s[@"status"]]);
+        DYI(@"menuPick", @{@"on": @YES});
+        NSEvent *key = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint
+                                   modifierFlags:NSEventModifierFlagCommand | NSEventModifierFlagShift timestamp:0
+                                    windowNumber:self.window.windowNumber context:nil characters:@"T" charactersIgnoringModifiers:@"t"
+                                       isARepeat:NO keyCode:17];
+        BOOL handled = [NSApp.mainMenu performKeyEquivalent:key];
+        check(handled && gITMenuRuns == 1, @"its shortcut picks it too, without running it");
+    }];
+    [self step:0.3 do:^{
+        NSDictionary *s = DYI(@"tab", @{@"name": @"Properties"});
+        check(![s[@"menuPickArmed"] boolValue] && [ITRow(s, @"title")[@"right"] isEqualToString:@"\"Test Action\""], @"... and opens it");
+        DYI(@"menuPick", @{@"on": @YES});
+        ITPostKey(self.window, @"\x1b", 53);
+    }];
+    [self step:0.3 do:^{
+        NSDictionary *s = DYI(@"state", nil);
+        s = DYI(@"tab", @{@"name": @"Properties"});
+        check(![s[@"menuPickArmed"] boolValue] && [s[@"status"] isEqualToString:@"menu pick cancelled"], @"esc cancels");
+        [hostMenu performActionForItemAtIndex:0];
+        [hostMenu performActionForItemAtIndex:1];
+        check(gITMenuRuns == 2 && gITTargetedRuns == 1, @"after picking, menu items work again");
+        DYI(@"menuBar", nil);
+        DYI(@"navigate", @{@"contains": @"\"Host\""});
+        DYI(@"navigate", @{@"contains": @"\"Targeted\""});
+        s = DYI(@"tab", @{@"name": @"Properties"});
+        check([ITRow(s, @"keyEquivalent")[@"right"] isEqualToString:@"⌥↩"] && [ITRow(s, @"target")[@"right"] hasPrefix:@"<ITHost 0x"] &&
+              ![ITRow(s, @"sent to")[@"right"] containsString:@"responder chain"], @"an item with a target: ⌥↩, sent to its target");
+        DYI(@"menuBar", nil);
+        DYI(@"navigate", @{@"contains": @"\"Host\""});
+        DYI(@"navigate", @{@"contains": @"\"No Responder\""});
+        s = DYI(@"tab", @{@"name": @"Properties"});
+        check([ITRow(s, @"sent to")[@"right"] hasPrefix:@"nobody responds"] && !ITRow(s, @"runs"), @"an action nobody implements");
     }];
     [self step:0.1 do:^{
         printf("== settings and cleanup ==\n");

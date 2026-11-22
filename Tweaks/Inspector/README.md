@@ -104,6 +104,31 @@ without a layout, `-dealloc`, retain/release and methods that look variadic (`..
 `#import <QuartzCore/QuartzCore.h>` for CA types.
 
 
+menus
+-----
+
+the panel's menus button:
+
+- **inspect the menu bar**: the app's main menu. the hierarchy tab lists its items (title,
+  shortcut, action); click one to go into it, and on into submenus.
+- **pick a menu item…**: then choose any menu item, from the menu bar, a context menu or by
+  its keyboard shortcut. it opens in the panel and its action isn't sent. esc cancels.
+
+for an item, properties shows its title, key equivalent (`⇧⌘N`), action, target, and:
+
+    sent to   <MyController 0x6000…> (the responder chain resolves it now)
+    runs      -[MyController newThing:] in MyApp
+
+`sent to` is its target, or with no target what the responder chain would deliver the action
+to right now (key window, main window, the app, its delegate), or that nobody responds (so
+the item is disabled). `runs` is the method that would run: click it to open that class's
+methods filtered to it, right-click it to trace it. then tag, state, enabled, hidden,
+alternate, represented object, submenu, menu and view.
+
+picking hooks `-[NSApplication sendAction:to:from:]`, which every menu item sends its action
+through, only while picking: the hook is switched off as soon as you pick or cancel.
+
+
 trace
 -----
 
@@ -156,7 +181,7 @@ safety
 ------
 
 - read-only, apart from tracing (above), which only adds logging around the methods you
-  pick. nothing is set. the overview only calls getters known to be cheap and
+  pick, and menu picking, which holds back the one action you choose. nothing is set. the overview only calls getters known to be cheap and
   side-effect free on NSView, CALayer and NSWindow; any other property is read only
   when you click its row: one getter call (KVC for numbers and structs, a typed call for
   objects and pointers), on the main thread, in `@try` catching objective-c and c++

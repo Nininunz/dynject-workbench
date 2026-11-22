@@ -28,6 +28,22 @@ DYI_HIDDEN NSPasteboard *DYIPasteboard(void);
 /// Runs `block` in @try, catching Objective-C and C++ exceptions. Returns the exception's description, or nil.
 DYI_HIDDEN NSString *_Nullable DYITry(NS_NOESCAPE void (^block)(void));
 
+#pragma mark - DYIMenus.m: menus
+
+/// "⇧⌘N", "⌥⌫", "F5"; "" without a key equivalent.
+DYI_HIDDEN NSString *DYIKeyEquivalentString(NSMenuItem *item);
+/// "⇧⌘N · newDocument:", "submenu (12 items)", "separator".
+DYI_HIDDEN NSString *DYIMenuItemSummary(NSMenuItem *item);
+/// "\"New Window\"", "—" for a separator.
+DYI_HIDDEN NSString *DYIMenuItemTitle(NSMenuItem *item);
+/// Who gets the item's action: its target, or what the responder chain resolves now (nil if nobody responds).
+DYI_HIDDEN id _Nullable DYIMenuItemReceiver(NSMenuItem *item);
+/// The class in the receiver's chain that defines `sel`.
+DYI_HIDDEN Class _Nullable DYIClassImplementing(id _Nullable receiver, SEL _Nullable sel);
+/// Menu pick mode: the next menu item chosen goes to `picked` instead of sending its action. Esc cancels.
+DYI_HIDDEN void DYIMenuPickSetArmed(BOOL armed, void (^_Nullable picked)(NSMenuItem *item));
+DYI_HIDDEN BOOL DYIMenuPickArmed(void);
+
 #pragma mark - DYITrace.m: the method tracer
 
 /// Starts tracing the method (see DYITrace.m). nil on success, else why it can't be traced.
@@ -158,6 +174,8 @@ DYI_HIDDEN NSRect DYILayerRectInWindow(CALayer *layer, NSView *host);
 - (void)inspectObject:(id)object;
 /// Shows the panel on a class (no instance).
 - (void)inspectClass:(Class)cls;
+/// Esc while picking a menu item.
+- (void)menuPickCancelled;
 - (void)close;
 #ifdef DYI_TEST
 /// Test hook: answers one command (see testhost/TestHost.m). Returns the reply.
