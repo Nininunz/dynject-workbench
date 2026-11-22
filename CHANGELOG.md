@@ -4,8 +4,8 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
-unreleased
-----------
+0.1.2 (2026-11-21)
+------------------
 
 - `dw why <tweak> <app>`: why a tweak does or doesn't load into an app. every check in the order
   it happens (dynjectd, the config's service and process gates and dylib rule, dyld's
@@ -22,8 +22,6 @@ unreleased
   inside one image aren't reached. `Tests/ImportHost` runs it in arm64e, arm64 and x86_64 processes.
   third-party apps only: a live check in calculator showed macos keeps the imports of its own apps
   read-only after launch (`KERN_PROTECTION_FAILURE`); that's logged, nothing is patched there.
-- `dw why`: an arm64 app loads a dylib's arm64e slice (dyld prefers it), so an arm64e-only build
-  no longer gets a "may not load" warning there.
 - `DH_CTOR` compiles in its tweak id and target apps (`dynject.ctor:` marker) so `dw why` can
   read them. rebuild tweaks to get it; older builds show the targets as unknown.
 
