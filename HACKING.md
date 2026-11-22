@@ -27,7 +27,8 @@ layout
     Sources/dw/                   the cli. main.swift (install, enable/disable, relaunch, config apply, log),
                                   TweakCommands.swift (tweak install/uninstall/list, new),
                                   SafeModeCommands.swift, RespringCommand.swift, BridgeCommands.swift,
-                                  DoctorCommand.swift, WhyCommand.swift
+                                  DoctorCommand.swift, WhyCommand.swift, DevCommand.swift (dw dev; its
+                                  decisions are DynjectCore's DevLoop.swift)
     Sources/DynjectLiveTrial/     live privileged trial runner against /opt/dynject. run only when you mean it.
     TweakSDK/                     DynjectTweak.h (settings, header only), DynjectHook.h + DynjectHook.m
                                   (hooking), DynjectBridge.h + DynjectBridge.m (the bridge client). also the
@@ -60,7 +61,7 @@ building and tests
     ./scripts/test-all.sh               # everything below that leaves your screen alone, one summary (~2.5 min)
     ./scripts/test-all.sh --quick       # unit tests and builds only
     ./scripts/test-all.sh --all         # plus the e2e scripts and the ui smoke test (they open test apps)
-    swift test                          # 432 tests, ~20 s
+    swift test                          # 436 tests, ~20 s
     swift test --filter DynjectHookTests
     ./scripts/build-app.sh              # build/Dynject Workbench.app, release, ad-hoc unless SIGN_IDENTITY
     ./scripts/ui-smoke-test.sh          # drives the built app against fixtures
@@ -73,9 +74,9 @@ building and tests
     Tests/ImportHost/run.sh                       # import hooks in arm64e / arm64 / x86_64 (rosetta) hosts
     open "build/Dynject Workbench.app"
 
-current counts (2026-11-20): 307 DynjectCore (parser, editor, helper script, writer,
+current counts (2026-11-21): 311 DynjectCore (parser, editor, helper script, writer,
 plists, tweaks, apple menu, safe mode, respring, tweak install and template, version
-notice, bridge, doctor, why, requires, versions and compatibility), 99 DynjectHook (3 of them
+notice, bridge, doctor, why, dev, requires, versions and compatibility), 99 DynjectHook (3 of them
 the bridge sdk, 7 the macos guard and the sdk and ctor markers, 8 import hooks), 26 DynjectWorkbench (launch arguments,
 the respring sheet's model and links, install tweak in fixture mode incl. downgrade and
 depends confirmation, bridge isolation).

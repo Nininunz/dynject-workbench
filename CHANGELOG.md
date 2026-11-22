@@ -7,6 +7,10 @@ newest first. for testers; the commit log has the details.
 unreleased
 ----------
 
+- `dw dev [folder] [--for <bundleID>]`: the tweak loop. builds, runs the test host, installs
+  (skipped when the dylib didn't change), relaunches the apps its `DH_CTOR` lists (or `--for`),
+  and shows its log; then watches the folder and does it again on every save. a failed build or
+  test installs nothing and shows the errors or the failed checks. `--once` for one round.
 - inspector: method tracer. select a method, press trace: every call is logged with receiver,
   arguments, return value, duration and thread (`dw log local.dynject.inspector`), nested
   calls indented, exceptions logged and passed on, 40 lines per method per second. trace all

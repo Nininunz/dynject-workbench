@@ -19,6 +19,9 @@ the loop
     dw respring                                      # or workbench -> respring...
     dw log local.windowtitles 10                     # last 10 minutes of its log
 
+or let `dw dev` do the loop: from the tweak folder, `dw dev` (add `--for <bundleID>` the
+first time) builds, runs the test host, installs, relaunches the app and shows the log,
+then does it again every time you save. a failed build or test installs nothing. by hand:
 change code, `./build.sh test`, `dw tweak install .` again, `dw respring`. a rebuild only
 replaces the dylib (old one backed up) and doesn't restart dynjectd. add `--dry-run`
 to install/uninstall to see the plan first.

@@ -467,6 +467,13 @@ public struct TweakTemplate: Sendable {
         manifest into `~/Library/Application Support/Dynject Workbench/Tweaks/`. `--dry-run` shows the plan without
         changing anything. After a rebuild, run the same command again: it replaces the dylib (the old one is backed up).
 
+        While you work on it, `dw dev` runs the whole loop and repeats it every time you save: build, test host,
+        install, relaunch, log. A failed build or test installs nothing.
+
+        ```sh
+        dw dev --for \(appForDocs)
+        ```
+
         Dynject injects only at launch, so relaunch the app:
 
         ```sh

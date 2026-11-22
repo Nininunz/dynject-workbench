@@ -145,6 +145,7 @@ case ("respring", _): respringCommand(Array(a.dropFirst()))
 case ("tweak", _): tweakCommand(Array(a.dropFirst()))
 case ("doctor", _): doctorCommand(Array(a.dropFirst()))
 case ("why", _): whyCommand(Array(a.dropFirst()))
+case ("dev", _): devCommand(Array(a.dropFirst()))
 case ("new", _): newTweak(Array(a.dropFirst()))
 case ("install", 2): install(a[1])
 case ("enable", 3): setEnabled(true, dylib: a[1], bundleID: a[2])
@@ -162,6 +163,7 @@ default:
       dw tweak uninstall <tweakID|manifest> [--keep-file] [--keep-rules] [--dry-run]
       dw tweak list
       dw new <Name> [--id <reverse.dns.id>] [--app <bundleID>] [--dir <path>]
+      dw dev [<tweak folder>] [--for <bundleID>]... [--once]   build, test, install, relaunch, log; again on every save
       dw install <built.dylib>
       dw enable  <installed.dylib> <bundleID>
       dw disable <installed.dylib> <bundleID>

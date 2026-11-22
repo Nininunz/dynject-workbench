@@ -85,6 +85,17 @@ template_host() {
   in_dir "$LOGS/template/TestAllTweak" ./build.sh test
 }
 
+# One `dw dev` round on that tweak (build, test host, install into a fake root), then a second that finds nothing
+# to install.
+dev_once() {
+  dw="$ROOT/.build/debug/dw" t="$LOGS/template"
+  mkdir -p "$t/devroot/etc" && echo "dylib:/opt/dynject/lib/tweaks/libOther.dylib:deny" > "$t/devroot/etc/dynjectd.conf" &&
+  "$dw" dev "$t/TestAllTweak" --once --root "$t/devroot" &&
+  grep -q TestAllTweak "$t/devroot/etc/dynjectd.conf" &&
+  "$dw" dev "$t/TestAllTweak" --once --root "$t/devroot" | tee "$t/dev2.txt" &&
+  grep -q "unchanged, skipped" "$t/dev2.txt"
+}
+
 echo "test-all ($mode), logs in ${LOGS#"$ROOT"/}/"
 echo
 step swift-test        swift test
@@ -102,6 +113,7 @@ if [ "$mode" != quick ]; then
   step titlebadge-host in_dir Examples/TitleBadge ./build.sh test
   step imports-host    Tests/ImportHost/run.sh
   step template-host   template_host
+  step dev-once        dev_once
 fi
 
 if [ "$mode" = all ]; then

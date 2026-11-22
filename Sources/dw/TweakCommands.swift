@@ -291,6 +291,7 @@ func newTweak(_ args: [String]) {
         Next:
           cd \(shellQuote(rel)) && ./build.sh
           ./build.sh test                  # checks it in a local test app, nothing installed
+          dw dev --for \(template.bundleID ?? "<bundleID>")    # or the whole loop: build, test, install, relaunch, log, on every save
           dw tweak install . --for \(template.bundleID ?? "<bundleID>")
           dw respring
         """)
