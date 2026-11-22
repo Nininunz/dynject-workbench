@@ -311,6 +311,8 @@ private final class DevSession {
 }
 
 func devCommand(_ args: [String]) {
+    // Line by line, also into a pipe or a file: it runs for a long time and people watch it.
+    setvbuf(stdout, nil, _IOLBF, 0)
     let o = DevOptions(args)
     let session = DevSession(o)
     let targets = o.apps.isEmpty ? "" : ", for \(o.apps.joined(separator: ", "))"
