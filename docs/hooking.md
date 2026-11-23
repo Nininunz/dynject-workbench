@@ -63,12 +63,16 @@ Build it as a universal, ad-hoc signed dylib (same as [`Examples/TitleBadge/buil
 
 ```sh
 SDK=$(xcrun --show-sdk-path)
-xcrun clang -fobjc-arc -O2 -isysroot "$SDK" -I TweakSDK/include \
+xcrun clang -fobjc-arc -g -O2 -isysroot "$SDK" -I TweakSDK/include \
   -arch x86_64 -arch arm64 -arch arm64e -dynamiclib -install_name @rpath/libTitleSuffix.dylib \
   TitleSuffix.m TweakSDK/DynjectHook.m \
   -framework Foundation -framework CoreGraphics -framework AppKit -o libTitleSuffix.dylib
+strip -S libTitleSuffix.dylib   # -g left libTitleSuffix.dylib.dSYM next to it; this drops the build paths
 codesign --force --sign - --timestamp=none libTitleSuffix.dylib
 ```
+
+`-g` makes clang leave `libTitleSuffix.dylib.dSYM` next to the dylib. `dw tweak install` keeps a copy per build, and
+Safe Mode uses it to name the source line a crash in the tweak happens at ([Safe Mode](safe-mode.md)).
 
 Then declare the dylib in `dynjectd.conf` (or let `dw tweak install` do it, see [TWEAKS.md](../TWEAKS.md)). To get a settings page, add a manifest with a `switch` named `enabled`, a
 `text` named `suffix`, and `takesEffect: live` ([Tweak format](tweak-format.md)).

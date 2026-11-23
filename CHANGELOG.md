@@ -4,6 +4,18 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
+unreleased
+----------
+
+- crashes in tweaks name the source line and the hook: Safe Mode, `dw doctor` and Workbench show
+  `libX.dylib: CHExplode (ch.m:11), under its hook of -[CHTarget value]`. builds use `-g`
+  (every bundled build.sh and `dw new`'s template), `dw tweak install` keeps each build's dSYM
+  (`~/Library/Application Support/Dynject Workbench/Symbols`, the newest 10 per dylib), and Safe
+  Mode looks the line up with `atos` when the report lacks it. DynjectHook logs which method each
+  hook replacement stands for (`dynject.hooks:map`), so tweaks need a rebuild for the hook part.
+- `dw safemode explain <report.ips>`: what Safe Mode makes of one crash report.
+
+
 0.1.4 (2026-11-23)
 ------------------
 

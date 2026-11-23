@@ -43,7 +43,9 @@ what `dw new` gives you:
                                       bound to a hook group via DTPrefBool + DTPrefObserve, os_log
       WindowTitles.workbench.plist    manifest: id, install path, version 0.1.0, settings
       build.sh                        universal (x86_64 arm64 arm64e), ad-hoc or SIGN_IDENTITY,
-                                      fails if anything is exported. `./build.sh test` also builds a
+                                      fails if anything is exported. -g leaves a dSYM next to the
+                                      dylib; `dw tweak install` keeps it, so Safe Mode names the
+                                      source line a crash in the tweak happens at. `./build.sh test` also builds a
                                       test copy (-DTWEAK_TEST: tweak id <id>.test, so it never
                                       touches your settings, and the host's bundle id added to
                                       DH_CTOR) and runs testhost/ with it injected

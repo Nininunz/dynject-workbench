@@ -2,6 +2,7 @@
 # Builds build/libNotchPadding.dylib: x86_64 + arm64 + arm64e, no exported symbols, signed ad-hoc (or with
 # SIGN_IDENTITY="Apple Development: …"). It compiles against the repository's TweakSDK.
 set -eu
+export ZERO_AR_DATE=1   # -g: no object file dates in the debug map, so an unchanged build is byte for byte the same
 DIR=$(cd "$(dirname "$0")" && pwd)
 OUT="$DIR/build"
 SDK=$(xcrun --show-sdk-path)
@@ -13,11 +14,12 @@ mkdir -p "$OUT"
 dylib() {
   out="$1"; shift
   mkdir -p "$out"
-  "$CC" -Wall -Wextra -O2 -fobjc-arc -fvisibility=hidden -isysroot "$SDK" -I "$DIR/../../TweakSDK/include" "$@" \
+  "$CC" -Wall -Wextra -g -O2 -fobjc-arc -fvisibility=hidden -isysroot "$SDK" -I "$DIR/../../TweakSDK/include" "$@" \
     -mmacosx-version-min=14.0 -arch x86_64 -arch arm64 -arch arm64e -dynamiclib \
     -install_name @rpath/libNotchPadding.dylib \
     -framework AppKit -framework Foundation -framework CoreGraphics \
     "$DIR/NotchPadding.m" "$DIR/../../TweakSDK/DynjectHook.m" -o "$out/libNotchPadding.dylib"
+  strip -S "$out/libNotchPadding.dylib"   # the debug map (build paths) goes; the dSYM -g made next to it keeps the symbols
   if [ "${SIGN_IDENTITY:--}" = "-" ]; then codesign --force --sign - --timestamp=none "$out/libNotchPadding.dylib"
   else codesign --force --sign "$SIGN_IDENTITY" --timestamp "$out/libNotchPadding.dylib"; fi
   exported=$(nm -gU "$out/libNotchPadding.dylib" 2>/dev/null | grep -cv -e '^$' -e ':$' || true)

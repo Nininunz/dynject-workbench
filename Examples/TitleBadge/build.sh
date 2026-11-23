@@ -2,6 +2,7 @@
 # Builds libTitleBadge.dylib (x86_64 + arm64 + arm64e, ad-hoc signed) and, with `test`, runs the
 # injection test host (no Dynject involved; uses DYLD_INSERT_LIBRARIES on a local test app).
 set -eu
+export ZERO_AR_DATE=1   # -g: no object file dates in the debug map, so an unchanged build is byte for byte the same
 DIR=$(cd "$(dirname "$0")" && pwd)
 OUT="$DIR/build"
 SDK=$(xcrun --show-sdk-path)
@@ -9,10 +10,11 @@ CC=$(xcrun -find clang)
 mkdir -p "$OUT"
 
 # DynjectHook.m is compiled in for DH_CTOR (Safe Mode and the Shift bypass); its symbols are hidden.
-"$CC" -Wall -Wextra -O2 -fobjc-arc -isysroot "$SDK" -I "$DIR/../../TweakSDK/include" \
+"$CC" -Wall -Wextra -g -O2 -fobjc-arc -isysroot "$SDK" -I "$DIR/../../TweakSDK/include" \
   -arch x86_64 -arch arm64 -arch arm64e -dynamiclib -install_name @rpath/libTitleBadge.dylib \
   -framework AppKit -framework Foundation -framework CoreGraphics \
   "$DIR/TitleBadge.m" "$DIR/../../TweakSDK/DynjectHook.m" -o "$OUT/libTitleBadge.dylib"
+strip -S "$OUT/libTitleBadge.dylib"   # the debug map (build paths) goes; the dSYM -g made next to it keeps the symbols
 if [ "${SIGN_IDENTITY:--}" = "-" ]; then codesign --force --sign - --timestamp=none "$OUT/libTitleBadge.dylib"
   else codesign --force --sign "$SIGN_IDENTITY" --timestamp "$OUT/libTitleBadge.dylib"; fi
 echo "Built $OUT/libTitleBadge.dylib ($(lipo -archs "$OUT/libTitleBadge.dylib"))"

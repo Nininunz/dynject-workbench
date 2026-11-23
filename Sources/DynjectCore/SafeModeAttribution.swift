@@ -172,7 +172,7 @@ public struct CrashAttribution: Sendable, Equatable {
         public var imageIndex: Int
         /// A frame of this tweak is among the faulting thread's top frames or the exception backtrace's.
         public var inTweak: Bool
-        /// The first such frame, e.g. "libX.dylib: -[Foo bar] + 0x1c0".
+        /// The first such frame, e.g. "libX.dylib: -[Foo bar] (Foo.m:42), its hook of -[NSView layout]".
         public var frame: String?
     }
 
@@ -200,8 +200,10 @@ public enum CrashAttributor {
     /// Default number of frames (after leading machinery) in which a tweak frame counts as "in the tweak".
     public static let defaultDepth = 6
 
-    public static func attribute(_ report: CrashReport, catalog: SafeModeCatalog,
-                                 depth: Int = defaultDepth) -> CrashAttribution {
+    /// `symbolicator` adds source lines to tweak frames and names the hook a crash happened under (CrashSymbols.swift).
+    public static func attribute(_ report: CrashReport, catalog: SafeModeCatalog, depth: Int = defaultDepth,
+                                 symbolicator: CrashSymbolicating? = nil) -> CrashAttribution {
+        var report = report
         var loaded: [CrashAttribution.LoadedTweak] = []
         var seen = Set<String>()
         for (i, image) in report.images.enumerated() {
@@ -213,19 +215,22 @@ public enum CrashAttributor {
             }
         }
         let tweakImages = Set(loaded.map(\.imageIndex))
+        if let symbolicator { addLines(&report, images: tweakImages, symbolicator: symbolicator) }
         let faulting = top(report.faultingFrames, report: report, depth: depth)
         let thrown = top(report.lastExceptionBacktrace, report: report, depth: depth)
         // The exception backtrace says where an Objective-C exception was thrown; look there first.
         let candidates = thrown + faulting
+        let tweakFrame = candidates.first { $0.imageIndex.map(tweakImages.contains) ?? false }
+        let hooks = tweakFrame != nil ? symbolicator?.hookMap(report) ?? [] : []
         for idx in loaded.indices {
             let i = loaded[idx].imageIndex
             if let f = candidates.first(where: { $0.imageIndex == i }) {
                 loaded[idx].inTweak = true
-                loaded[idx].frame = describe(f, report: report)
+                loaded[idx].frame = describe(f, report: report) + hookNote(f, report: report, hooks: hooks)
             }
         }
-        let tweakFrame = candidates.first { $0.imageIndex.map(tweakImages.contains) ?? false }
-        let where_ = (tweakFrame ?? candidates.first).map { describe($0, report: report) }
+        let where_ = tweakFrame.map { describe($0, report: report) + hookNote($0, report: report, hooks: hooks) }
+            ?? candidates.first.map { describe($0, report: report) }
         let summary = [report.exceptionDescription, where_.map { "in \($0)" }].compactMap { $0 }.joined(separator: " ")
         return CrashAttribution(loaded: loaded, frameSummary: summary.isEmpty ? "crash" : summary)
     }
@@ -243,10 +248,46 @@ public enum CrashAttributor {
     public static func describe(_ f: CrashReport.Frame, report: CrashReport) -> String {
         let image = report.image(at: f.imageIndex)?.fileName ?? "???"
         let offset = f.imageOffset.map { String(format: "0x%llx", $0) }
+        let line = f.sourceLine.map { " (\((f.sourceFile.map { ($0 as NSString).lastPathComponent }) ?? "?"):\($0))" } ?? ""
         switch (f.symbol, offset) {
-        case let (s?, _): return "\(image): \(s)"
-        case let (nil, o?): return "\(image) + \(o)"
+        case let (s?, _): return "\(image): \(s)\(line)"
+        case let (nil, o?): return "\(image) + \(o)\(line)"
         default: return image
+        }
+    }
+
+    /// ", its hook of -[NSView layout]" when `frame`'s function is a hook replacement of its image; ", under its hook
+    /// of …" when the first replacement is further down the stack. The whole faulting thread (and exception
+    /// backtrace) is searched, from `frame` down.
+    static func hookNote(_ frame: CrashReport.Frame, report: CrashReport, hooks: [CrashHookMapEntry]) -> String {
+        guard !hooks.isEmpty, let i = frame.imageIndex, let name = report.image(at: i)?.fileName else { return "" }
+        let mine = hooks.filter { $0.image == name }
+        for stack in [report.lastExceptionBacktrace, report.faultingFrames] {
+            guard let start = stack.firstIndex(of: frame) else { continue }
+            for (n, f) in stack[start...].enumerated() where f.imageIndex == i {
+                guard let fn = f.functionOffset, let hook = mine.first(where: { $0.offset == fn }) else { continue }
+                let same = n == 0 || (f.symbol != nil && f.symbol == frame.symbol)
+                return same ? ", its hook of \(hook.target)" : ", under its hook of \(hook.target)"
+            }
+        }
+        return ""
+    }
+
+    /// Fills in source lines the report lacks for frames of `images`, one symbolicator call per image.
+    static func addLines(_ report: inout CrashReport, images: Set<Int>, symbolicator: CrashSymbolicating) {
+        for i in images.sorted() {
+            let frames = report.faultingFrames + report.lastExceptionBacktrace
+            let offsets = Array(Set(frames.filter { $0.imageIndex == i && $0.sourceLine == nil }.compactMap(\.imageOffset))).sorted()
+            guard !offsets.isEmpty else { continue }
+            let found = symbolicator.lines(report, imageIndex: i, offsets: offsets)
+            guard !found.isEmpty else { continue }
+            func fill(_ fs: inout [CrashReport.Frame]) {
+                for k in fs.indices where fs[k].imageIndex == i && fs[k].sourceLine == nil {
+                    if let o = fs[k].imageOffset, let loc = found[o] { fs[k].sourceFile = loc.file; fs[k].sourceLine = loc.line }
+                }
+            }
+            fill(&report.faultingFrames)
+            fill(&report.lastExceptionBacktrace)
         }
     }
 }

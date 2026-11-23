@@ -75,6 +75,15 @@ TweakSDK fixes that.
    (default 6) of the faulting thread or of `lastExceptionBacktrace` (where an Objective-C exception was thrown).
    Leading crash machinery (abort, `pthread_kill`, libc++abi, libobjc, `__exceptionPreprocess`,
    `objc_exception_throw`, ...) is skipped before counting, so the frame that actually failed is in view.
+   **Which line, which hook.** The record names that frame: `libX.dylib: -[XHook value] (X.m:42), its hook of
+   -[NSView layout]`. The function comes from the report (the reporter reads it from the dylib's symbol table). The
+   source line comes from the report when the reporter found the build's dSYM, otherwise from the dSYM
+   `dw tweak install` kept for that build (`Symbols/`, matched by the image's UUID, read with `atos`): build with
+   `-g` (every bundled build.sh and `dw new`'s do). The hook comes from the crashed process's log: DynjectHook logs
+   `dynject.hooks:map <image> 0x<offset> <method>` for each hook it makes, and the first function on the stack, from
+   the crash down, that starts at one of those offsets is the hook ("its hook of" when it's the crashing function,
+   "under its hook of" when it's further down). Only the first 10 minutes after launch are read, where nearly every
+   hook is made; tweaks built before 0.1.5 log no map, and their crashes name no hook.
 4. **Decide.** For every tweak loaded in the crash and running at the time, a crash record is kept. Then the tweak is
    disabled for the app:
    - **at once** when the crash happened in the tweak (reason `crash in tweak`);
@@ -108,6 +117,7 @@ Settings (`dw safemode settings`, or `SafeMode.updateSettings`): `threshold` (2)
 | Watcher binary | `~/Library/Application Support/Dynject Workbench/bin/dw` |
 | LaunchAgent | `~/Library/LaunchAgents/local.dynject.safemode.plist` (RunAtLoad, KeepAlive) |
 | Watcher log | unified log, subsystem `local.dynject.safemode` (`log stream --predicate 'subsystem == "local.dynject.safemode"'`) |
+| Each installed build's debug symbols (newest 10 per dylib) | `~/Library/Application Support/Dynject Workbench/Symbols/` (`<dylib>-<uuid>.dSYM`, and a `<UUID>.dSYM` link per architecture) |
 
 `state.json` is written atomically under an exclusive lock (`state.lock`, flock). Every change to the key (the
 watcher's, Workbench's, `dw`'s, the panic switch included) is made while holding that lock, so the watcher and
@@ -131,6 +141,8 @@ dw safemode panic on|off                        "*": ["*"]
 dw safemode clear                               re-enable everything, panic off
 dw safemode settings [threshold N] [window MIN] [notify on|off] [depth N] [max-age MIN]
 dw safemode watch [--once] [--no-notify]        the watcher (--once: one pass, then exit)
+dw safemode explain <report.ips>                what the watcher makes of one report: the tweaks loaded, the one it
+                                                happened in, at which function, source line and hook. changes nothing
 dw safemode agent install|uninstall|status      the LaunchAgent (install copies this dw binary into place;
                                                 --no-notify is passed on to the agent's watch)
 dw safemode help
@@ -138,7 +150,8 @@ dw safemode help
 
 Options for any subcommand: `--domain D` (preferences domain; default global), `--state-dir D`, `--reports-dir D`,
 `--tweaks-dir D` (manifests; default Workbench's Tweaks folder and `/opt/dynject/lib/tweaks`), `--dylib-dir D`
-(installed dylibs; default `/opt/dynject/lib/tweaks`). `agent install` writes the non-default ones into the plist.
+(installed dylibs; default `/opt/dynject/lib/tweaks`), `--symbols-dir D` (kept debug symbols). `agent install` writes
+the non-default ones into the plist.
 For testing the agent: `--launch-agents-dir D`, `--bin-dir D`, `--no-launchctl` (prints the launchctl commands
 instead of running them).
 

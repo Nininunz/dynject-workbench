@@ -178,6 +178,13 @@ func tweakInstall(_ path: String, _ a: TweakArguments) {
             }
         }
         if result.manifestWritten { print("manifest installed: \(plan.manifestDestination)") }
+        let dylibName = (plan.source.dylibPath as NSString).lastPathComponent
+        switch result.symbols {
+        case .kept: print("debug symbols kept: Safe Mode and dw doctor name the source line a crash in it happens at")
+        case .noDSYM: print("note: no \(dylibName).dSYM next to the build, so crashes in it get function names but no lines (build with -g)")
+        case .mismatch: print("note: the \(dylibName).dSYM next to the build is from another build; not kept")
+        case .failed: break   // in problems
+        }
         printLines(result.problems, prefix: "warning: ")
         if ctx.locations.isLive { republishAppleMenu(ctx.locations) }
         let apps = plan.enabledFor + plan.alreadyEnabledFor

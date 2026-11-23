@@ -9,6 +9,7 @@
 #
 # The injection test lives in testhost/ (testhost/run.sh).
 set -eu
+export ZERO_AR_DATE=1   # -g: no object file dates in the debug map, so an unchanged build is byte for byte the same
 DIR=$(cd "$(dirname "$0")" && pwd)
 SDKDIR="$DIR/../../TweakSDK"
 SDK=$(xcrun --show-sdk-path)
@@ -31,11 +32,12 @@ esac
 
 mkdir -p "$OUT"
 # shellcheck disable=SC2086
-"$CC" -Wall -Wextra -Werror -O2 -fobjc-arc -fvisibility=hidden $DEFS -isysroot "$SDK" -I "$SDKDIR/include" \
+"$CC" -Wall -Wextra -Werror -g -O2 -fobjc-arc -fvisibility=hidden $DEFS -isysroot "$SDK" -I "$SDKDIR/include" \
   -mmacosx-version-min=14.0 -arch x86_64 -arch arm64 -arch arm64e -dynamiclib \
   -install_name @rpath/libMenuLoader.dylib \
   -framework AppKit -framework Foundation -framework CoreGraphics \
   "$DIR/MenuLoader.m" "$SDKDIR/DynjectHook.m" -o "$OUT/libMenuLoader.dylib"
+strip -S "$OUT/libMenuLoader.dylib"   # the debug map (build paths) goes; the dSYM -g made next to it keeps the symbols
 if [ "${SIGN_IDENTITY:--}" = "-" ]; then codesign --force --sign - --timestamp=none "$OUT/libMenuLoader.dylib"
     else codesign --force --sign "$SIGN_IDENTITY" --timestamp "$OUT/libMenuLoader.dylib"; fi
 

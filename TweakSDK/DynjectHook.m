@@ -190,6 +190,7 @@ static char *sTestSystemVersion;
 static const CFIndex kDHParsedFunctionLimit = 4096;
 
 static void DHReportRegister(void);   // Hook reports, below
+static void DHLogHookMap(void *replacement, const char *target);   // Hook reports, below
 
 #pragma mark - The process-wide lock
 
@@ -478,6 +479,9 @@ static DHHook *DHHookCreate(Class cls, SEL sel, IMP replacement, DHGroup *group,
         DHLog(@"DHHookMessage: %c[%s %s] not hooked: %s", DH_METHOD_ARGS(cls, sel), failure);
         return NULL;
     }
+    char target[512];
+    snprintf(target, sizeof target, "%c[%s %s]", DH_METHOD_ARGS(cls, sel));
+    DHLogHookMap((void *)replacement, target);
     return hook;
 }
 
@@ -1603,6 +1607,9 @@ DHImportHook *DHHookImportEx(const char *symbol, const char *library, void *repl
     os_unfair_lock_unlock(&sImportLock);
 
     DHImportLogTally(symbol, &tally);
+    char target[512];
+    snprintf(target, sizeof target, "import %s%s%s", symbol, library ? " from " : "", library ?: "");
+    DHLogHookMap(replacement, target);
     if (tally.patched) {
         DHLog(@"hooked %s%s%s in %zu import(s)", symbol, library ? " from " : "", library ?: "", tally.patched);
     } else if (DHImportGroupEnabled(hook)) {
@@ -1653,6 +1660,29 @@ static os_log_t DHReportLog(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{ log = os_log_create("dynject.hooks", "report"); });
     return log;
+}
+
+// A crash report names the function a tweak crashed in, not the method that function replaces. So each hook says
+// once, when it's made, which method its replacement stands for: "dynject.hooks:map <image file> 0x<the
+// replacement's offset in it> <-[Class selector] | import symbol>", subsystem "dynject.hooks", category "map".
+// Safe Mode reads them back for a crashed process (DynjectCore/CrashSymbols.swift): keep the format.
+static os_log_t DHMapLog(void) {
+    static os_log_t log;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ log = os_log_create("dynject.hooks", "map"); });
+    return log;
+}
+
+static void DHLogHookMap(void *replacement, const char *target) {
+    void *code = DHImportStrip(replacement);
+    Dl_info info;
+    if (!code || !dladdr(code, &info) || !info.dli_fbase || !info.dli_fname) return;
+    const char *file = strrchr(info.dli_fname, '/');
+    char line[700];
+    snprintf(line, sizeof line, "dynject.hooks:map %s 0x%llx %s", file ? file + 1 : info.dli_fname,
+             (unsigned long long)((uintptr_t)code - (uintptr_t)info.dli_fbase), target);
+    if (sReportSinkForTesting) sReportSinkForTesting(line);
+    os_log(DHMapLog(), "%{public}s", line);
 }
 
 static void DHReportLine(const char *format, ...) __attribute__((format(printf, 1, 2)));

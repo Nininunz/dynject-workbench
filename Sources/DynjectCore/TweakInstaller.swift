@@ -60,6 +60,11 @@ public struct TweakLocations: Sendable, Equatable {
         return dylibFileDirectory + String(path.dropFirst(tweaksDirectory.count))
     }
 
+    /// Where installs keep each build's debug symbols (TweakSymbolStore): next to the Tweaks folder.
+    public var symbolsDirectory: String {
+        ((manifestsDirectory as NSString).deletingLastPathComponent as NSString).appendingPathComponent("Symbols")
+    }
+
     /// Folders searched for installed manifests: the Tweaks folder, then next to the installed dylibs.
     public var manifestSearchDirectories: [String] { [manifestsDirectory, dylibFileDirectory] }
 
@@ -102,6 +107,13 @@ public struct MachOInfo: Equatable, Sendable {
         /// Where the slice is in the file (0 and the file's size for a thin file).
         public var offset: Int = 0
         public var size: Int = 0
+        /// LC_UUID, as "8-4-4-4-12" upper-case hex: what crash reports and dSYMs identify a build by.
+        public var uuid: String? = nil
+    }
+
+    /// Each slice's UUID by architecture (slices without LC_UUID left out).
+    public var uuids: [String: String] {
+        Dictionary(slices.compactMap { s in s.uuid.map { (s.arch, $0) } }, uniquingKeysWith: { a, _ in a })
     }
 
     public var slices: [Slice]
@@ -133,14 +145,20 @@ public struct MachOInfo: Equatable, Sendable {
             guard le32(offset) == 0xFEED_FACF, let cpu = le32(offset + 4), let sub = le32(offset + 8),
                   let fileType = le32(offset + 12), let ncmds = le32(offset + 16) else { return nil }
             var signed = false
+            var uuid: String?
             var lc = offset + 32
             for _ in 0..<min(Int(ncmds), 10_000) {
                 guard let cmd = le32(lc), let size = le32(lc + 4), size >= 8 else { break }
                 if cmd == 0x1D { signed = true }   // LC_CODE_SIGNATURE
+                if cmd == 0x1B, size >= 24, lc + 24 <= bytes.count {   // LC_UUID
+                    let hex = bytes[(lc + 8)..<(lc + 24)].map { String(format: "%02X", $0) }.joined()
+                    uuid = [hex.prefix(8), hex.dropFirst(8).prefix(4), hex.dropFirst(12).prefix(4),
+                            hex.dropFirst(16).prefix(4), hex.dropFirst(20)].joined(separator: "-")
+                }
                 lc += Int(size)
             }
             return Slice(arch: archName(cpu: cpu, subtype: sub), isDylib: fileType == 6, isSigned: signed,
-                         offset: offset, size: bytes.count - offset)
+                         offset: offset, size: bytes.count - offset, uuid: uuid)
         }
 
         guard let magic = be32(0) else { return nil }
@@ -333,6 +351,8 @@ public struct TweakInstallResult: Sendable {
     public var manifestWritten: Bool
     /// Problems after the privileged step succeeded (e.g. the manifest couldn't be copied).
     public var problems: [String]
+    /// Whether the build's dSYM was kept for naming crash frames (TweakSymbolStore).
+    public var symbols: TweakSymbolStore.KeepResult = .noDSYM
 }
 
 public enum TweakInstaller {
@@ -470,7 +490,10 @@ public enum TweakInstaller {
         } catch {
             problems.append("The manifest wasn't copied to \(plan.manifestDestination): \(error.localizedDescription)")
         }
-        return TweakInstallResult(plan: plan, outcome: outcome, manifestWritten: written, problems: problems)
+        let symbols = TweakSymbolStore(directory: URL(fileURLWithPath: plan.locations.symbolsDirectory, isDirectory: true))
+            .keep(dylibAt: plan.source.dylibPath)
+        if case let .failed(why) = symbols { problems.append("The build's debug symbols weren't kept: \(why)") }
+        return TweakInstallResult(plan: plan, outcome: outcome, manifestWritten: written, problems: problems, symbols: symbols)
     }
 
     static func writeManifest(_ plan: TweakInstallPlan, backups: BackupStore) throws -> Bool {

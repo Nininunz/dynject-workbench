@@ -7,6 +7,7 @@
 #                     host app and runs it twice, without and with DYLD_INSERT_LIBRARIES (no Dynject involved).
 #                     Output and screenshots: $OLF_TEST_DIR, default <repo>/.build/oledfinder-test.
 set -eu
+export ZERO_AR_DATE=1   # -g: no object file dates in the debug map, so an unchanged build is byte for byte the same
 DIR=$(cd "$(dirname "$0")" && pwd)
 OUT="$DIR/build"
 SDKDIR="$DIR/../../TweakSDK"
@@ -17,11 +18,12 @@ CC=$(xcrun -find clang)
 build_dylib() {
   out=$1; shift
   mkdir -p "$(dirname "$out")"
-  "$CC" -Wall -Wextra -Werror -O2 -fobjc-arc -fvisibility=hidden "$@" -isysroot "$SDK" -I "$SDKDIR/include" \
+  "$CC" -Wall -Wextra -Werror -g -O2 -fobjc-arc -fvisibility=hidden "$@" -isysroot "$SDK" -I "$SDKDIR/include" \
     -mmacosx-version-min=14.0 -arch x86_64 -arch arm64 -arch arm64e -dynamiclib \
     -install_name @rpath/libOLEDFinder.dylib \
     -framework AppKit -framework Foundation -framework CoreGraphics -framework QuartzCore \
     "$DIR/OLEDFinder.m" "$SDKDIR/DynjectHook.m" -o "$out"
+  strip -S "$out"   # the debug map (build paths) goes; the dSYM -g made next to it keeps the symbols
   if [ "${SIGN_IDENTITY:--}" = "-" ]; then codesign --force --sign - --timestamp=none "$out"
     else codesign --force --sign "$SIGN_IDENTITY" --timestamp "$out"; fi
   exported=$(nm -gU "$out" 2>/dev/null | grep -cv -e '^$' -e ':$' || true)

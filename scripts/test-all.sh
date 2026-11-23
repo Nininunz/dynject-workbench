@@ -117,6 +117,7 @@ if [ "$mode" != quick ]; then
   step template-host   template_host
   step dev-once        dev_once
   step hooks-host      Tests/HooksHost/run.sh
+  step crash-host      Tests/CrashHost/run.sh
 fi
 
 if [ "$mode" = all ]; then

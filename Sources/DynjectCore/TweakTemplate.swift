@@ -229,6 +229,7 @@ public struct TweakTemplate: Sendable {
         # Builds build/\(dylibName): x86_64 + arm64 + arm64e, no exported symbols, signed ad-hoc (or with
         # SIGN_IDENTITY="Apple Development: …"). The SDK is vendored in sdk/, so this folder builds on its own.
         set -eu
+        export ZERO_AR_DATE=1   # -g: no object file dates in the debug map, so an unchanged build is byte for byte the same
         DIR=$(cd "$(dirname "$0")" && pwd)
         OUT="$DIR/build"
         SDK=$(xcrun --show-sdk-path)
@@ -240,11 +241,12 @@ public struct TweakTemplate: Sendable {
         dylib() {
           out="$1"; shift
           mkdir -p "$out"
-          "$CC" -Wall -Wextra -O2 -fobjc-arc -fvisibility=hidden -isysroot "$SDK" -I "$DIR/sdk" "$@" \\
+          "$CC" -Wall -Wextra -g -O2 -fobjc-arc -fvisibility=hidden -isysroot "$SDK" -I "$DIR/sdk" "$@" \\
             -mmacosx-version-min=14.0 -arch x86_64 -arch arm64 -arch arm64e -dynamiclib \\
             -install_name @rpath/\(dylibName) \\
             -framework AppKit -framework Foundation -framework CoreGraphics \\
             "$DIR/\(name).m" "$DIR/sdk/DynjectHook.m" -o "$out/\(dylibName)"
+          strip -S "$out/\(dylibName)"   # the debug map (build paths) goes; the dSYM -g made next to it keeps the symbols
           if [ "${SIGN_IDENTITY:--}" = "-" ]; then codesign --force --sign - --timestamp=none "$out/\(dylibName)"
           else codesign --force --sign "$SIGN_IDENTITY" --timestamp "$out/\(dylibName)"; fi
           exported=$(nm -gU "$out/\(dylibName)" 2>/dev/null | grep -cv -e '^$' -e ':$' || true)

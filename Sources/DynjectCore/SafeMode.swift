@@ -760,6 +760,8 @@ public final class SafeModeScanner {
     let catalog: () -> SafeModeCatalog
     let support: SafeModeSupportChecker
     let notifier: SafeModeNotifier?
+    /// Source lines and hook names for crashes in tweaks (CrashSymbolicator); nil leaves frames as the report has them.
+    public var symbolicator: CrashSymbolicating?
     let now: () -> Date
     let log: (String) -> Void
     /// Files modified more recently than this are left for a later scan (the reporter may still be writing).
@@ -860,7 +862,8 @@ public final class SafeModeScanner {
             return .done(incidentID: nil, wroteKey: false)
         }
         if catalog == nil { catalog = self.catalog() }
-        let attribution = CrashAttributor.attribute(report, catalog: catalog!, depth: state.settings.inTweakDepth)
+        let attribution = CrashAttributor.attribute(report, catalog: catalog!, depth: state.settings.inTweakDepth,
+                                                    symbolicator: symbolicator)
         let keys = safeMode.keys, support = support
         let entries = keys.entries()
         let crashDate = report.date ?? r.mtime

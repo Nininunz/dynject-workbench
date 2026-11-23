@@ -13,6 +13,8 @@ usage:
   dw safemode clear
   dw safemode settings [threshold N] [window MINUTES] [notify on|off] [depth N] [max-age MINUTES]
   dw safemode watch [--once] [--no-notify]
+  dw safemode explain <report.ips>      what Safe Mode makes of one crash report: the tweaks loaded, the one it
+                                        happened in, at which function and source line, under which hook
   dw safemode agent install|uninstall|status [--binary PATH] [--no-notify]
   dw safemode help
 
@@ -22,6 +24,7 @@ options (any subcommand):
   --reports-dir D   crash reports (default: ~/Library/Logs/DiagnosticReports)
   --tweaks-dir D    tweak manifests (default: Workbench's Tweaks folder and /opt/dynject/lib/tweaks)
   --dylib-dir D     installed tweak dylibs (default: /opt/dynject/lib/tweaks)
+  --symbols-dir D   kept debug symbols (default: ~/Library/Application Support/Dynject Workbench/Symbols)
   --launch-agents-dir D, --bin-dir D, --no-launchctl   (agent; for testing)
 """
 
@@ -30,7 +33,7 @@ struct SafeModeOptions {
     var values: [String: String] = [:]
     var flags: Set<String> = []
 
-    static let valued: Set<String> = ["--domain", "--state-dir", "--reports-dir", "--tweaks-dir", "--dylib-dir",
+    static let valued: Set<String> = ["--domain", "--state-dir", "--reports-dir", "--tweaks-dir", "--dylib-dir", "--symbols-dir",
                                       "--launch-agents-dir", "--bin-dir", "--binary"]
     static let boolean: Set<String> = ["--once", "--no-notify", "--no-launchctl"]
 
@@ -68,7 +71,7 @@ struct SafeModeOptions {
 
     /// Options that `watch` must keep when it runs from the LaunchAgent.
     var watchArguments: [String] {
-        ["--domain", "--state-dir", "--reports-dir", "--tweaks-dir", "--dylib-dir"].flatMap { k in
+        ["--domain", "--state-dir", "--reports-dir", "--tweaks-dir", "--dylib-dir", "--symbols-dir"].flatMap { k in
             path(k).map { [k, k == "--domain" ? values[k]! : $0] } ?? []
         } + (flags.contains("--no-notify") ? ["--no-notify"] : [])
     }
@@ -89,6 +92,25 @@ func makeCatalog(_ o: SafeModeOptions) -> SafeModeCatalog {
     let dirs = o.path("--tweaks-dir").map { [$0] } ?? TweakManifestLoader.defaultDirectories(supportDirectory: support)
     let manifests = TweakManifestLoader.load(directories: dirs).manifests
     return SafeModeCatalog(manifests: manifests, dylibDirectory: o.path("--dylib-dir") ?? SafeModeCatalog.defaultDylibDirectory)
+}
+
+func makeSymbolicator(_ o: SafeModeOptions) -> CrashSymbolicator {
+    CrashSymbolicator(store: TweakSymbolStore(directory: o.path("--symbols-dir").map { URL(fileURLWithPath: $0, isDirectory: true) }
+                                              ?? TweakSymbolStore.defaultDirectory))
+}
+
+func explainCrash(_ path: String, _ o: SafeModeOptions, depth: Int) {
+    let report: CrashReport
+    do { report = try CrashReportParser.parse(fileAt: path) } catch { fail(error.localizedDescription) }
+    guard report.hasBody else { fail("\(path): only the header could be read") }
+    let a = CrashAttributor.attribute(report, catalog: makeCatalog(o), depth: depth, symbolicator: makeSymbolicator(o))
+    let when = report.date.map { DateFormatter.localizedString(from: $0, dateStyle: .short, timeStyle: .medium) } ?? "?"
+    print("\(report.displayName)\(report.bundleID.map { " (\($0))" } ?? ""), \(when)\(report.isCrash ? "" : " (not a crash)")")
+    print(a.frameSummary)
+    if a.loaded.isEmpty { print("no installed tweak was loaded"); return }
+    for l in a.loaded {
+        print("  \(l.tweak.name) (\(l.tweak.tweakID)): " + (l.frame.map { "crashed in it, \($0)" } ?? "loaded"))
+    }
 }
 
 func makeAgent(_ o: SafeModeOptions) -> SafeModeAgent {
@@ -120,6 +142,7 @@ func safeModeCommand(_ args: [String]) {
     do {
         switch (p.first, p.count) {
         case ("status", 1): printStatus(sm, o)
+        case ("explain", 2): explainCrash(p[1], o, depth: (try? sm.stateStore.load())?.settings.inTweakDepth ?? CrashAttributor.defaultDepth)
         case ("disable", 3):
             let catalog = makeCatalog(o)
             if SafeModeTweak.isUnmanifestedID(p[1]) {
@@ -259,6 +282,7 @@ func watch(_ sm: SafeMode, _ o: SafeModeOptions) {
     let scanner = SafeModeScanner(reportsDirectory: o.path("--reports-dir") ?? SafeModeScanner.defaultReportsDirectory,
                                   safeMode: sm, catalog: { makeCatalog(o) },
                                   notifier: o.flags.contains("--no-notify") ? nil : OsascriptNotifier(), log: log)
+    scanner.symbolicator = makeSymbolicator(o)
     if o.flags.contains("--once") {
         let r = scanner.scan()
         print("examined \(r.examined.count) report(s): \(r.crashes.count) tweak-related crash record(s), "

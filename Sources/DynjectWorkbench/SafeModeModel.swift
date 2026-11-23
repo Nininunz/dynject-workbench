@@ -236,6 +236,7 @@ final class SafeModeModel {
         let current = catalog
         let scanner = SafeModeScanner(reportsDirectory: reportsDirectory, safeMode: safeMode,
                                       catalog: { current }, support: support, notifier: notifier)
+        scanner.symbolicator = CrashSymbolicator()
         let r = scanner.scan()
         lastScan = r
         lastScanAt = Date()
