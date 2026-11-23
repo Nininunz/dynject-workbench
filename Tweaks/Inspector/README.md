@@ -132,6 +132,30 @@ carries the command and a request id; Inspector answers in the log (subsystem `d
 loaded in the app: the default config keeps it out of ControlCenter and the Dock (`dw why inspector <app>`).
 
 
+from the terminal: dw eval
+--------------------------
+
+reads one value in a running app:
+
+    dw eval TextEdit NSApp.windows.title             # each window's title
+    dw eval TextEdit 'NSApp.windows[0].frame'        # 40,658 860x592
+    dw eval MenuBarAgent NSScreen.mainScreen.frame   # a class property
+    dw eval Finder NSBundle.mainBundle.infoDictionary.CFBundleVersion
+
+a path starts at `NSApp` (or `app`) or a class name, then each step is a declared `@property` (on a class, a class
+property), read with its getter (`hidden` calls `isHidden`); `[n]` or `.n`, an element of an array; `["key"]` or
+`.key`, a value in a dictionary; `@count`, `@keys`, `@class`. a property step after an array is read from each
+element. a method that isn't a declared property is refused, even one without arguments (`activationPolicy` is a
+method in NSApplication's header, so `NSApp.activationPolicy` is refused): the path is walked step by step instead of
+with `valueForKeyPath:`, because kvc calls any method whose name matches a key (`removeFromSuperview`…).
+
+the path goes in the global preference `dynject.inspector.eval.<pid>` ({request, path, time}), then command 6 on the
+notification above. a sandboxed app can read the global preferences but not write them, so only unsandboxed code
+running as you can ask; a request whose number doesn't match, or older than 10 s, is refused. Inspector answers at
+debug level (subsystem `dynject.inspect`, category `eval`), which only a live `log stream --level debug` sees: values
+from the app are never kept in the log store. dw deletes the preference when it has the answer.
+
+
 menus
 -----
 
@@ -216,6 +240,8 @@ safety
   exceptions. values are described without calling `-description` on arbitrary
   objects (strings, numbers, geometry, collections by count, colors; everything else
   as `<Class 0x...>`).
+- `dw eval` reads declared properties only (above), one getter call per step, on the main thread, in `@try`; values
+  are described the same way, and logged at debug level, never stored.
 - ivars are listed, never read.
 - events: a local event monitor only (events this app already gets). no global
   monitor, no event tap, no accessibility api. while picking it swallows the click

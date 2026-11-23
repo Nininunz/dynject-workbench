@@ -72,6 +72,9 @@ DYI_HIDDEN NSString *DYIShortImageName(NSString *path);
 /// The class name to show for an object: its class, or the observed class behind a KVO subclass
 /// ("NSKVONotifying_NSWindow" -> "NSWindow").
 DYI_HIDDEN NSString *DYIDisplayClassName(id object);
+/// `dw eval`: the value at `path` (NSApp.windows[0].frame, NSScreen.mainScreen.frame…) as lines, or nil and `error`.
+/// Reads only: each step is a declared property's getter, an index, a dictionary key or @count/@keys/@class (DYIEval.m).
+DYI_HIDDEN NSArray<NSString *> *_Nullable DYIEvaluate(NSString *path, NSString *_Nullable *_Nonnull error);
 /// cls, its superclass, ... up to the root class.
 DYI_HIDDEN NSArray<Class> *DYIClassChain(Class cls);
 /// Readable type for an encoding (display), e.g. "double", "NSString *", "CGRect", "struct Foo *".

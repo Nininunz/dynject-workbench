@@ -14,6 +14,10 @@ unreleased
   Mode looks the line up with `atos` when the report lacks it. DynjectHook logs which method each
   hook replacement stands for (`dynject.hooks:map`), so tweaks need a rebuild for the hook part.
 - `dw safemode explain <report.ips>`: what Safe Mode makes of one crash report.
+- `dw eval <app> <path>`: reads a value in a running app through Inspector, background apps too
+  (`dw eval MenuBarAgent NSScreen.mainScreen.frame`). reads only: each step is a declared property,
+  an index, a dictionary key or @count/@keys/@class, never another method. the answer is logged at
+  debug level, so app data stays out of the log store. reinstall Inspector to use it.
 - `dw respring` and Workbench's Respring also relaunch menu bar apps (TokenTracker, Alfred…), which
   it didn't see before; macOS's own (ControlCenter, MenuBarAgent) and helper apps inside other apps
   are still left alone.

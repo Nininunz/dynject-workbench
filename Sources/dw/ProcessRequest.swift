@@ -15,13 +15,17 @@ final class ProcessRequest {
     private var partial = ""
     private var asked = Date()
     private let predicate: String
+    /// Whether the answer is in the log store too (default level); debug-level answers are only streamed.
+    private let stored: Bool
 
-    /// Starts listening to `subsystem` in `pid`'s log; returns once `log stream` is connected.
-    init(pid: pid_t, subsystem: String) {
+    /// Starts listening to `subsystem` in `pid`'s log; returns once `log stream` is connected. `transient`: the
+    /// process answers at debug level, which is never stored, so `finish` doesn't look in the store.
+    init(pid: pid_t, subsystem: String, transient: Bool = false) {
         self.pid = pid
+        stored = !transient
         predicate = "subsystem == \"\(subsystem)\" AND processID == \(pid)"
         stream.executableURL = URL(fileURLWithPath: "/usr/bin/log")
-        stream.arguments = ["stream", "--style", "compact", "--level", "default", "--predicate", predicate]
+        stream.arguments = ["stream", "--style", "compact", "--level", transient ? "debug" : "default", "--predicate", predicate]
         let pipe = Pipe()
         stream.standardOutput = pipe
         stream.standardError = FileHandle.nullDevice
@@ -83,6 +87,7 @@ final class ProcessRequest {
     func finish(prefix: String) -> [String] {
         stop()
         let streamed = messages().filter { $0.hasPrefix(prefix) }
+        guard stored else { return streamed }
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd HH:mm:ss"

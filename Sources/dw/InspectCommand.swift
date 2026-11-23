@@ -51,23 +51,7 @@ func inspectCommand(_ args: [String]) {
     guard (pid != nil) != (positional.count == 1), positional.count <= 1 else { fail(inspectUsage, 2) }
     let app = runningApp(positional.first, pid: pid, usage: inspectUsage)
 
-    // Inspector loaded there, and new enough to take commands?
-    let locations = TweakLocations.live()
-    let manifests = TweakManifestLoader.load(directories: locations.manifestSearchDirectories).manifests
-    let dylib = manifests.first { $0.id == "local.dynject.inspector" }?.dylib ?? TweakLocations.liveTweaksDirectory + "/libInspector.dylib"
-    let file = locations.filePath(forDylib: dylib)
-    let loaded = LsofDylibInspector().loadedDylibs(pids: [app.pid], candidates: [file])[app.pid]
-    if let loaded, !loaded.contains(file) {
-        fail("""
-        Inspector isn't loaded in \(app.name) (pid \(app.pid)).
-          dw why inspector \(app.bundleID)    says what stops it
-        if it's the config: dw enable \(dylib) \(app.bundleID), then relaunch the app (killall it for ControlCenter or the Dock)
-        """, 1)
-    }
-    if let data = try? Data(contentsOf: URL(fileURLWithPath: file), options: .mappedIfSafe),
-       data.range(of: Data("dynject.inspect:v1".utf8)) == nil {
-        fail("the installed Inspector is older than dw inspect: reinstall it (dw tweak install Tweaks/Inspector), then relaunch \(app.name)", 1)
-    }
+    requireInspector(in: app, marker: "dynject.inspect:v1", feature: "dw inspect")
 
     let ask = ProcessRequest(pid: app.pid, subsystem: "dynject.inspect")
     let prefix = "A \(ask.request) "
@@ -87,6 +71,26 @@ func inspectCommand(_ args: [String]) {
     case .pick: print("\(app.name): picking. point at one of its windows and click; `dw inspect \(positional.first ?? "--pid \(app.pid)") --stop` ends it")
     case .stop: print("\(app.name): stopped")
     case .tree, .treeWithProperties: print(DevTree.text(answers, app: "\(app.name) (\(app.bundleID), pid \(app.pid))"))
+    }
+}
+
+/// Fails unless Inspector is loaded in `app` and the installed build has `marker` (is new enough for `feature`).
+func requireInspector(in app: (pid: pid_t, name: String, bundleID: String), marker: String, feature: String) {
+    let locations = TweakLocations.live()
+    let manifests = TweakManifestLoader.load(directories: locations.manifestSearchDirectories).manifests
+    let dylib = manifests.first { $0.id == "local.dynject.inspector" }?.dylib ?? TweakLocations.liveTweaksDirectory + "/libInspector.dylib"
+    let file = locations.filePath(forDylib: dylib)
+    let loaded = LsofDylibInspector().loadedDylibs(pids: [app.pid], candidates: [file])[app.pid]
+    if let loaded, !loaded.contains(file) {
+        fail("""
+        Inspector isn't loaded in \(app.name) (pid \(app.pid)).
+          dw why inspector \(app.bundleID)    says what stops it
+        if it's the config: dw enable \(dylib) \(app.bundleID), then relaunch the app (killall it for ControlCenter or the Dock)
+        """, 1)
+    }
+    if let data = try? Data(contentsOf: URL(fileURLWithPath: file), options: .mappedIfSafe),
+       data.range(of: Data(marker.utf8)) == nil {
+        fail("the installed Inspector is older than \(feature): reinstall it (dw tweak install Tweaks/Inspector), then relaunch \(app.name)", 1)
     }
 }
 

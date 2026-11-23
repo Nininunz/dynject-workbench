@@ -93,7 +93,10 @@ static void DYIToggleFromNotification(void) {
 // (ControlCenter, the Dock), which the hotkey and the Apple-menu item can't, since they're never frontmost.
 // dw reads the marker below to tell builds that understand it. Keep both as they are.
 __attribute__((used)) static const char *const DYIInspectCapability = "dynject.inspect:v1";
-enum { DYICommandOpen = 1, DYICommandPick = 2, DYICommandStop = 3, DYICommandTree = 4, DYICommandTreeWithProperties = 5 };
+// `dw eval` (command 6) is newer: dw looks for this before asking.
+__attribute__((used)) static const char *const DYIEvalCapability = "dynject.eval:v1";
+enum { DYICommandOpen = 1, DYICommandPick = 2, DYICommandStop = 3, DYICommandTree = 4, DYICommandTreeWithProperties = 5,
+       DYICommandEval = 6 };
 
 #ifdef DYI_TEST
 static NSMutableArray<NSString *> *gTestAnswers;
@@ -108,6 +111,40 @@ static void DYIAnswer(uint32_t request, NSString *text) {
 #ifdef DYI_TEST
     if (gTestMode) { if (!gTestAnswers) gTestAnswers = [NSMutableArray array]; [gTestAnswers addObject:line]; }
 #endif
+}
+
+/// For `dw eval`: values from the app's memory go out at debug level, which only a live `log stream --level debug`
+/// sees; they're never kept in the log store.
+static void DYIAnswerTransient(uint32_t request, NSString *text) {
+    static os_log_t log;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ log = os_log_create("dynject.inspect", "eval"); });
+    NSString *line = [NSString stringWithFormat:@"A %u %@", request, text];
+    os_log_debug(log, "%{public}@", line);
+#ifdef DYI_TEST
+    if (gTestMode) { if (!gTestAnswers) gTestAnswers = [NSMutableArray array]; [gTestAnswers addObject:line]; }
+#endif
+}
+
+/// `dw eval`: the path is in the global preference "dynject.inspector.eval.<pid>" ({request, path, time}), which a
+/// sandboxed app can read but not write, so only unsandboxed code running as the user can ask. A request whose
+/// number doesn't match the notification's, or older than 10 s, is refused.
+static void DYIAnswerEval(uint32_t request) {
+    CFStringRef key = (__bridge CFStringRef)[NSString stringWithFormat:@"dynject.inspector.eval.%d", getpid()];
+    CFPreferencesAppSynchronize(kCFPreferencesAnyApplication);
+    NSDictionary *ask = CFBridgingRelease(CFPreferencesCopyValue(key, kCFPreferencesAnyApplication, kCFPreferencesCurrentUser,
+                                                                 kCFPreferencesAnyHost));
+    if (![ask isKindOfClass:NSDictionary.class] || ![ask[@"request"] isKindOfClass:NSNumber.class] ||
+        [ask[@"request"] unsignedIntValue] != request || ![ask[@"path"] isKindOfClass:NSString.class] ||
+        ![ask[@"time"] isKindOfClass:NSDate.class] || fabs([ask[@"time"] timeIntervalSinceNow]) > 10) {
+        DYIAnswerTransient(request, @"refused: no current request for this app");
+        return;
+    }
+    NSString *error = nil;
+    NSArray<NSString *> *lines = DYIEvaluate(ask[@"path"], &error);
+    if (!lines) { DYIAnswerTransient(request, [@"error " stringByAppendingString:error ?: @"?"]); return; }
+    for (NSString *l in lines) DYIAnswerTransient(request, [@"V " stringByAppendingString:l]);
+    DYIAnswerTransient(request, [NSString stringWithFormat:@"end %lu", (unsigned long)lines.count]);
 }
 
 static NSString *DYIRectText(NSRect r) {
@@ -264,6 +301,9 @@ static void DYIHandleCommand(uint64_t state) {
         case DYICommandTree:
         case DYICommandTreeWithProperties:
             DYIAnswerTree(request, command == DYICommandTreeWithProperties);
+            break;
+        case DYICommandEval:
+            DYIAnswerEval(request);
             break;
         default:
             DYIAnswer(request, [NSString stringWithFormat:@"refused: unknown command %u", command]);

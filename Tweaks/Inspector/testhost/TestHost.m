@@ -846,6 +846,54 @@ static CALayer *ITFindLayer(CALayer *l, BOOL (^match)(CALayer *)) {
         check([answers.lastObject hasPrefix:@"A 13 refused: unknown command 0"], @"an unknown command is refused");
     }];
     [self step:0.1 do:^{
+        printf("== dw eval ==\n");
+        // What dw eval does: the request in the global preference for this pid, then command 6 with its number.
+        CFStringRef key = (__bridge CFStringRef)[NSString stringWithFormat:@"dynject.inspector.eval.%d", getpid()];
+        NSString *(^ask)(NSString *, uint32_t, uint32_t, NSDate *) = ^NSString *(NSString *path, uint32_t written, uint32_t sent, NSDate *time) {
+            NSDictionary *request = @{@"request": @(written), @"path": path, @"time": time};
+            CFPreferencesSetValue(key, (__bridge CFPropertyListRef)request, kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
+            CFPreferencesSynchronize(kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
+            NSArray *answers = DYI(@"command", @{@"code": @6, @"request": @(sent)})[@"answers"];
+            CFPreferencesSetValue(key, NULL, kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
+            CFPreferencesSynchronize(kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
+            return [answers componentsJoinedByString:@"\n"];
+        };
+        NSString *(^eval)(NSString *, uint32_t) = ^NSString *(NSString *path, uint32_t r) { return ask(path, r, r, [NSDate date]); };
+        NSString *a = eval(@"NSApp.hidden", 20);
+        check([a isEqualToString:@"A 20 V NO\nA 20 end 1"], [NSString stringWithFormat:@"a BOOL through its getter (isHidden): %@", a]);
+        a = eval(@"NSApp.windows.title", 21);
+        check([a containsString:@"A 21 V   ["] && [a containsString:@"\"Inspector Test\""], [NSString stringWithFormat:@"a property of each window, their titles: %@", a]);
+        a = eval(@"NSApp.windows[0].frame", 22);
+        check([a hasPrefix:@"A 22 V "] && [a containsString:@"x"] && [a hasSuffix:@"A 22 end 1"], [NSString stringWithFormat:@"a struct: %@", a]);
+        a = eval(@"NSBundle.mainBundle.infoDictionary.CFBundleIdentifier", 23);
+        check([a hasPrefix:@"A 23 V \"local.dynject.inspector.testhost\""], @"a class property, then a dictionary key");
+        a = eval(@"NSBundle.mainBundle.infoDictionary[\"CFBundleIdentifier\"]", 24);
+        check([a hasPrefix:@"A 24 V \"local.dynject.inspector.testhost\""], @"the same with [\"key\"]");
+        a = eval(@"NSBundle.mainBundle.infoDictionary.@keys.@count", 25);
+        check([a hasPrefix:@"A 25 V "] && ![a hasPrefix:@"A 25 V 0\n"], @"@keys, @count");
+        a = eval(@"NSApp.windows.@count", 26);
+        check([a hasPrefix:@"A 26 V "] && [a hasSuffix:@"A 26 end 1"], @"@count of an array");
+
+        NSWindow *w0 = nil;
+        for (NSWindow *w in NSApp.windows) if ([w.title isEqualToString:@"Inspector Test"]) w0 = w;
+        NSView *content = w0.contentView;
+        NSUInteger before = content.subviews.count;
+        NSUInteger index = [NSApp.windows indexOfObject:w0];
+        a = eval([NSString stringWithFormat:@"NSApp.windows[%lu].contentView.subviews.removeFromSuperview", (unsigned long)index], 27);
+        check([a containsString:@"A 27 error "] && [a containsString:@"has no property removeFromSuperview"] && content.subviews.count == before,
+              [NSString stringWithFormat:@"a method that isn't a property isn't called: %@", a]);
+        a = eval(@"NSApp.terminate", 28);
+        check([a isEqualToString:@"A 28 error NSApplication has no property terminate"], [NSString stringWithFormat:@"%@", a]);
+        a = eval(@"NSApp.windows[999]", 29);
+        check([a hasPrefix:@"A 29 error [999]: only "], @"an index past the end");
+        a = eval(@"NoSuchClassAnywhere.x", 30);
+        check([a hasPrefix:@"A 30 error NoSuchClassAnywhere: start with NSApp"], @"an unknown root");
+        a = ask(@"NSApp.windows", 31, 32, [NSDate date]);
+        check([a isEqualToString:@"A 32 refused: no current request for this app"], @"a request number that doesn't match is refused");
+        a = ask(@"NSApp.windows", 33, 33, [NSDate dateWithTimeIntervalSinceNow:-30]);
+        check([a isEqualToString:@"A 33 refused: no current request for this app"], @"an old request is refused");
+    }];
+    [self step:0.1 do:^{
         printf("== settings and cleanup ==\n");
         DYI(@"setEnabled", @{@"value": @NO});
         NSDictionary *s = DYI(@"pick", nil);
