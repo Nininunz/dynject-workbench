@@ -773,6 +773,7 @@ void DYILoadClassNames(void (^done)(NSArray<NSString *> *names)) {
 
 NSString *DYIDisplayClassName(id object) {
     Class c = object_getClass(object);
-    while (c && strncmp(class_getName(c), "NSKVONotifying_", 15) == 0) c = class_getSuperclass(c);
+    // Swift classes come out as "..NSKVONotifying_Module.Name".
+    while (c && strstr(class_getName(c), "NSKVONotifying_")) c = class_getSuperclass(c);
     return c ? NSStringFromClass(c) : @"nil";
 }

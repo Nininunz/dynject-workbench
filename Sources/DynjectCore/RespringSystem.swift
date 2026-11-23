@@ -7,11 +7,15 @@ import Foundation
 
 /// NSWorkspace's running apps with activation policy `.regular` and a bundle.
 public struct WorkspaceRunningApps: RunningAppSource {
-    public init() {}
+    /// Also apps without a Dock icon (ControlCenter, menu bar apps): `dw why` wants them, respring doesn't.
+    public var includeBackground: Bool
+
+    public init(includeBackground: Bool = false) { self.includeBackground = includeBackground }
 
     public func runningApps() -> [RunningApp] {
         let apps = NSWorkspace.shared.runningApplications.filter {
-            $0.activationPolicy == .regular && !$0.isTerminated && $0.bundleIdentifier != nil && $0.bundleURL != nil
+            ($0.activationPolicy == .regular || (includeBackground && $0.activationPolicy == .accessory)) &&
+                !$0.isTerminated && $0.bundleIdentifier != nil && $0.bundleURL != nil
         }
         // launchDate is nil for some apps (launched before the session's LaunchServices knew them); ask ps.
         let missing = apps.filter { $0.launchDate == nil }.map(\.processIdentifier)

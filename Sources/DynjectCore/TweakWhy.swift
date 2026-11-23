@@ -701,7 +701,7 @@ public extension WhyInputs {
         }
 
         var running = WhyRunning.notRunning
-        if let r = WorkspaceRunningApps().runningApps().first(where: { $0.bundleID == app.bundleID }) {
+        if let r = WorkspaceRunningApps(includeBackground: true).runningApps().first(where: { $0.bundleID == app.bundleID }) {
             let planner = RespringPlanner.live(configText: configText, configPath: locations.configPath, logText: logText,
                                                manifests: manifests, safeModeState: state, daemon: daemon)
             let loaded = planner.inspector.loadedDylibs(pids: [r.pid], candidates: planner.tweakDylibs)[r.pid]
