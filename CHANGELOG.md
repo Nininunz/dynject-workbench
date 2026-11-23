@@ -7,6 +7,10 @@ newest first. for testers; the commit log has the details.
 unreleased
 ----------
 
+- `dw inspect <app>`: drives Inspector in a running app from the terminal, including background
+  apps (ControlCenter, the Dock) the hotkey can't reach: open the panel on the app (its windows,
+  menu bar), `--pick`, `--stop`, and `--tree` to print its windows and views without ui. KVO's
+  hidden subclasses show as the class they observe. reinstall Inspector to use it.
 - inspector: menus. inspect the menu bar and walk its items and submenus, or pick any menu item
   (menu bar, context menu, or its shortcut) and it opens instead of running. for an item: its
   shortcut, action, target, where the action goes now (`sent to`: its target, or what the

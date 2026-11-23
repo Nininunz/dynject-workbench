@@ -147,7 +147,7 @@ what's in the box
 - dw: the cli. install/uninstall tweaks, enable per app, respring, logs, safe mode,
   `dw doctor`, `dw why` (why a tweak doesn't load somewhere), `dw dev` (the
   build-test-install-relaunch loop, on every save), `dw hooks` (what the tweaks in a
-  running app hooked, and where two clash).
+  running app hooked, and where two clash), `dw inspect` (Inspector in background apps).
 - DynjectHook: objective-c hooking library you compile into your tweak. docs/hooking.md.
 - settings sdk: `DynjectTweak.h` plus a manifest gives your tweak a settings page.
   docs/tweak-format.md.

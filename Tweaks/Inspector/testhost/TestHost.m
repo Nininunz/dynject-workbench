@@ -793,6 +793,50 @@ static CALayer *ITFindLayer(CALayer *l, BOOL (^match)(CALayer *)) {
         check([ITRow(s, @"sent to")[@"right"] hasPrefix:@"nobody responds"] && !ITRow(s, @"runs"), @"an action nobody implements");
     }];
     [self step:0.1 do:^{
+        printf("== dw inspect ==\n");
+        NSDictionary *s = DYI(@"command", @{@"code": @1, @"request": @7});
+        NSArray *answers = s[@"answers"];
+        check([answers.firstObject hasPrefix:@"A 7 opened "], [NSString stringWithFormat:@"open: %@", answers.firstObject]);
+        s = DYI(@"state", nil);
+        check([s[@"panelVisible"] boolValue], @"the panel is open");
+        s = DYI(@"tab", @{@"name": @"Hierarchy"});
+        check([s[@"targetClass"] hasSuffix:@"NSApplication"] && ITRowsContain(s, @"NSWindow", @"\"Inspector Test\" · level 0") &&
+              !ITRowsContain(s, @"DYIOverlayPanel", nil) && !ITRowsContain(s, @"NSKVONotifying_", nil) && ITRowsContain(s, @"NSMenu", @"main menu"),
+              @"on the app: its windows (not Inspector's own, KVO classes unwrapped) and its menu bar");
+        s = DYI(@"tab", @{@"name": @"Properties"});
+        check([ITRow(s, @"activationPolicy")[@"right"] hasPrefix:@"accessory"], [NSString stringWithFormat:@"activationPolicy: %@", ITRow(s, @"activationPolicy")[@"right"]]);
+        s = DYI(@"command", @{@"code": @4, @"request": @8});
+        answers = s[@"answers"];
+        NSString *all = [answers componentsJoinedByString:@"\n"];
+        check([all containsString:@"A 8 W "] && [all containsString:@" NSWindow level=0 frame="] && ![all containsString:@"NSKVONotifying_"] &&
+              ![all containsString:@"DYIOverlayPanel"] && [all containsString:@"A 8 V 1 "] &&
+              [all containsString:@"ITLeafView frame="] && [answers.lastObject hasPrefix:@"A 8 end windows="],
+              [NSString stringWithFormat:@"tree: %lu lines, windows and views, then end", (unsigned long)answers.count]);
+        s = DYI(@"command", @{@"code": @2, @"request": @9});
+        check([[s[@"answers"] firstObject] isEqualToString:@"A 9 picking"] && [DYI(@"state", nil)[@"pickActive"] boolValue], @"pick: pick mode on");
+        s = DYI(@"command", @{@"code": @3, @"request": @10});
+        s = DYI(@"state", nil);
+        check(![s[@"pickActive"] boolValue] && ![s[@"panelVisible"] boolValue], @"stop: pick mode off, panel closed");
+        DYI(@"setEnabled", @{@"value": @NO});
+        s = DYI(@"command", @{@"code": @1, @"request": @11});
+        check([[s[@"answers"] firstObject] hasPrefix:@"A 11 refused"], @"switched off: refused");
+        DYI(@"setEnabled", @{@"value": @YES});
+        // The real channel: the notification for this pid, with the request in its state.
+        NSString *name = [NSString stringWithFormat:@"local.dynject.inspector.command.%d", getpid()];
+        int token = 0;
+        notify_register_check(name.UTF8String, &token);
+        notify_set_state(token, 4 | (12ull << 8));
+        notify_post(name.UTF8String);
+        notify_cancel(token);
+    }];
+    [self step:0.5 do:^{
+        NSArray *answers = DYI(@"command", @{@"code": @0, @"request": @13})[@"answers"];
+        BOOL viaNotification = NO;
+        for (NSString *a in answers) if ([a hasPrefix:@"A 12 end windows="]) viaNotification = YES;
+        check(viaNotification, @"the same through the darwin notification for this pid");
+        check([answers.lastObject hasPrefix:@"A 13 refused: unknown command 0"], @"an unknown command is refused");
+    }];
+    [self step:0.1 do:^{
         printf("== settings and cleanup ==\n");
         DYI(@"setEnabled", @{@"value": @NO});
         NSDictionary *s = DYI(@"pick", nil);

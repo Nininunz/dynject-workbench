@@ -29,7 +29,8 @@ layout
                                   SafeModeCommands.swift, RespringCommand.swift, BridgeCommands.swift,
                                   DoctorCommand.swift, WhyCommand.swift, DevCommand.swift (dw dev; its
                                   decisions are DynjectCore's DevLoop.swift), HooksCommand.swift (dw hooks;
-                                  the report is HookReport.swift)
+                                  the report is HookReport.swift), InspectCommand.swift (dw inspect),
+                                  ProcessRequest.swift (asking a process through a notification, answers in the log)
     Sources/DynjectLiveTrial/     live privileged trial runner against /opt/dynject. run only when you mean it.
     TweakSDK/                     DynjectTweak.h (settings, header only), DynjectHook.h + DynjectHook.m
                                   (hooking), DynjectBridge.h + DynjectBridge.m (the bridge client). also the

@@ -1,10 +1,8 @@
 // `dw hooks <app>`: asks the DynjectHook copies in a running app what they have hooked (TweakSDK/DynjectHook.m,
 // "Hook reports") and shows it per tweak, with the methods two tweaks hook. The report is DynjectCore's HookReport;
 // this file sends the request, reads the answers from the unified log and prints.
-import AppKit
 import DynjectCore
 import Foundation
-import notify
 
 let hooksUsage = """
 usage: dw hooks <app> [--scan] [--timeout S] [--json]
@@ -49,29 +47,8 @@ func hooksCommand(_ args: [String]) {
         i += 1
     }
     guard (pid != nil) != (positional.count == 1), positional.count <= 1 else { fail(hooksUsage, 2) }
-
-    // The process.
-    var appName = "", bundleID = ""
-    if let p = pid {
-        guard let app = NSRunningApplication(processIdentifier: p) else {
-            if kill(p, 0) != 0 { fail("no process \(p)", 2) }
-            bundleID = "?"; appName = "pid \(p)"
-            return run(pid: p, appName: appName, bundleID: bundleID, scan: scan, json: json, timeout: timeout)
-        }
-        appName = app.localizedName ?? "pid \(p)"
-        bundleID = app.bundleIdentifier ?? "?"
-    } else {
-        let arg = positional[0]
-        var id = arg
-        if case let .success(app) = WhyLookup.app(arg, apps: AppDiscovery.scan(roots: AppDiscovery.defaultRoots)) { id = app.bundleID }
-        let running = NSRunningApplication.runningApplications(withBundleIdentifier: id)
-        guard let app = running.first else { fail("\(arg) isn't running (\(id))", 2) }
-        if running.count > 1 { print("note: \(running.count) copies are running; asking pid \(app.processIdentifier)") }
-        pid = app.processIdentifier
-        appName = app.localizedName ?? id
-        bundleID = id
-    }
-    run(pid: pid!, appName: appName, bundleID: bundleID, scan: scan, json: json, timeout: timeout)
+    let app = runningApp(positional.first, pid: pid, usage: hooksUsage)
+    run(pid: app.pid, appName: app.name, bundleID: app.bundleID, scan: scan, json: json, timeout: timeout)
 }
 
 private func run(pid: pid_t, appName: String, bundleID: String, scan: Bool, json: Bool, timeout: Double?) {
@@ -88,79 +65,21 @@ private func run(pid: pid_t, appName: String, bundleID: String, scan: Bool, json
     let canAnswer = loaded.filter { HookReportSupport.supports(dylibAt: $0) == true }.count
 
     // Listen first, then ask.
-    let stream = Process()
-    stream.executableURL = URL(fileURLWithPath: "/usr/bin/log")
-    stream.arguments = ["stream", "--style", "compact", "--level", "default", "--predicate", "subsystem == \"dynject.hooks\" AND processID == \(pid)"]
-    let pipe = Pipe()
-    stream.standardOutput = pipe
-    stream.standardError = FileHandle.nullDevice
-    let lock = NSLock()
-    var messages: [String] = []
-    var ready = false
-    var partial = ""
-    pipe.fileHandleForReading.readabilityHandler = { h in
-        let data = h.availableData
-        guard !data.isEmpty else { h.readabilityHandler = nil; return }
-        lock.lock()
-        partial += String(decoding: data, as: UTF8.self)
-        var lines = partial.components(separatedBy: "\n")
-        partial = lines.removeLast()
-        for line in lines {
-            if line.hasPrefix("Filtering the log data") { ready = true }
-            if let l = WhyLogLine.parse(line).first { messages.append(l.message) }
-        }
-        lock.unlock()
-    }
-    do { try stream.run() } catch { fail("can't run log stream: \(error.localizedDescription)") }
-    let readyBy = Date().addingTimeInterval(3)
-    while Date() < readyBy {
-        lock.lock(); let r = ready; lock.unlock()
-        if r { break }
-        usleep(50_000)
-    }
-    usleep(300_000)   // log stream prints its header before it is connected
-
-    let asked = Date().addingTimeInterval(-1)
-    let request = UInt32.random(in: 1...UInt32.max)
-    let name = "dynject.hooks.report.\(pid)"
-    var token: Int32 = 0
-    guard notify_register_check(name, &token) == UInt32(NOTIFY_STATUS_OK) else { stream.terminate(); fail("can't register \(name)") }
-    notify_set_state(token, UInt64(request) | (scan ? (UInt64(1) << 32) : 0))
-    notify_post(name)
+    let ask = ProcessRequest(pid: pid, subsystem: "dynject.hooks")
+    let request = ask.request
+    let prefix = "R \(request) "
+    ask.post("dynject.hooks.report.\(pid)", state: UInt64(request) | (scan ? (UInt64(1) << 32) : 0))
 
     // Done when every copy that started an answer has ended it, at least as many as the loaded dylibs that can
-    // answer (copies outside the tweaks folder may answer too), the scan is in if asked for, and no line has come
-    // for a moment.
-    // No loaded dylib that can answer: only a copy elsewhere might, so don't wait long.
-    let deadline = Date().addingTimeInterval(timeout ?? (canAnswer == 0 ? (scan ? 3 : 1.2) : (scan ? 10 : 3)))
-    var report = HookReport()
-    var seen = 0
-    var lastLine = Date()
-    while Date() < deadline {
-        usleep(100_000)
-        lock.lock(); let snapshot = messages; lock.unlock()
-        let mine = snapshot.filter { $0.hasPrefix("R \(request) ") }.count
-        if mine != seen { seen = mine; lastLine = Date() }
-        report = HookReport.parse(snapshot, request: request)
-        let ended = report.copies.filter(\.complete).count
-        let allEnded = ended == report.copies.count && ended >= max(canAnswer, 1)
-        if allEnded && (!scan || report.scanFinished) && Date().timeIntervalSince(lastLine) >= 0.4 { break }
+    // answer (copies outside the tweaks folder may answer too), and the scan is in if asked for. No loaded dylib that
+    // can answer: only a copy elsewhere might, so don't wait long.
+    let timeoutSeconds = timeout ?? (canAnswer == 0 ? (scan ? 3 : 1.2) : (scan ? 10 : 3))
+    ask.wait(prefix: prefix, timeout: timeoutSeconds) { lines in
+        let r = HookReport.parse(lines, request: request)
+        let ended = r.copies.filter(\.complete).count
+        return ended == r.copies.count && ended >= max(canAnswer, 1) && (!scan || r.scanFinished)
     }
-    stream.terminate()
-    notify_cancel(token)
-
-    // `log stream` can miss the first lines a process logs after it starts listening (the process learns about the
-    // stream asynchronously); they are in the log store all the same. Read that too and keep whichever has more.
-    let f = DateFormatter()
-    f.locale = Locale(identifier: "en_US_POSIX")
-    f.dateFormat = "yyyy-MM-dd HH:mm:ss"
-    if let shown = try? ProcessRunner.run("/usr/bin/log", ["show", "--style", "compact", "--start", f.string(from: asked),
-                                                           "--predicate", "subsystem == \"dynject.hooks\" AND processID == \(pid)"]) {
-        let stored = WhyLogLine.parse(shown.stdout).map(\.message)
-        lock.lock(); let streamed = messages; lock.unlock()
-        func count(_ m: [String]) -> Int { m.filter { $0.hasPrefix("R \(request) ") }.count }
-        if count(stored) > count(streamed) { report = HookReport.parse(stored, request: request) }
-    }
+    let report = HookReport.parse(ask.finish(prefix: prefix), request: request)
 
     var names: [String: String] = [:]
     var idForDylib: [String: String] = [:]

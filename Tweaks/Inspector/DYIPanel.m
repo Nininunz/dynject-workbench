@@ -539,6 +539,23 @@ static NSString *DYILayerInfo(CALayer *l) {
             if (w.childWindows.count || w.parentWindow) [rows addObject:[DYIRow group:@"Windows"]];
             if (w.parentWindow) [rows addObject:DYILinkRow(NSStringFromClass(object_getClass(w.parentWindow)), w.parentWindow, @"parent window", 0)];
             for (NSWindow *c in w.childWindows) [rows addObject:DYILinkRow(NSStringFromClass(object_getClass(c)), c, @"child window", 0)];
+        } else if ([o isKindOfClass:[NSApplication class]]) {
+            NSApplication *app = o;
+            NSUInteger shown = 0;
+            for (NSWindow *w in app.windows) shown += [[DYIPicker shared] isOwnWindow:w] ? 0 : 1;
+            [rows addObject:[DYIRow group:[NSString stringWithFormat:@"Windows (%lu)", (unsigned long)shown]]];
+            for (NSWindow *w in app.windows) {
+                if ([[DYIPicker shared] isOwnWindow:w]) continue;
+                NSString *title = w.title.length ? [NSString stringWithFormat:@"\"%@\" · ", w.title] : @"";
+                NSString *right = [NSString stringWithFormat:@"%@level %ld · %@ · %@", title, (long)w.level, NSStringFromRect(w.frame),
+                                   w.isVisible ? @"visible" : @"hidden"];
+                [rows addObject:DYILinkRow(DYIDisplayClassName(w), w, right, 0)];
+            }
+            if (app.mainMenu) {
+                [rows addObject:[DYIRow group:@"Menu bar"]];
+                [rows addObject:DYILinkRow(NSStringFromClass(object_getClass(app.mainMenu)), app.mainMenu,
+                                           [NSString stringWithFormat:@"main menu · %ld items", (long)app.mainMenu.numberOfItems], 0)];
+            }
         } else if ([o isKindOfClass:[NSMenu class]] || [o isKindOfClass:[NSMenuItem class]]) {
             BOOL isItem = [o isKindOfClass:[NSMenuItem class]];
             NSMenu *menu = isItem ? ((NSMenuItem *)o).menu : o;
@@ -655,6 +672,18 @@ static NSString *DYILayerInfo(CALayer *l) {
             add(@"alphaValue", [NSString stringWithFormat:@"%g", w.alphaValue]);
             add(@"windowNumber", [NSString stringWithFormat:@"%ld", (long)w.windowNumber]);
             link(@"contentView", w.contentView);
+        }
+        if ([o isKindOfClass:[NSApplication class]]) {
+            NSApplication *app = o;
+            add(@"bundle identifier", NSBundle.mainBundle.bundleIdentifier ?: @"nil");
+            add(@"activationPolicy", app.activationPolicy == NSApplicationActivationPolicyRegular ? @"regular"
+                                     : app.activationPolicy == NSApplicationActivationPolicyAccessory ? @"accessory (no Dock icon)" : @"prohibited");
+            add(@"isActive", app.isActive ? @"YES" : @"NO");
+            add(@"windows", [NSString stringWithFormat:@"%lu", (unsigned long)app.windows.count]);
+            link(@"keyWindow", app.keyWindow);
+            link(@"mainWindow", app.mainWindow);
+            link(@"mainMenu", app.mainMenu);
+            link(@"delegate", app.delegate);
         }
         if ([o isKindOfClass:[NSMenuItem class]]) {
             NSMenuItem *it = o;

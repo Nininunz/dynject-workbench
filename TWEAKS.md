@@ -436,6 +436,8 @@ debugging
   layers, click. class, image, hierarchy, properties, methods with readable signatures,
   ivars, a runtime class search, and copy hook for a DynjectHook skeleton with exact types.
 - a tweak doesn't load in one app: `dw why <tweak> <app>` names the check that stops it.
+- what's in a background app (ControlCenter, the Dock, menu bar apps): `dw inspect <app>`
+  opens Inspector's panel there, `--pick` picks there, `--tree` prints its windows and views.
 - two tweaks fighting over a method: `dw hooks <app>` lists what each tweak in the running
   app hooked, which hook is on top, and the methods more than one tweak hooks. `--scan`
   also finds hooks made without DynjectHook.

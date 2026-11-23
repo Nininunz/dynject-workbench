@@ -147,6 +147,7 @@ case ("doctor", _): doctorCommand(Array(a.dropFirst()))
 case ("why", _): whyCommand(Array(a.dropFirst()))
 case ("dev", _): devCommand(Array(a.dropFirst()))
 case ("hooks", _): hooksCommand(Array(a.dropFirst()))
+case ("inspect", _): inspectCommand(Array(a.dropFirst()))
 case ("new", _): newTweak(Array(a.dropFirst()))
 case ("install", 2): install(a[1])
 case ("enable", 3): setEnabled(true, dylib: a[1], bundleID: a[2])
@@ -175,6 +176,7 @@ default:
       dw doctor [--apis] [--json] [--quiet]   check the setup (read-only); --apis: private apis after a macos update
       dw why <tweak> <app> [--no-log] [--json]   why a tweak does or doesn't load into an app (read-only)
       dw hooks <app> [--scan] [--json]   what the tweaks in a running app have hooked, and clashes (read-only)
+      dw inspect <app> [--pick | --tree | --stop]   drive Inspector in an app, background apps included
       dw log <subsystem> [minutes]
       dw safemode ...   (dw safemode help)
       dw bridge ...     (dw bridge help)

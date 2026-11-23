@@ -104,6 +104,26 @@ without a layout, `-dealloc`, retain/release and methods that look variadic (`..
 `#import <QuartzCore/QuartzCore.h>` for CA types.
 
 
+from the terminal: dw inspect
+----------------------------
+
+background apps (ControlCenter, the Dock, menu bar apps) are never frontmost, so the hotkey and the
+apple-menu item can't reach them. `dw inspect` can:
+
+    dw inspect ControlCenter            # open the panel there, on the app: its windows and menu bar
+    dw inspect ControlCenter --pick     # pick mode there: point at its windows (menu bar items, panels), click
+    dw inspect ControlCenter --stop     # end pick mode, close the panel (esc doesn't reach a background app)
+    dw inspect ControlCenter --tree     # its windows and views in the terminal, no ui
+
+`--tree` prints each window (number, class, level, frame, visible, title) and its views from the frame view down
+(class, frame, hidden, identifier, accessibility identifier, layer class). KVO's hidden subclasses
+(`NSKVONotifying_…`) show as the class they observe, and Inspector's own windows are left out.
+
+it works through a darwin notification for the app's pid (`local.dynject.inspector.command.<pid>`) whose state
+carries the command and a request id; Inspector answers in the log (subsystem `dynject.inspect`). Inspector has to be
+loaded in the app: the default config keeps it out of ControlCenter and the Dock (`dw why inspector <app>`).
+
+
 menus
 -----
 

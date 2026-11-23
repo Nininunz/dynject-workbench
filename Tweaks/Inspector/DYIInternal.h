@@ -69,6 +69,9 @@ DYI_HIDDEN NSString *DYIImageOfClass(Class cls);
 DYI_HIDDEN NSString *DYIImageOfIMP(IMP _Nullable imp);
 /// "QuartzCore" for ".../QuartzCore.framework/Versions/A/QuartzCore", "libfoo.dylib" for dylibs.
 DYI_HIDDEN NSString *DYIShortImageName(NSString *path);
+/// The class name to show for an object: its class, or the observed class behind a KVO subclass
+/// ("NSKVONotifying_NSWindow" -> "NSWindow").
+DYI_HIDDEN NSString *DYIDisplayClassName(id object);
 /// cls, its superclass, ... up to the root class.
 DYI_HIDDEN NSArray<Class> *DYIClassChain(Class cls);
 /// Readable type for an encoding (display), e.g. "double", "NSString *", "CGRect", "struct Foo *".
@@ -147,6 +150,8 @@ DYI_HIDDEN void DYILoadClassNames(void (^done)(NSArray<NSString *> *names));
 - (void)toggleLayerMode;
 /// Selects the current candidate: opens the inspector on it and leaves pick mode.
 - (void)selectCurrent;
+/// The overlay or the inspector panel.
+- (BOOL)isOwnWindow:(NSWindow *)w;
 /// Recomputes the candidate for a screen point (test runs feed points here; normally the mouse position).
 - (void)updateForScreenPoint:(NSPoint)point;
 #ifdef DYI_TEST
@@ -176,6 +181,8 @@ DYI_HIDDEN NSRect DYILayerRectInWindow(CALayer *layer, NSView *host);
 - (void)inspectClass:(Class)cls;
 /// Esc while picking a menu item.
 - (void)menuPickCancelled;
+/// Shows the panel (placing it the first time).
+- (void)showPanel;
 - (void)close;
 #ifdef DYI_TEST
 /// Test hook: answers one command (see testhost/TestHost.m). Returns the reply.
