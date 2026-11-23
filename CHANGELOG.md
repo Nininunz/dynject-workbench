@@ -7,6 +7,13 @@ newest first. for testers; the commit log has the details.
 unreleased
 ----------
 
+- examples/NotchPadding: keeps the menu bar's contents a set distance from the notch (40 points
+  each side by default, live setting). it loads into MenuBarAgent, which lays out the whole menu
+  bar around `-[NSScreen _notchFrame]`, and widens that notch: app menus that don't fit move past
+  it, status icons that don't fit go into the «.
+- `dw tweak install --for` / `dw enable` for an app launchd starts under its own label (MenuBarAgent:
+  `com.apple.MenuBarAgent`) add `allow:<executable>` so dynjectd's xpc filter lets it through, and
+  `dw why` knows the labels of MenuBarAgent and ControlCenter.
 - `dw inspect <app>`: drives Inspector in a running app from the terminal, including background
   apps (ControlCenter, the Dock) the hotkey can't reach: open the panel on the app (its windows,
   menu bar), `--pick`, `--stop`, and `--tree` to print its windows and views without ui. KVO's

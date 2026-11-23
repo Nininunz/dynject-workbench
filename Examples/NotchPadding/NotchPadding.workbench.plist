@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>formatVersion</key><integer>1</integer>
+	<key>identifier</key><string>local.dynject.notchpadding</string>
+	<key>name</key><string>Notch Padding</string>
+	<key>summary</key><string>Keeps menu bar items a set distance from the notch.</string>
+	<key>version</key><string>0.1.0</string>
+	<key>dylib</key><string>/opt/dynject/lib/tweaks/libNotchPadding.dylib</string>
+	<key>minimumSystemVersion</key><string>27.0</string>
+	<key>testedSystemVersions</key><string>27.2</string>
+	<key>takesEffect</key><string>live</string>
+	<key>requires</key>
+	<array>
+		<dict>
+			<key>class</key><string>NSScreen</string>
+			<key>image</key><string>AppKit</string>
+			<key>methods</key><array><string>-_notchFrame</string><string>-_notchFrameForSpace:</string></array>
+		</dict>
+	</array>
+	<key>sections</key>
+	<array>
+		<dict>
+			<key>title</key><string>Notch</string>
+			<key>footer</key><string>Loads into MenuBarAgent, which lays out the menu bar: app menus that don't fit before the notch move after it, and status icons that don't fit go into the «. On a Mac without a notch it does nothing.</string>
+			<key>items</key>
+			<array>
+				<dict>
+					<key>type</key><string>switch</string>
+					<key>key</key><string>enabled</string>
+					<key>title</key><string>Enabled</string>
+					<key>default</key><true/>
+				</dict>
+				<dict>
+					<key>type</key><string>slider</string>
+					<key>key</key><string>padding</string>
+					<key>title</key><string>Space on each side of the notch (points)</string>
+					<key>min</key><real>0</real>
+					<key>max</key><real>200</real>
+					<key>step</key><real>2</real>
+					<key>integer</key><true/>
+					<key>default</key><integer>40</integer>
+					<key>enabledIf</key><string>enabled</string>
+				</dict>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

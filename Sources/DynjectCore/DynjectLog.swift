@@ -165,6 +165,8 @@ public enum ServiceNameResolver {
     public static let knownLaunchdLabels: [String: String] = [
         "com.apple.finder": "com.apple.Finder",
         "com.apple.dock": "com.apple.Dock.agent",
+        "com.apple.controlcenter": "com.apple.controlcenter",
+        "com.apple.menubaragent": "com.apple.MenuBarAgent",
     ]
 
     public static func resolve(_ app: InstalledApp, log: DynjectLogSnapshot?) -> ServiceName {

@@ -126,7 +126,21 @@ public enum ConfigEditor {
                 changes.append(.inserted(text: rule))
                 notes.append("Added \(rule) so dynjectd's process filter lets \(app.executableName) through. It is a substring match on the executable name and path.")
             }
-            let service = PolicyEvaluator.serviceGate(target.service, config: EffectiveConfig(document: doc))
+            var service = PolicyEvaluator.serviceGate(target.service, config: EffectiveConfig(document: doc))
+            // An app launchd starts under its own label (MenuBarAgent: "com.apple.MenuBarAgent") isn't an
+            // "application." service, so only an allow rule lets it through. allow:<executable> is one when the label
+            // contains the executable's name; system daemons and deny rules still refuse.
+            let effectiveNow = EffectiveConfig(document: doc)
+            if !service.passed, target.service.contains(app.executableName),
+               PolicyEvaluator.systemDaemonPatterns.allSatisfy({ !target.service.contains($0) }),
+               effectiveNow.denyRules.allSatisfy({ !target.service.contains($0.value) }) {
+                let rule = "allow:\(app.executableName)"
+                let insertAt = (effectiveNow.allowRules.last?.line).map { $0 + 1 } ?? doc.lines.count
+                doc.insertLine(rule, at: insertAt)
+                changes.append(.inserted(text: rule))
+                notes.append("Added \(rule): launchd starts \(app.displayName) as \(target.service), not as an \"application.\" service, so dynjectd's XPC filter lets it through only with an allow rule. It is a substring match on service names, executable names and paths.")
+                service = PolicyEvaluator.serviceGate(target.service, config: EffectiveConfig(document: doc))
+            }
             if !service.passed {
                 throw InjectionEditError.blocked(
                     "dynjectd's XPC filter rejects this app: \(service.reason). Adjust allow/deny rules in the raw editor.")

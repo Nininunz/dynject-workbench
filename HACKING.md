@@ -37,8 +37,8 @@ layout
                                   DynjectTweakSDK target, so tests can compile against it.
     Tweaks/MenuLoader/            the apple-menu loader tweak, its build.sh and testhost/
     Tweaks/Inspector/             the in-app inspector tweak, its build.sh (`test` runs testhost/)
-    Examples/                     ExampleTweak.workbench.plist (every item type), TitleBadge/ and
-                                  OLEDFinder/ (example tweaks)
+    Examples/                     ExampleTweak.workbench.plist (every item type), TitleBadge/,
+                                  OLEDFinder/ and NotchPadding/ (example tweaks)
     Tests/DynjectCoreTests/       unit tests + Fixtures/ (live.conf is a byte copy of a real config)
     Tests/DynjectHookTests/       objective-c tests for DynjectHook, and the bridge sdk's local refusals
     Tests/DynjectHookSwiftFixtures/  swift classes for DynjectHook's swift class lookup tests
@@ -64,7 +64,7 @@ building and tests
     ./scripts/test-all.sh               # everything below that leaves your screen alone, one summary (~2.5 min)
     ./scripts/test-all.sh --quick       # unit tests and builds only
     ./scripts/test-all.sh --all         # plus the e2e scripts and the ui smoke test (they open test apps)
-    swift test                          # 444 tests, ~20 s
+    swift test                          # 445 tests, ~20 s
     swift test --filter DynjectHookTests
     ./scripts/build-app.sh              # build/Dynject Workbench.app, release, ad-hoc unless SIGN_IDENTITY
     ./scripts/ui-smoke-test.sh          # drives the built app against fixtures
@@ -77,7 +77,7 @@ building and tests
     Tests/ImportHost/run.sh                       # import hooks in arm64e / arm64 / x86_64 (rosetta) hosts
     open "build/Dynject Workbench.app"
 
-current counts (2026-11-21): 317 DynjectCore (parser, editor, helper script, writer,
+current counts (2026-11-23): 318 DynjectCore (parser, editor, helper script, writer,
 plists, tweaks, apple menu, safe mode, respring, tweak install and template, version
 notice, bridge, doctor, why, dev, hooks, requires, versions and compatibility), 101 DynjectHook (3 of them
 the bridge sdk, 7 the macos guard and the sdk and ctor markers, 8 import hooks, 2 hook reports), 26 DynjectWorkbench (launch arguments,

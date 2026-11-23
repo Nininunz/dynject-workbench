@@ -154,6 +154,31 @@ final class ConfigEditorTests: XCTestCase {
         XCTAssertEqual(injected(Apps.outside, r.document.text).contains("/opt/dynject/lib/tweaks/libBeta.dylib"), true)
     }
 
+    /// MenuBarAgent: launchd starts it as "com.apple.MenuBarAgent", which no built-in pattern admits; allow:MenuBarAgent
+    /// (part of that label) does. A system daemon's label isn't opened that way.
+    func testLaunchdLabelGetsAnAllowGate() throws {
+        let agent = InstalledApp(displayName: "MenuBarAgent", bundleID: "com.apple.MenuBarAgent", executableName: "MenuBarAgent",
+                                 executablePath: "/System/Library/CoreServices/MenuBarAgent.app/Contents/MacOS/MenuBarAgent",
+                                 bundlePath: "/System/Library/CoreServices/MenuBarAgent.app")
+        let target = InjectionTarget(app: agent, service: "com.apple.MenuBarAgent")
+        let text = "dylib:/opt/dynject/lib/tweaks/libX.dylib:deny\n"
+        let r = try ConfigEditor.setInjection(true, dylib: "/opt/dynject/lib/tweaks/libX.dylib", for: target, in: ConfigDocument(text: text),
+                                              allTargets: [target], fileExists: exists())
+        XCTAssertTrue(r.document.text.contains("allow:MenuBarAgent\n"), r.document.text)
+        XCTAssertTrue(r.document.text.contains("dylib-override:/opt/dynject/lib/tweaks/libX.dylib:allow:com.apple.MenuBarAgent"))
+        XCTAssertTrue(r.notes.contains { $0.contains("launchd starts MenuBarAgent as com.apple.MenuBarAgent") }, "\(r.notes)")
+        let evaluation = PolicyEvaluator.evaluate(app: agent, service: target.service, config: EffectiveConfig(document: r.document), fileExists: exists())
+        XCTAssertEqual(evaluation.injectedDylibs, ["/opt/dynject/lib/tweaks/libX.dylib"])
+
+        let daemon = InstalledApp(displayName: "cfprefsd", bundleID: "com.apple.cfprefsd", executableName: "cfprefsd",
+                                  executablePath: "/System/Library/CoreServices/cfprefsd.app/Contents/MacOS/cfprefsd",
+                                  bundlePath: "/System/Library/CoreServices/cfprefsd.app")
+        let t2 = InjectionTarget(app: daemon, service: "com.apple.cfprefsd.xpc.agent")
+        XCTAssertThrowsError(try ConfigEditor.setInjection(true, dylib: "/opt/dynject/lib/tweaks/libX.dylib", for: t2,
+                                                           in: ConfigDocument(text: text), allTargets: [t2], fileExists: exists()),
+                             "a system daemon pattern still refuses")
+    }
+
     func testNoOpWhenAlreadyInEffect() throws {
         let live = Fixtures.text("live.conf")
         let r = try set(true, brutalium, Apps.finder, in: live)
