@@ -65,5 +65,17 @@ injected: the two notch methods are hooked, and with a notch, padding 30 makes i
 beside it 30 shorter each; padding 0 and switched off give the real notch. without a notch everything must stay
 empty.
 
+`./build.sh sweep [paddings…]` checks the real menu bar (live: needs the tweak installed). it builds the demo and
+`demo/Sweep.swift`, which drives the demo through a notification: 0 to 20 status items with 3 menus, then 0 to 24 menus
+with 14 items, at each padding (default 0 20 40). after each step it reads MenuBarAgent's frames with
+`dw inspect MenuBarAgent --tree` and fails if a menu, a shown status item or the « is drawn inside the notch widened by
+the padding. it also says what's under Clerestory's notch window, when that's on screen. the demo comes to the front
+while it runs; at the end the setting is put back.
+
+seen (macOS 27.2, 14" notch at 918–1138, Clerestory's window 878–1178): 138 steps, none inside the padded notch.
+MenuBarAgent keeps its own 20 points from the notch: menus that move past it start 20 points after it, and nothing
+came closer than 20 on either side. so with padding 0 menus ended up under Clerestory (12 steps); with 20 or 40,
+nothing did. status items never went left of the notch.
+
 `requires` in the manifest lists `-[NSScreen _notchFrame]` and `-_notchFrameForSpace:`, so `dw doctor --apis` says so
 after a macOS update that removes them.

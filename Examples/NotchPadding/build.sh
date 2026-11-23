@@ -27,8 +27,14 @@ dylib() {
 
 # ./build.sh demo: build demo/NotchDemo.app (status items and menus that crowd the menu bar, padding buttons) and
 # open it. It needs the tweak installed for MenuBarAgent (see README.md); it doesn't build the tweak.
-if [ "${1:-}" = "demo" ]; then
+# ./build.sh sweep [paddings…]: the demo, then demo/Sweep.swift, which steps it through icon and menu counts at each
+# padding (default 0 20 40) and checks MenuBarAgent's frames (dw inspect) keep out of the padded notch.
+if [ "${1:-}" = "demo" ] || [ "${1:-}" = "sweep" ]; then
   APP="$OUT/NotchDemo.app"
+  if pgrep -qf "$APP/Contents/MacOS/NotchDemo"; then   # an old copy: quit it (it puts back the setting it found)
+    osascript -e 'tell application id "local.dynject.notchpadding.demo" to quit' >/dev/null 2>&1 || true
+    sleep 1
+  fi
   rm -rf "$APP"
   mkdir -p "$APP/Contents/MacOS"
   cat > "$APP/Contents/Info.plist" <<'PLIST'
@@ -45,8 +51,13 @@ PLIST
     "$DIR/demo/NotchDemo.m" -o "$APP/Contents/MacOS/NotchDemo"
   codesign --force --sign - --timestamp=none "$APP"
   echo "Built $APP"
-  open "$APP"
-  exit 0
+  if [ "$1" = "demo" ]; then open "$APP"; exit 0; fi
+  shift
+  xcrun swiftc -O -sdk "$SDK" "$DIR/demo/Sweep.swift" -o "$OUT/NotchSweep"
+  # dw: the repository's build when there is one, else the one on PATH
+  REPO_DW="$DIR/../../.build/debug/dw"
+  [ -x "$REPO_DW" ] && export DW="${DW:-$REPO_DW}"
+  exec "$OUT/NotchSweep" "$APP" "$@"
 fi
 
 dylib "$OUT"

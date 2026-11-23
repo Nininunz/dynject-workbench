@@ -3,11 +3,15 @@
 // does. Quitting removes the items and puts the setting back as it was.
 //
 //   ../build.sh demo     builds build/NotchDemo.app and opens it
+//   ../build.sh sweep    the same, then demo/Sweep.swift drives it through the "set" notification below
 #import <AppKit/AppKit.h>
 #import <notify.h>
 
 static NSString *const kKey = @"dynject.tweak.local.dynject.notchpadding";
 static const char *kNotify = "dynject.tweak.local.dynject.notchpadding.changed";
+// For scripts (demo/Sweep.swift): the state carries status items (bits 0-7), menus (8-15) and padding (16-23: 0 leaves
+// it, 1-201 is padding + 1, 255 switches the tweak off).
+static const char *kSetNotify = "local.dynject.notchpadding.demo.set";
 
 // Menu titles of different widths, like a real app's.
 static NSArray<NSString *> *MenuTitles(void) {
@@ -74,6 +78,17 @@ static NSArray<NSString *> *MenuTitles(void) {
     [NSApp activate];
     [self rebuildItems:14];
     [self rebuildMenus:14];
+
+    int token;
+    notify_register_dispatch(kSetNotify, &token, dispatch_get_main_queue(), ^(int t) {
+        uint64_t state = 0;
+        notify_get_state(t, &state);
+        [self rebuildItems:(NSInteger)(state & 0xff)];
+        [self rebuildMenus:(NSInteger)((state >> 8) & 0xff)];
+        unsigned padding = (unsigned)((state >> 16) & 0xff);
+        if (padding == 255) [self applyPadding:-1];
+        else if (padding > 0) [self applyPadding:(NSInteger)padding - 1];
+    });
 }
 
 - (void)rebuildItems:(NSInteger)n {
@@ -126,17 +141,21 @@ static NSArray<NSString *> *MenuTitles(void) {
 - (void)items:(NSButton *)sender { [self rebuildItems:(NSInteger)self.items.count + sender.tag]; }
 - (void)menus:(NSButton *)sender { [self rebuildMenus:self.menuCount + sender.tag]; }
 
-/// Writes the tweak's settings the way Workbench does (docs/tweak-format.md) and tells it.
 - (void)padding:(NSButton *)sender {
-    BOOL on = sender.tag >= 0;
+    [self applyPadding:sender.tag];
+    self.touchedSettings = YES;   // a script (Sweep.swift) puts the setting back itself
+}
+
+/// Writes the tweak's settings the way Workbench does (docs/tweak-format.md) and tells it; -1 switches it off.
+- (void)applyPadding:(NSInteger)padding {
+    BOOL on = padding >= 0;
     NSDictionary *payload = @{@"formatVersion": @1, @"perApp": @{}, @"defaults": @{@"enabled": @YES, @"padding": @40},
-                              @"values": on ? @{@"enabled": @YES, @"padding": @(sender.tag)} : @{@"enabled": @NO}};
+                              @"values": on ? @{@"enabled": @YES, @"padding": @(padding)} : @{@"enabled": @NO}};
     CFPreferencesSetValue((__bridge CFStringRef)kKey, (__bridge CFPropertyListRef)payload, kCFPreferencesAnyApplication,
                           kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
     CFPreferencesSynchronize(kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
     notify_post(kNotify);
-    self.touchedSettings = YES;
-    self.paddingLabel.stringValue = on ? [NSString stringWithFormat:@"Padding: %ld points each side", (long)sender.tag]
+    self.paddingLabel.stringValue = on ? [NSString stringWithFormat:@"Padding: %ld points each side", (long)padding]
                                        : @"Padding: tweak switched off (the real notch)";
 }
 
