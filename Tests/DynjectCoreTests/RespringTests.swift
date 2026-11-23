@@ -301,6 +301,7 @@ final class RespringerTests: XCTestCase {
             case .quitting: phases.append("\(p.index):quit")
             case .waitingToQuit: phases.append("\(p.index):wait")
             case .opening: phases.append("\(p.index):open")
+            case .waitingForLaunchd: phases.append("\(p.index):launchd")
             case .verifying: phases.append("\(p.index):verify")
             case .finished: phases.append("\(p.index):done")
             }

@@ -181,6 +181,7 @@ func respringCommand(_ args: [String]) {
                 print("    still running after \(s) s…")
             }
         case .opening: print("    opening in the background…")
+        case .waitingForLaunchd: print("    waiting for launchd to start it again…")
         case .verifying: print("    checking its tweaks…")
         case let .finished(r): print("    \(r.summary(labels: planner.tweakLabels))")
         }

@@ -562,6 +562,7 @@ final class RespringModel {
         case .quitting: activity[pid] = "Quitting…"
         case let .waitingToQuit(elapsed): activity[pid] = "Waiting for it to quit (\(Int(elapsed)) s of \(Int(quitTimeout)))…"
         case .opening: activity[pid] = "Opening in the background…"
+        case .waitingForLaunchd: activity[pid] = "Waiting for launchd to start it again…"
         case .verifying: activity[pid] = "Checking its tweaks…"
         case let .finished(r):
             activity[pid] = nil

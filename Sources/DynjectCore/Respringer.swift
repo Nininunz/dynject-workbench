@@ -172,6 +172,8 @@ public struct RespringProgress: Sendable {
         case quitting
         case waitingToQuit(elapsed: TimeInterval)
         case opening
+        /// A system agent quit; launchd is to start it again.
+        case waitingForLaunchd
         case verifying
         case finished(RespringResult)
     }
@@ -296,8 +298,8 @@ public final class Respringer {
             // Only launchd starts these: opening the bundle would make a second copy outside launchd.
             let waited = clock.now()
             var found = restarted()
+            if found == nil { report(.waitingForLaunchd) }
             while found == nil && clock.now().timeIntervalSince(waited) < settings.restartTimeout {
-                report(.opening)
                 clock.sleep(settings.pollInterval)
                 found = restarted()
             }
