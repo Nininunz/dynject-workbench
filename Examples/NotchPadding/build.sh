@@ -25,6 +25,30 @@ dylib() {
   [ "$exported" = 0 ] || { nm -gU "$out/libNotchPadding.dylib"; echo "error: exported symbols" >&2; exit 1; }
 }
 
+# ./build.sh demo: build demo/NotchDemo.app (status items and menus that crowd the menu bar, padding buttons) and
+# open it. It needs the tweak installed for MenuBarAgent (see README.md); it doesn't build the tweak.
+if [ "${1:-}" = "demo" ]; then
+  APP="$OUT/NotchDemo.app"
+  rm -rf "$APP"
+  mkdir -p "$APP/Contents/MacOS"
+  cat > "$APP/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>local.dynject.notchpadding.demo</string>
+  <key>CFBundleExecutable</key><string>NotchDemo</string>
+  <key>CFBundleName</key><string>NotchDemo</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+</dict></plist>
+PLIST
+  "$CC" -Wall -Wextra -fobjc-arc -isysroot "$SDK" -mmacosx-version-min=14.0 -framework AppKit \
+    "$DIR/demo/NotchDemo.m" -o "$APP/Contents/MacOS/NotchDemo"
+  codesign --force --sign - --timestamp=none "$APP"
+  echo "Built $APP"
+  open "$APP"
+  exit 0
+fi
+
 dylib "$OUT"
 [ "${1:-}" = "test" ] || exit 0
 

@@ -35,6 +35,19 @@ every allow-by-default tweak into MenuBarAgent; deny the ones that don't belong 
 the menu bar disappears for a moment while MenuBarAgent restarts. `dw respring` leaves it alone.
 
 
+demo
+----
+
+    ./build.sh demo
+
+builds `build/NotchDemo.app` from `demo/NotchDemo.m` and opens it. it crowds the menu bar so the padding shows: 14 status items (icons, − / + to
+change) fill the right of the notch, and while it's the front app its 14 menus (− / +) fill the left. the padding
+buttons (off, 0, 40, 80, 120) write the tweak's setting the way Workbench does; quitting puts your setting back.
+
+with padding 0 the menus run into the notch ("Extras" cut to "Extr", "Options" half hidden past it); with 40 both
+sides keep a 40-point gap, the menus that don't fit move past the notch and the status items go into the «.
+
+
 settings
 --------
 
