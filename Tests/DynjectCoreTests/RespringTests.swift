@@ -461,3 +461,27 @@ final class RespringSystemTests: XCTestCase {
         XCTAssertNil(RespringPlanner.fileModificationDate(dir.appendingPathComponent("none").path))
     }
 }
+
+final class RespringRunningAppsTests: XCTestCase {
+    func listed(_ path: String, regular: Bool = false, accessory: Bool = true, background: Bool = false) -> Bool {
+        WorkspaceRunningApps.isListed(regular: regular, accessory: accessory, bundlePath: path, includeBackground: background)
+    }
+
+    func testMenuBarAppsOfTheirOwnAreListed() {
+        XCTAssertTrue(listed("/Applications/TokenTracker.app"), "a third-party menu bar app")
+        XCTAssertTrue(listed("/Users/me/Applications/Clerestory.app/"), "trailing slash")
+        XCTAssertTrue(listed("/Applications/Safari.app", regular: true, accessory: false))
+        XCTAssertTrue(listed("/System/Applications/Notes.app", regular: true, accessory: false), "Dock apps from /System too")
+    }
+
+    func testMacOSAndHelperAppsAreLeftToDwWhy() {
+        XCTAssertFalse(listed("/System/Library/CoreServices/ControlCenter.app"), "launchd starts it")
+        XCTAssertFalse(listed("/System/Library/CoreServices/MenuBarAgent.app"))
+        XCTAssertFalse(listed("/Applications/Big.app/Contents/Library/LoginItems/Big Helper.app"), "its owner starts it")
+        XCTAssertFalse(listed("/Applications/Big.app/Big Agent.app"))
+        XCTAssertFalse(listed("/Applications/Daemonish.app", regular: false, accessory: false), "no UI at all (.prohibited)")
+        XCTAssertTrue(listed("/System/Library/CoreServices/ControlCenter.app", background: true))
+        XCTAssertTrue(listed("/Applications/Big.app/Contents/Library/LoginItems/Big Helper.app", background: true))
+        XCTAssertFalse(listed("/Applications/Daemonish.app", regular: false, accessory: false, background: true))
+    }
+}

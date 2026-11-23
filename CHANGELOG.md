@@ -14,6 +14,9 @@ unreleased
   Mode looks the line up with `atos` when the report lacks it. DynjectHook logs which method each
   hook replacement stands for (`dynject.hooks:map`), so tweaks need a rebuild for the hook part.
 - `dw safemode explain <report.ips>`: what Safe Mode makes of one crash report.
+- `dw respring` and Workbench's Respring also relaunch menu bar apps (TokenTracker, Alfred…), which
+  it didn't see before; macOS's own (ControlCenter, MenuBarAgent) and helper apps inside other apps
+  are still left alone.
 
 
 0.1.4 (2026-11-23)

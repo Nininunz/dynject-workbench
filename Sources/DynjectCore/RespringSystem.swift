@@ -5,17 +5,32 @@ import Foundation
 // Respring, part 3: the real sources and controller. Only `WorkspaceAppController` changes anything (it quits and
 // opens apps); everything else reads. Workbench's fixture and smoke-test modes must use SimulatedAppController.
 
-/// NSWorkspace's running apps with activation policy `.regular` and a bundle.
+/// NSWorkspace's running apps with a bundle: those with a Dock icon (activation policy `.regular`) and menu bar apps
+/// (`.accessory`) of their own, not macOS's (see `isListed`).
 public struct WorkspaceRunningApps: RunningAppSource {
-    /// Also apps without a Dock icon (ControlCenter, menu bar apps): `dw why` wants them, respring doesn't.
+    /// Also macOS's apps without a Dock icon (ControlCenter, MenuBarAgent, Spotlight…) and helper apps inside other
+    /// apps: `dw why` wants them; respring leaves them alone (launchd starts most of them, and their owner the rest).
     public var includeBackground: Bool
 
     public init(includeBackground: Bool = false) { self.includeBackground = includeBackground }
 
+    /// Which running apps are listed. A menu bar app (`.accessory`) is, unless it's part of macOS (in /System) or a
+    /// helper inside another app's bundle (".app/…/X.app"): those only with `includeBackground`.
+    public static func isListed(regular: Bool, accessory: Bool, bundlePath: String, includeBackground: Bool) -> Bool {
+        if regular { return true }
+        guard accessory else { return false }
+        if includeBackground { return true }
+        let path = RespringPaths.normalized(bundlePath)
+        let nested = (path as NSString).deletingLastPathComponent.contains(".app/")
+            || (path as NSString).deletingLastPathComponent.hasSuffix(".app")
+        return !path.hasPrefix("/System/") && !nested
+    }
+
     public func runningApps() -> [RunningApp] {
         let apps = NSWorkspace.shared.runningApplications.filter {
-            ($0.activationPolicy == .regular || (includeBackground && $0.activationPolicy == .accessory)) &&
-                !$0.isTerminated && $0.bundleIdentifier != nil && $0.bundleURL != nil
+            guard !$0.isTerminated, $0.bundleIdentifier != nil, let url = $0.bundleURL else { return false }
+            return Self.isListed(regular: $0.activationPolicy == .regular, accessory: $0.activationPolicy == .accessory,
+                                 bundlePath: url.resolvingSymlinksInPath().path, includeBackground: includeBackground)
         }
         // launchDate is nil for some apps (launched before the session's LaunchServices knew them); ask ps.
         let missing = apps.filter { $0.launchDate == nil }.map(\.processIdentifier)

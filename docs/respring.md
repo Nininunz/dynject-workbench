@@ -7,7 +7,8 @@ Neither needs admin rights or writes the config.
 
 ## What counts as pending
 
-For every running regular app (NSWorkspace, activation policy `.regular`), the planner compares what a launch now
+For every running app with a Dock icon (NSWorkspace, activation policy `.regular`) or a menu bar app of its own
+(`.accessory`, outside /System and not a helper inside another app's bundle), the planner compares what a launch now
 would inject (the config's policy for the app's service name, as on the Configuration page) with the tweak dylibs
 `lsof` shows mapped in the process:
 
