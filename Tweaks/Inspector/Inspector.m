@@ -15,6 +15,7 @@
 #import "DynjectHook.h"
 #import "DynjectTweak.h"
 #import <notify.h>
+#import <objc/message.h>
 #import <os/log.h>
 
 static BOOL gEnabled = YES, gHotkeyEnabled = YES;
@@ -92,7 +93,7 @@ static void DYIToggleFromNotification(void) {
 // (ControlCenter, the Dock), which the hotkey and the Apple-menu item can't, since they're never frontmost.
 // dw reads the marker below to tell builds that understand it. Keep both as they are.
 __attribute__((used)) static const char *const DYIInspectCapability = "dynject.inspect:v1";
-enum { DYICommandOpen = 1, DYICommandPick = 2, DYICommandStop = 3, DYICommandTree = 4 };
+enum { DYICommandOpen = 1, DYICommandPick = 2, DYICommandStop = 3, DYICommandTree = 4, DYICommandTreeWithProperties = 5 };
 
 #ifdef DYI_TEST
 static NSMutableArray<NSString *> *gTestAnswers;
@@ -113,8 +114,92 @@ static NSString *DYIRectText(NSRect r) {
     return [NSString stringWithFormat:@"%g,%g %gx%g", r.origin.x, r.origin.y, r.size.width, r.size.height];
 }
 
-// One line per window, then its views from the frame view down: "W ..." / "V <depth> ...".
-static void DYIAnswerTree(uint32_t request) {
+static NSString *DYIQuoted(NSString *s, NSUInteger max) {
+    s = [s stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
+    if (s.length > max) s = [[s substringToIndex:max] stringByAppendingString:@"…"];
+    return [NSString stringWithFormat:@"\"%@\"", s];
+}
+
+// Accessibility labels: where SwiftUI names what it draws ("Battery", "Wi-Fi").
+static NSString *DYIAccessibilityText(NSView *v) {
+    NSMutableString *s = [NSMutableString string];
+    if (v.accessibilityLabel.length) [s appendFormat:@" axlabel=%@", DYIQuoted(v.accessibilityLabel, 80)];
+    if (strstr(object_getClassName(v), "NSHostingView")) {
+        NSMutableArray *labels = [NSMutableArray array];
+        for (id child in v.accessibilityChildren ?: @[]) {
+            NSString *l = [child respondsToSelector:@selector(accessibilityLabel)] ? [child accessibilityLabel] : nil;
+            NSString *r = [child respondsToSelector:@selector(accessibilityRole)] ? [child accessibilityRole] : nil;
+            if (l.length || r.length) [labels addObject:[NSString stringWithFormat:@"%@%@", r ?: @"", l.length ? [@" " stringByAppendingString:DYIQuoted(l, 60)] : @""]];
+            if (labels.count == 4) break;
+        }
+        if (labels.count) [s appendFormat:@" axchildren=[%@]", [labels componentsJoinedByString:@", "]];
+    }
+    return s;
+}
+
+// The properties a window's own classes declare (below NSWindow), read with their getters: --tree --props.
+static void DYIAnswerWindowProperties(uint32_t request, NSWindow *w) {
+    for (Class c = object_getClass(w); c && c != [NSWindow class]; c = class_getSuperclass(c)) {
+        if (strstr(class_getName(c), "NSKVONotifying_")) continue;
+        for (DYIPropertyInfo *p in DYIPropertiesOfClass(c)) {
+            NSString *text = DYIEvaluateProperty(w, p, NULL);
+            if (text.length > 160) text = [[text substringToIndex:160] stringByAppendingString:@"…"];
+            DYIAnswer(request, [NSString stringWithFormat:@"P %@.%@ = %@", DYIDisplayClassName(w) , p.name, text]);
+        }
+    }
+}
+
+// One line per window, then its views from the frame view down: "W ..." / "V <depth> ...", and with `properties`
+// "P ..." lines for the window's own classes.
+static void DYIAnswerTree(uint32_t request, BOOL properties) {
+    // The app's status items (menu bar items), by autosave name, and the window each lives in.
+    NSMutableDictionary<NSNumber *, NSString *> *itemOfWindow = [NSMutableDictionary dictionary];
+    DYITry(^{
+        NSStatusBar *bar = NSStatusBar.systemStatusBar;
+        SEL itemsSel = NSSelectorFromString(@"_statusItems"), windowSel = NSSelectorFromString(@"_window");
+        if (![bar respondsToSelector:itemsSel]) return;
+        id items = ((id (*)(id, SEL))objc_msgSend)(bar, itemsSel);
+        if ([items respondsToSelector:@selector(allObjects)]) items = [items allObjects];   // NSHashTable, NSPointerArray, NSSet
+        if (![items isKindOfClass:[NSArray class]]) {
+            if (items) DYIAnswer(request, [NSString stringWithFormat:@"S? _statusItems is a %s", object_getClassName(items)]);
+            return;
+        }
+        for (NSStatusItem *it in items) {
+            if (![it isKindOfClass:[NSStatusItem class]]) continue;
+            NSWindow *w = [it respondsToSelector:windowSel] ? ((id (*)(id, SEL))objc_msgSend)(it, windowSel) : nil;
+            NSString *name = it.autosaveName.length ? it.autosaveName : @"(no autosave name)";
+            if (w) itemOfWindow[@(w.windowNumber)] = name;
+            DYIAnswer(request, [NSString stringWithFormat:@"S %@ visible=%@ length=%g%@", name, it.isVisible ? @"YES" : @"NO", it.length,
+                                w ? [NSString stringWithFormat:@" window=%ld frame=%@", (long)w.windowNumber, DYIRectText(w.frame)] : @""]);
+        }
+    });
+    // FrontBoard scenes (menu bar items of ControlCenter and other scene-based UI): NSApp._workspace.scenes, by
+    // identifier; with properties, a short description of each scene's settings (its frame among them).
+    DYITry(^{
+        SEL workspaceSel = NSSelectorFromString(@"_workspace"), scenesSel = NSSelectorFromString(@"scenes");
+        if (![NSApp respondsToSelector:workspaceSel]) return;
+        id workspace = ((id (*)(id, SEL))objc_msgSend)(NSApp, workspaceSel);
+        if (![workspace respondsToSelector:scenesSel]) return;
+        id scenes = ((id (*)(id, SEL))objc_msgSend)(workspace, scenesSel);
+        if ([scenes respondsToSelector:@selector(allObjects)]) scenes = [scenes allObjects];
+        if (![scenes isKindOfClass:[NSArray class]]) return;
+        for (id scene in scenes) {
+            NSString *identifier = [scene respondsToSelector:@selector(identifier)] ? [scene identifier] : nil;
+            DYIAnswer(request, [NSString stringWithFormat:@"C %@ %s", identifier ?: @"(no identifier)", object_getClassName(scene)]);
+            if (properties && [scene respondsToSelector:NSSelectorFromString(@"settings")]) {
+                // The whole description, a line per log message (a log message holds about 1 KB).
+                id settings = ((id (*)(id, SEL))objc_msgSend)(scene, NSSelectorFromString(@"settings"));
+                NSUInteger n = 0;
+                NSString *text = [DYIDescriptionOf(settings, 40000) stringByReplacingOccurrencesOfString:@"\\n" withString:@"\n"];
+                for (NSString *l in [text componentsSeparatedByString:@"\n"]) {
+                    NSString *t = [l stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+                    if (!t.length) continue;
+                    DYIAnswer(request, [NSString stringWithFormat:@"D %@", t.length > 700 ? [[t substringToIndex:700] stringByAppendingString:@"…"] : t]);
+                    if (++n == 300) break;
+                }
+            }
+        }
+    });
     __block NSUInteger windows = 0, views = 0;
     __block BOOL cut = NO;
     void (^__block walk)(NSView *, NSInteger);
@@ -126,6 +211,7 @@ static void DYIAnswerTree(uint32_t request) {
         if (v.identifier.length) [line appendFormat:@" id=%@", v.identifier];
         if (v.accessibilityIdentifier.length) [line appendFormat:@" ax=%@", v.accessibilityIdentifier];
         if (v.layer) [line appendFormat:@" layer=%@", DYIDisplayClassName(v.layer)];
+        [line appendString:DYIAccessibilityText(v)];
         DYIAnswer(request, line);
         for (NSView *s in v.subviews) walk(s, depth + 1);
     };
@@ -134,9 +220,14 @@ static void DYIAnswerTree(uint32_t request) {
         for (NSWindow *w in NSApp.windows) {
             if ([[DYIPicker shared] isOwnWindow:w]) continue;
             windows++;
-            NSString *title = w.title.length ? [NSString stringWithFormat:@" title=\"%@\"", w.title] : @"";
+            NSMutableString *extra = [NSMutableString string];
+            if (w.title.length) [extra appendFormat:@" title=%@", DYIQuoted(w.title, 80)];
+            if (w.identifier.length) [extra appendFormat:@" id=%@", w.identifier];
+            if (w.accessibilityLabel.length) [extra appendFormat:@" axlabel=%@", DYIQuoted(w.accessibilityLabel, 80)];
+            if (itemOfWindow[@(w.windowNumber)]) [extra appendFormat:@" statusitem=%@", itemOfWindow[@(w.windowNumber)]];
             DYIAnswer(request, [NSString stringWithFormat:@"W %ld %@ level=%ld frame=%@ %@%@", (long)w.windowNumber, DYIDisplayClassName(w),
-                                (long)w.level, DYIRectText(w.frame), w.isVisible ? @"visible" : @"hidden", title]);
+                                (long)w.level, DYIRectText(w.frame), w.isVisible ? @"visible" : @"hidden", extra]);
+            if (properties) DYIAnswerWindowProperties(request, w);
             NSView *top = w.contentView.superview ?: w.contentView;
             if (top) walk(top, 1);
         }
@@ -171,7 +262,8 @@ static void DYIHandleCommand(uint64_t state) {
             DYIAnswer(request, @"stopped");
             break;
         case DYICommandTree:
-            DYIAnswerTree(request);
+        case DYICommandTreeWithProperties:
+            DYIAnswerTree(request, command == DYICommandTreeWithProperties);
             break;
         default:
             DYIAnswer(request, [NSString stringWithFormat:@"refused: unknown command %u", command]);

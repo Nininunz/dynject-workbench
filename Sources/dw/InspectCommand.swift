@@ -5,8 +5,8 @@ import DynjectCore
 import Foundation
 
 let inspectUsage = """
-usage: dw inspect <app> [--pick | --tree | --stop]
-       dw inspect --pid <pid> [--pick | --tree | --stop]
+usage: dw inspect <app> [--pick | --tree | --props | --stop]
+       dw inspect --pid <pid> [--pick | --tree | --props | --stop]
 
   drives Inspector in a running app it's loaded into, also background apps (ControlCenter, the Dock, menu bar
   apps) that the ⌃⌥⌘ hotkey and the apple-menu item can't reach because they're never frontmost.
@@ -15,13 +15,17 @@ usage: dw inspect <app> [--pick | --tree | --stop]
               bar, each a link into its views
   --pick      pick mode in the app: point at one of its windows and click to inspect it. a background app doesn't
               get the keyboard, so esc doesn't reach it there: end it with --stop
-  --tree      print the app's windows and their views (class, frame, hidden, identifiers, layer class), no UI
+  --tree      print the app's status items (menu bar items, by autosave name) and its windows and their views
+              (class, frame, hidden, identifiers, accessibility labels, layer class, the status item a window
+              shows), no UI
+  --props     --tree, plus every property the windows' own classes declare (below NSWindow), read with their
+              getters: what tells one private window from another
   --stop      end pick mode and close the panel
 
   Inspector must be loaded in the app: `dw why inspector <app>` says what stops it.
 """
 
-private enum InspectCommand: UInt64 { case open = 1, pick = 2, stop = 3, tree = 4 }
+private enum InspectCommand: UInt64 { case open = 1, pick = 2, stop = 3, tree = 4, treeWithProperties = 5 }
 
 func inspectCommand(_ args: [String]) {
     var command = InspectCommand.open
@@ -33,6 +37,7 @@ func inspectCommand(_ args: [String]) {
         case "--pick": command = .pick
         case "--tree": command = .tree
         case "--stop": command = .stop
+        case "--props": command = .treeWithProperties
         case "--pid":
             guard i + 1 < args.count, let p = pid_t(args[i + 1]) else { fail("--pid needs a number\n\n\(inspectUsage)", 2) }
             pid = p
@@ -67,9 +72,9 @@ func inspectCommand(_ args: [String]) {
     let ask = ProcessRequest(pid: app.pid, subsystem: "dynject.inspect")
     let prefix = "A \(ask.request) "
     ask.post("local.dynject.inspector.command.\(app.pid)", state: command.rawValue | (UInt64(ask.request) << 8))
-    ask.wait(prefix: prefix, timeout: command == .tree ? 10 : 3, quiet: command == .tree ? 0.4 : 0.1) { lines in
-        command == .tree ? lines.contains { $0.hasPrefix(prefix + "end ") || $0.hasPrefix(prefix + "refused") }
-                         : !lines.isEmpty
+    let isTree = command == .tree || command == .treeWithProperties
+    ask.wait(prefix: prefix, timeout: isTree ? 10 : 3, quiet: isTree ? 0.4 : 0.1) { lines in
+        isTree ? lines.contains { $0.hasPrefix(prefix + "end ") || $0.hasPrefix(prefix + "refused") } : !lines.isEmpty
     }
     let answers = ask.finish(prefix: prefix).map { String($0.dropFirst(prefix.count)) }
     guard let first = answers.first else {
@@ -81,7 +86,7 @@ func inspectCommand(_ args: [String]) {
     case .open: print("\(app.name): panel open, \(first.replacingOccurrences(of: "opened ", with: "")): use it there")
     case .pick: print("\(app.name): picking. point at one of its windows and click; `dw inspect \(positional.first ?? "--pid \(app.pid)") --stop` ends it")
     case .stop: print("\(app.name): stopped")
-    case .tree: print(DevTree.text(answers, app: "\(app.name) (\(app.bundleID), pid \(app.pid))"))
+    case .tree, .treeWithProperties: print(DevTree.text(answers, app: "\(app.name) (\(app.bundleID), pid \(app.pid))"))
     }
 }
 
@@ -95,6 +100,14 @@ enum DevTree {
             case "W":
                 out.append("")
                 out.append("window " + (f.count > 2 ? f[1] + "  " + f[2] : a))
+            case "S":
+                out.append("status item " + a.dropFirst(2))
+            case "C":
+                out.append("scene " + a.dropFirst(2))
+            case "D":
+                out.append("    " + a.dropFirst(2))
+            case "P" where f.count == 3:
+                out.append("  · " + f[1] + " " + f[2])
             case "V" where f.count == 3:
                 let depth = Int(f[1]) ?? 1
                 out.append(String(repeating: "  ", count: depth) + f[2])

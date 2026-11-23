@@ -805,13 +805,22 @@ static CALayer *ITFindLayer(CALayer *l, BOOL (^match)(CALayer *)) {
               @"on the app: its windows (not Inspector's own, KVO classes unwrapped) and its menu bar");
         s = DYI(@"tab", @{@"name": @"Properties"});
         check([ITRow(s, @"activationPolicy")[@"right"] hasPrefix:@"accessory"], [NSString stringWithFormat:@"activationPolicy: %@", ITRow(s, @"activationPolicy")[@"right"]]);
+        NSStatusItem *item = [NSStatusBar.systemStatusBar statusItemWithLength:NSVariableStatusItemLength];
+        item.autosaveName = @"local.dynject.inspector.testitem";
+        item.button.title = @"IT";
         s = DYI(@"command", @{@"code": @4, @"request": @8});
         answers = s[@"answers"];
         NSString *all = [answers componentsJoinedByString:@"\n"];
+        check([all containsString:@"A 8 S local.dynject.inspector.testitem visible=YES"] && [all containsString:@"statusitem=local.dynject.inspector.testitem"],
+              @"tree: the status item by its autosave name, and its window marked with it");
+        [NSStatusBar.systemStatusBar removeStatusItem:item];
         check([all containsString:@"A 8 W "] && [all containsString:@" NSWindow level=0 frame="] && ![all containsString:@"NSKVONotifying_"] &&
               ![all containsString:@"DYIOverlayPanel"] && [all containsString:@"A 8 V 1 "] &&
               [all containsString:@"ITLeafView frame="] && [answers.lastObject hasPrefix:@"A 8 end windows="],
               [NSString stringWithFormat:@"tree: %lu lines, windows and views, then end", (unsigned long)answers.count]);
+        s = DYI(@"command", @{@"code": @5, @"request": @14});
+        all = [s[@"answers"] componentsJoinedByString:@"\n"];
+        check([all containsString:@"A 14 W "] && [all containsString:@"A 14 end windows="], @"tree with properties: windows, views, end");
         s = DYI(@"command", @{@"code": @2, @"request": @9});
         check([[s[@"answers"] firstObject] isEqualToString:@"A 9 picking"] && [DYI(@"state", nil)[@"pickActive"] boolValue], @"pick: pick mode on");
         s = DYI(@"command", @{@"code": @3, @"request": @10});

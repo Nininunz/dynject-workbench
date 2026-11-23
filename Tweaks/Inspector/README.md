@@ -115,9 +115,17 @@ apple-menu item can't reach them. `dw inspect` can:
     dw inspect ControlCenter --stop     # end pick mode, close the panel (esc doesn't reach a background app)
     dw inspect ControlCenter --tree     # its windows and views in the terminal, no ui
 
-`--tree` prints each window (number, class, level, frame, visible, title) and its views from the frame view down
-(class, frame, hidden, identifier, accessibility identifier, layer class). KVO's hidden subclasses
-(`NSKVONotifying_…`) show as the class they observe, and Inspector's own windows are left out.
+`--tree` prints the app's status items (by autosave name, with their window), its FrontBoard scenes (by identifier:
+ControlCenter's menu bar items are scenes), then each window (number, class, level, frame, visible, title,
+identifier, accessibility label, the status item it shows) and its views from the frame view down (class, frame,
+hidden, identifiers, accessibility label and, for SwiftUI hosting views, their accessibility children's labels,
+layer class). KVO's hidden subclasses (`NSKVONotifying_…`) show as the class they observe, and Inspector's own
+windows are left out.
+
+`--props` adds what tells private windows apart, read with their getters: every property the windows' own classes
+declare below NSWindow, and each scene's full settings. for ControlCenter's menu bar items that's
+`controlCenterItemFrame`, the item's place in the menu bar; the item ids there change on every launch. the menu bar
+itself is hosted by MenuBarAgent, which names the items for accessibility (`com.apple.menuextra.battery` …).
 
 it works through a darwin notification for the app's pid (`local.dynject.inspector.command.<pid>`) whose state
 carries the command and a request id; Inspector answers in the log (subsystem `dynject.inspect`). Inspector has to be
