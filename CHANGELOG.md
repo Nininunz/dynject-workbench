@@ -4,8 +4,8 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
-unreleased
-----------
+0.1.5 (2026-11-23)
+------------------
 
 - crashes in tweaks name the source line and the hook: Safe Mode, `dw doctor` and Workbench show
   `libX.dylib: CHExplode (ch.m:11), under its hook of -[CHTarget value]`. builds use `-g`
