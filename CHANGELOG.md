@@ -4,20 +4,26 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
-unreleased
-----------
+0.1.4 (2026-11-23)
+------------------
 
 - examples/NotchPadding: keeps the menu bar's contents a set distance from the notch (40 points
   each side by default, live setting). it loads into MenuBarAgent, which lays out the whole menu
   bar around `-[NSScreen _notchFrame]`, and widens that notch: app menus that don't fit move past
-  it, status icons that don't fit go into the «.
+  it, status icons that don't fit go into the «. `./build.sh demo` crowds the menu bar to show it;
+  `./build.sh sweep` steps that demo through icon and menu counts at several paddings and checks
+  MenuBarAgent's own frames (`dw inspect --tree`) never enter the padded notch.
 - `dw tweak install --for` / `dw enable` for an app launchd starts under its own label (MenuBarAgent:
   `com.apple.MenuBarAgent`) add `allow:<executable>` so dynjectd's xpc filter lets it through, and
   `dw why` knows the labels of MenuBarAgent and ControlCenter.
+- `dw why` finds background apps (ControlCenter, menu bar apps) among the running ones.
 - `dw inspect <app>`: drives Inspector in a running app from the terminal, including background
   apps (ControlCenter, the Dock) the hotkey can't reach: open the panel on the app (its windows,
-  menu bar), `--pick`, `--stop`, and `--tree` to print its windows and views without ui. KVO's
-  hidden subclasses show as the class they observe. reinstall Inspector to use it.
+  menu bar), `--pick`, `--stop`, and `--tree` to print its windows and views without ui: status
+  items by autosave name and the window each shows, FrontBoard scenes and their settings (where
+  ControlCenter draws its menu bar items), accessibility identifiers and labels. `--props` adds
+  every property the windows' own classes declare. KVO's hidden subclasses, Swift classes'
+  included, show as the class they observe. reinstall Inspector to use it.
 - inspector: menus. inspect the menu bar and walk its items and submenus, or pick any menu item
   (menu bar, context menu, or its shortcut) and it opens instead of running. for an item: its
   shortcut, action, target, where the action goes now (`sent to`: its target, or what the
