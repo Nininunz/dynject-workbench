@@ -485,3 +485,52 @@ final class RespringRunningAppsTests: XCTestCase {
         XCTAssertFalse(listed("/Applications/Daemonish.app", regular: false, accessory: false, background: true))
     }
 }
+
+/// `dw respring --system`: macOS's UI agents, quit with SIGTERM and started again by launchd.
+final class RespringSystemAgentTests: XCTestCase {
+    private let menuBar = RunningApp(pid: 120, bundleID: "com.apple.MenuBarAgent", name: "MenuBarAgent",
+                                     bundlePath: "/System/Library/CoreServices/MenuBarAgent.app",
+                                     executablePath: "/System/Library/CoreServices/MenuBarAgent.app/Contents/MacOS/MenuBarAgent",
+                                     launchDate: at(0), isSystemAgent: true)
+
+    func testOnlyWithSystemOrNamed() {
+        // The test config gives a launchd service nothing, so a MenuLoader it has loaded is unwanted: pending.
+        let p = planner([menuBar, calculator], loaded: [120: [menu], 101: []], since: at(20)).plan()
+        XCTAssertTrue(p.candidates.first { $0.app.pid == 120 }!.isPending, "pending like any app")
+        XCTAssertEqual(p.selection(RespringOptions()).apps.map(\.app.name), ["Calculator"], "not without --system")
+        XCTAssertEqual(p.selection(RespringOptions(all: true)).apps.map(\.app.name), ["Calculator"], "--all alone doesn't bring them in")
+        XCTAssertEqual(Set(p.selection(RespringOptions(system: true)).apps.map(\.app.name)), ["Calculator", "MenuBarAgent"])
+        let named = p.selection(RespringOptions(only: ["com.apple.menubaragent"]))
+        XCTAssertEqual(named.apps.map(\.app.name), ["MenuBarAgent"], "named in any case")
+        XCTAssertEqual(named.notRunning, [])
+        XCTAssertTrue(RespringOptions(only: ["com.apple.Dock"]).listsSystemAgents)
+        XCTAssertTrue(RespringOptions(system: true).listsSystemAgents)
+        XCTAssertFalse(RespringOptions(include: ["com.apple.Notes"]).listsSystemAgents)
+    }
+
+    private func candidate(_ a: RunningApp) -> RespringCandidate {
+        RespringCandidate(app: a, service: "com.apple.MenuBarAgent", expected: [menu], loaded: [],
+                          reasons: [RespringReason(.missing, dylib: menu, tweak: "libMenuLoader.dylib")], exclusion: nil, hostsCaller: false)
+    }
+
+    func testQuitBySignalAndLaunchdsNewProcessIsVerified() {
+        let c = SimulatedAppController(apps: [menuBar])
+        c.loadedAfterOpen = ["com.apple.MenuBarAgent": [menu]]
+        c.onQuit = { $0.bundleID == "com.apple.MenuBarAgent" ? 5151 : nil }
+        let r = Respringer(controller: c, clock: .manual(start: at(0))).run([candidate(menuBar)])
+        XCTAssertEqual(r[0].outcome, .relaunched)
+        XCTAssertEqual(r[0].newPID, 5151)
+        XCTAssertTrue(r[0].succeeded)
+        XCTAssertEqual(c.calls, [.terminate(120, .signal)], "never opened: launchd starts it")
+    }
+
+    func testLaunchdNotStartingItAgainIsReportedNotOpened() {
+        let c = SimulatedAppController(apps: [menuBar])
+        let clock = RespringClock.manual(start: at(0))
+        let r = Respringer(controller: c, clock: clock).run([candidate(menuBar)])
+        guard case let .openFailed(message) = r[0].outcome else { return XCTFail("\(r[0].outcome)") }
+        XCTAssertTrue(message.contains("launchd didn't start it again within 10 s") && message.contains("/com.apple.MenuBarAgent"), message)
+        XCTAssertEqual(c.calls, [.terminate(120, .signal)], "no second copy outside launchd")
+        XCTAssertGreaterThanOrEqual(clock.now().timeIntervalSince(at(0)), 10)
+    }
+}

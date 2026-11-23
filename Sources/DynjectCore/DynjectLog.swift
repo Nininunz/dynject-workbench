@@ -167,6 +167,8 @@ public enum ServiceNameResolver {
         "com.apple.dock": "com.apple.Dock.agent",
         "com.apple.controlcenter": "com.apple.controlcenter",
         "com.apple.menubaragent": "com.apple.MenuBarAgent",
+        "com.apple.systemuiserver": "com.apple.SystemUIServer.agent",
+        "com.apple.notificationcenterui": "com.apple.notificationcenterui.agent",
     ]
 
     public static func resolve(_ app: InstalledApp, log: DynjectLogSnapshot?) -> ServiceName {

@@ -11,6 +11,8 @@ public enum RespringQuitMethod: String, Sendable {
     case terminate
     /// The "quit" Apple Event; Finder ignores terminate.
     case appleEventQuit
+    /// SIGTERM, as `killall` sends: for macOS's UI agents, which launchd starts again.
+    case signal
 }
 
 public struct RespringOpenOptions: Hashable, Sendable {
@@ -190,6 +192,8 @@ public final class Respringer {
         public var pollInterval: TimeInterval = 0.2
         /// How long to wait for the new process to show its tweaks in lsof.
         public var verifyTimeout: TimeInterval = 5
+        /// How long launchd gets to start a system agent again after it quit.
+        public var restartTimeout: TimeInterval = 10
         /// Passed to every open (offline test only).
         public var environment: [String: String]?
         /// More tweak dylibs to look for when verifying (so an unwanted one that came back is noticed).
@@ -257,8 +261,8 @@ public final class Respringer {
         let app = c.app
         let url = URL(fileURLWithPath: app.bundlePath, isDirectory: true)
         guard controller.isRunning(pid: app.pid) else { return RespringResult(candidate: c, outcome: .notRunning) }
-        let method: RespringQuitMethod =
-            app.bundleID.caseInsensitiveCompare(RespringExclusions.finderBundleID) == .orderedSame ? .appleEventQuit : .terminate
+        let method: RespringQuitMethod = app.isSystemAgent ? .signal
+            : app.bundleID.caseInsensitiveCompare(RespringExclusions.finderBundleID) == .orderedSame ? .appleEventQuit : .terminate
 
         if c.hostsCaller {
             do {
@@ -284,8 +288,26 @@ public final class Respringer {
         }
 
         // launchd may already have restarted it (Finder); use that instance instead of opening a second one.
+        func restarted() -> Int32? {
+            controller.runningPIDs(bundleID: app.bundleID).first(where: { !before.contains($0) && $0 != app.pid })
+        }
         let newPID: Int32
-        if let adopted = controller.runningPIDs(bundleID: app.bundleID).first(where: { !before.contains($0) && $0 != app.pid }) {
+        if app.isSystemAgent {
+            // Only launchd starts these: opening the bundle would make a second copy outside launchd.
+            let waited = clock.now()
+            var found = restarted()
+            while found == nil && clock.now().timeIntervalSince(waited) < settings.restartTimeout {
+                report(.opening)
+                clock.sleep(settings.pollInterval)
+                found = restarted()
+            }
+            guard let found else {
+                let label = ServiceNameResolver.knownLaunchdLabels[app.bundleID.lowercased()] ?? "<its launchd label>"
+                return RespringResult(candidate: c, outcome: .openFailed(
+                    "launchd didn't start it again within \(Int(settings.restartTimeout)) s: `launchctl kickstart gui/\(getuid())/\(label)`, or log out and back in"))
+            }
+            newPID = found
+        } else if let adopted = restarted() {
             newPID = adopted
         } else {
             report(.opening)

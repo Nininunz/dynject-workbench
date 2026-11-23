@@ -38,6 +38,11 @@ By default: the pending apps, minus these (each can be named with `--include` or
 `loginwindow` is never relaunched. `--all` takes every running regular app (minus the first three groups) and
 includes Finder. `--exclude` always wins. `--only <id>` considers just the named apps.
 
+macOS's own UI agents are left out unless asked for: `--system`, or naming one with `--only` or `--include`. They
+are the Dock, Control Center, MenuBarAgent (the menu bar), SystemUIServer and Notification Center, the processes
+tweaks for the menu bar and the Dock go into. launchd starts them and keeps them running, so they're relaunched
+differently (below), and the screen flickers while one restarts. `--all` alone doesn't bring them in.
+
 ## How an app is relaunched
 
 One app at a time, in name order, with Workbench and then the app hosting the caller last:
@@ -47,6 +52,10 @@ One app at a time, in name order, with Workbench and then the app hosting the ca
    skipped and left alone. If it quits later, it isn't reopened.
 3. If launchd already restarted it (Finder), use that process. Otherwise reopen it with
    `NSWorkspace.openApplication` without activating it (hidden if it was hidden).
+
+   macOS's UI agents (`--system`) instead get SIGTERM, as `killall` sends, and are never opened: opening the bundle
+   would start a second copy outside launchd. respring waits up to 10 s for launchd to start the new process; if it
+   doesn't, it says so with the `launchctl kickstart` line that starts it.
 4. Poll `lsof` for up to 5 s until the new process has the expected tweaks and no unwanted ones, then report
    `verified`, or what is still missing or still loaded.
 
@@ -60,6 +69,8 @@ dw respring                              relaunch pending apps
 dw respring --all --dry-run              every running app, Finder included
 dw respring --include com.mitchellh.ghostty --exclude com.apple.Notes
 dw respring --only com.apple.calculator  just this app, pending or not
+dw respring --system --dry-run           also the Dock, Control Center, the menu bar and the other UI agents
+dw respring --only com.apple.MenuBarAgent    the menu bar, after installing a tweak for it
 ```
 
 `dw respring` exits 1 when any app was skipped or failed verification.

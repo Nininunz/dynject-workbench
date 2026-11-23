@@ -11,8 +11,13 @@ public struct WorkspaceRunningApps: RunningAppSource {
     /// Also macOS's apps without a Dock icon (ControlCenter, MenuBarAgent, Spotlight…) and helper apps inside other
     /// apps: `dw why` wants them; respring leaves them alone (launchd starts most of them, and their owner the rest).
     public var includeBackground: Bool
+    /// Also macOS's UI agents respring can relaunch (`RespringSystemAgents`): `dw respring --system`.
+    public var includeSystemAgents: Bool
 
-    public init(includeBackground: Bool = false) { self.includeBackground = includeBackground }
+    public init(includeBackground: Bool = false, includeSystemAgents: Bool = false) {
+        self.includeBackground = includeBackground
+        self.includeSystemAgents = includeSystemAgents
+    }
 
     /// Which running apps are listed. A menu bar app (`.accessory`) is, unless it's part of macOS (in /System) or a
     /// helper inside another app's bundle (".app/…/X.app"): those only with `includeBackground`.
@@ -28,7 +33,8 @@ public struct WorkspaceRunningApps: RunningAppSource {
 
     public func runningApps() -> [RunningApp] {
         let apps = NSWorkspace.shared.runningApplications.filter {
-            guard !$0.isTerminated, $0.bundleIdentifier != nil, let url = $0.bundleURL else { return false }
+            guard !$0.isTerminated, let id = $0.bundleIdentifier, let url = $0.bundleURL else { return false }
+            if includeSystemAgents && RespringSystemAgents.contains(id) { return true }
             return Self.isListed(regular: $0.activationPolicy == .regular, accessory: $0.activationPolicy == .accessory,
                                  bundlePath: url.resolvingSymlinksInPath().path, includeBackground: includeBackground)
         }
@@ -42,7 +48,7 @@ public struct WorkspaceRunningApps: RunningAppSource {
                               bundlePath: bundle,
                               executablePath: r.executableURL?.resolvingSymlinksInPath().path ?? bundle,
                               launchDate: r.launchDate ?? started[r.processIdentifier],
-                              isHidden: r.isHidden)
+                              isHidden: r.isHidden, isSystemAgent: RespringSystemAgents.contains(r.bundleIdentifier!))
         }
     }
 
@@ -114,6 +120,9 @@ public final class WorkspaceAppController: AppController {
         case .terminate:
             guard let r = NSRunningApplication(processIdentifier: app.pid) else { return false }
             return r.terminate()
+        case .signal:
+            // What `killall` does; launchd starts macOS's UI agents again by itself.
+            return kill(app.pid, SIGTERM) == 0
         case .appleEventQuit:
             // Finder ignores terminate(). Asking it to quit needs Automation permission for whatever runs this.
             let script = "tell application id \"\(app.bundleID)\" to quit"

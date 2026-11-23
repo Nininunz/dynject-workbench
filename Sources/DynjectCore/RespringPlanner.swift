@@ -19,9 +19,12 @@ public struct RunningApp: Hashable, Sendable, Identifiable {
     public var executablePath: String
     public var launchDate: Date?
     public var isHidden: Bool
+    /// One of macOS's own UI agents that launchd keeps running (`RespringSystemAgents`): relaunched by quitting it
+    /// and letting launchd start it again, never by opening it.
+    public var isSystemAgent: Bool
 
     public init(pid: Int32, bundleID: String, name: String, bundlePath: String, executablePath: String,
-                launchDate: Date?, isHidden: Bool = false) {
+                launchDate: Date?, isHidden: Bool = false, isSystemAgent: Bool = false) {
         self.pid = pid
         self.bundleID = bundleID
         self.name = name
@@ -29,6 +32,7 @@ public struct RunningApp: Hashable, Sendable, Identifiable {
         self.executablePath = executablePath
         self.launchDate = launchDate
         self.isHidden = isHidden
+        self.isSystemAgent = isSystemAgent
     }
 
     /// The app as the policy evaluator sees it (dynjectd matches on the executable that was started).
@@ -220,12 +224,22 @@ public struct RespringOptions: Equatable, Sendable {
     public var exclude: Set<String>
     /// When set, only these bundle IDs are considered (each as if named with --include), pending or not.
     public var only: Set<String>?
+    /// Also macOS's UI agents (`RespringSystemAgents`); the running-app source has to list them too
+    /// (`WorkspaceRunningApps(includeSystemAgents:)`, see `listsSystemAgents`).
+    public var system: Bool
 
-    public init(all: Bool = false, include: Set<String> = [], exclude: Set<String> = [], only: Set<String>? = nil) {
+    public init(all: Bool = false, include: Set<String> = [], exclude: Set<String> = [], only: Set<String>? = nil,
+                system: Bool = false) {
         self.all = all
         self.include = include
         self.exclude = exclude
         self.only = only
+        self.system = system
+    }
+
+    /// Whether the plan needs macOS's UI agents among the running apps: --system, or one of them named.
+    public var listsSystemAgents: Bool {
+        system || RespringSystemAgents.named(in: only ?? include)
     }
 }
 
@@ -267,8 +281,9 @@ public struct RespringPlan: Sendable {
         let named = options.only ?? options.include
         for c in candidates {
             let id = c.app.bundleID
-            if let only = options.only, !only.contains(id) { continue }
-            let explicit = named.contains(id)
+            if let only = options.only, !only.contains(where: { $0.caseInsensitiveCompare(id) == .orderedSame }) { continue }
+            let explicit = named.contains(where: { $0.caseInsensitiveCompare(id) == .orderedSame })
+            if c.app.isSystemAgent && !(options.system || explicit) { continue }
             guard explicit || options.all || c.isPending else { continue }
             if c.exclusion == .protectedSystem {
                 if explicit || c.isPending { skipped.append(.init(candidate: c, why: RespringExclusion.protectedSystem.note)) }
@@ -289,13 +304,29 @@ public struct RespringPlan: Sendable {
             }
             chosen.append(c)
         }
-        let running = Set(candidates.map(\.app.bundleID))
+        let running = Set(candidates.map { $0.app.bundleID.lowercased() })
         return RespringSelection(apps: Respringer.ordered(chosen), skipped: skipped,
-                                 notRunning: named.subtracting(running).sorted())
+                                 notRunning: named.filter { !running.contains($0.lowercased()) }.sorted())
     }
 }
 
 // MARK: - Exclusions
+
+/// macOS's UI agents that launchd starts and keeps running, and that tweaks are injected into (the menu bar, the Dock,
+/// Control Center). `dw respring --system` relaunches them: SIGTERM, then launchd starts them again.
+public enum RespringSystemAgents {
+    public static let bundleIDs: [String] = [
+        "com.apple.dock", "com.apple.controlcenter", "com.apple.MenuBarAgent", "com.apple.systemuiserver",
+        "com.apple.notificationcenterui",
+    ]
+
+    public static func contains(_ bundleID: String) -> Bool {
+        bundleIDs.contains { $0.caseInsensitiveCompare(bundleID) == .orderedSame }
+    }
+
+    /// Whether `ids` (as typed after --only or --include) name one of them.
+    public static func named(in ids: Set<String>) -> Bool { ids.contains(where: contains) }
+}
 
 public struct RespringExclusions: Sendable {
     public static let finderBundleID = "com.apple.finder"

@@ -8,7 +8,7 @@ todo
 - a `toggle:` menu action handled by the safe mode agent, so a menu item can flip a setting
   from sandboxed apps.
 - a dynject menu bar extra (status, panic switch, respring).
-- tweaks for Dock and ControlCenter, and restarting them in respring.
+- tweaks for Dock and ControlCenter (respring restarts them since 0.1.6: `--system`).
 - `dw diagnose`: bundle logs, config, state.json and crash reports for bug reports.
 - reinstall the safe mode watcher automatically when workbench is updated.
 - test on intel.

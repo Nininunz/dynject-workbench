@@ -4,7 +4,7 @@ import DynjectCore
 import Foundation
 
 let respringUsage = """
-usage: dw respring [--dry-run] [--all] [--include <bundleID>]... [--exclude <bundleID>]... [--timeout <seconds>] [--verbose]
+usage: dw respring [--dry-run] [--all] [--system] [--include <bundleID>]... [--exclude <bundleID>]... [--timeout <seconds>] [--verbose]
        dw respring --only <bundleID>... [--dry-run] [--timeout <seconds>]
 
   Relaunches running apps whose injected tweaks don't match the config: a dylib that should be loaded and isn't,
@@ -14,6 +14,10 @@ usage: dw respring [--dry-run] [--all] [--include <bundleID>]... [--exclude <bun
 
   --dry-run          print the plan only; nothing is quit or opened
   --all              every running app (Finder too), not just pending ones
+  --system           also macOS's UI agents that tweaks can be in: the Dock, Control Center, the menu bar
+                     (MenuBarAgent), SystemUIServer, Notification Center. they're quit with SIGTERM, like killall,
+                     and launchd starts them again (never opened by dw); the screen flickers while they restart.
+                     naming one with --only or --include brings it in too
   --include ID       also relaunch this app (even a terminal, editor, Workbench, or one that is up to date)
   --exclude ID       never relaunch this app
   --only ID          relaunch just this app (repeatable), pending or not; nothing else is considered
@@ -41,6 +45,7 @@ struct RespringArguments {
             switch args[i] {
             case "--dry-run", "-n": dryRun = true
             case "--all": options.all = true
+            case "--system": options.system = true
             case "--verbose", "-v": verbose = true
             case "--include": options.include.formUnion(value("--include").split(separator: ",").map(String.init))
             case "--exclude": options.exclude.formUnion(value("--exclude").split(separator: ",").map(String.init))
@@ -87,7 +92,8 @@ func respringCommand(_ args: [String]) {
     let planner = RespringPlanner.live(
         configText: String(decoding: configData, as: UTF8.self), configPath: configPath,
         logText: DynjectLogParser.readTail(path: logPath), manifests: manifests,
-        safeModeState: SafeModeStateStore().load(), daemon: daemon)
+        safeModeState: SafeModeStateStore().load(), daemon: daemon,
+        runningApps: WorkspaceRunningApps(includeSystemAgents: a.options.listsSystemAgents))
     let plan = planner.plan()
     let selection = plan.selection(a.options)
 

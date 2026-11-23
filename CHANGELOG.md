@@ -4,6 +4,16 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
+unreleased
+----------
+
+- `dw respring --system`: also restarts macOS's UI agents tweaks go into (the Dock, Control Center,
+  MenuBarAgent, SystemUIServer, Notification Center), or name one with `--only`. they're sent
+  SIGTERM and launchd starts them again; respring never opens them (that would make a second copy)
+  and checks the new process's tweaks like any app's. bundle IDs after `--only`/`--include` match
+  in any case.
+
+
 0.1.5 (2026-11-23)
 ------------------
 

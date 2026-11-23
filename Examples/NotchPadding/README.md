@@ -25,14 +25,15 @@ install
 
     ./build.sh test                                       # build, and check it in a local test app
     dw tweak install . --for com.apple.MenuBarAgent
-    killall MenuBarAgent                                  # launchd starts it again at once, with the tweak
+    dw respring --only com.apple.MenuBarAgent             # SIGTERM; launchd starts it again at once, with the tweak
 
 launchd starts MenuBarAgent under its own label, `com.apple.MenuBarAgent`, not as an `application.` service, so
 dynjectd lets it through only with an allow rule: `dw tweak install --for` adds `allow:MenuBarAgent`. that rule lets
 every allow-by-default tweak into MenuBarAgent; deny the ones that don't belong there
 (`dylib-override:<dylib>:deny:com.apple.MenuBarAgent`).
 
-the menu bar disappears for a moment while MenuBarAgent restarts. `dw respring` leaves it alone.
+the menu bar disappears for a moment while MenuBarAgent restarts. `dw respring` leaves it alone unless asked:
+`dw respring --only com.apple.MenuBarAgent` (or `--system`) restarts it and checks the tweak came back.
 
 
 demo
