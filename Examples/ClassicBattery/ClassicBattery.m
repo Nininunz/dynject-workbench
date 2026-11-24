@@ -1,6 +1,9 @@
-// ClassicBattery: the menu bar battery as in older macOS: the percentage, then a thin-outline battery whose fill shows
-// the level, with a bolt while charging, a plug when held at a limit, yellow in Low Power Mode and red at 10% or less.
-// No settings.
+// ClassicBattery: the menu bar battery as in older macOS: the percentage beside the battery, not inside it.
+//
+// Two styles (setting `style`): "classic" draws the older battery itself (a thin outline whose fill shows the level,
+// a bolt while charging, a plug when held at a limit, yellow in Low Power Mode, red at 10% or less) after the number;
+// "apple" keeps macOS's battery and puts the number before it. `showPercent` and `textSize` apply to both, `enabled`
+// off gives the battery back to macOS. All of them apply live.
 //
 // Runs in ControlCenter, which draws the battery item. Each ControlCenter item is an NSHostedViewScene (one per
 // display): AppKit shows its `view`, a SwiftUI NSHostingView, in MenuBarAgent's menu bar, and reports that view's size
@@ -9,11 +12,11 @@
 //   1. Which scenes are the battery: ControlCenter makes an MBControlCenterItemAssertionXPC per item; the battery's
 //      has systemIdentifier "battery", and its assertionID is the controlCenterItemIDRawValue in the settings of every
 //      battery scene. It's made before the scenes.
-//   2. The battery scenes' view is replaced by a DYClassicBatteryView, with the SwiftUI view inside it: invisible,
-//      still getting every click, so the menu and the highlight are macOS's own. -[NSHostedViewScene setView:] is
-//      hooked so a view ControlCenter puts there later is wrapped too.
-//   3. The wrapper draws the classic item and is exactly as wide as it, so MenuBarAgent lays it out like any item; when
-//      the number's width changes (9% → 10%, 99% → 100%) the scene publishes the new size and MenuBarAgent follows.
+//   2. The battery scenes' view is replaced by a DYClassicBatteryView, with the SwiftUI view inside it, still getting
+//      every click, so the menu and the highlight are macOS's own: invisible in the classic style, at the right end
+//      in Apple's. -[NSHostedViewScene setView:] is hooked so a view ControlCenter puts there later is wrapped too.
+//   3. The wrapper draws the item and is exactly as wide as it, so MenuBarAgent lays it out like any item; when the
+//      width changes (9% → 10%, 99% → 100%, a setting) the scene publishes the new size and MenuBarAgent follows.
 //      State comes from IOKit power sources and Low Power Mode, redrawn when they change.
 //
 //   ./build.sh && dw tweak install . --for com.apple.controlcenter --also com.apple.controlcenter.PreloginSystemBannerRenderer
@@ -26,9 +29,10 @@
 #import <objc/runtime.h>
 #import <os/log.h>
 #import "DynjectHook.h"
+#import "DynjectTweak.h"
 
 // `./build.sh test` compiles a test copy (-DTWEAK_TEST) for testhost/: it also loads into the test host, and exports
-// CBTestSetState so the host can draw the item in any state.
+// CBTestSetState and CBTestSetSettings so the host can draw the item in any state, with any settings.
 #ifdef TWEAK_TEST
 #define TWEAK_ID_C "local.dynject.classicbattery.test"
 #define TWEAK_APPS "com.apple.controlcenter", "local.dynject.classicbattery.testhost"
@@ -36,14 +40,14 @@
 #define TWEAK_ID_C "local.dynject.classicbattery"
 #define TWEAK_APPS "com.apple.controlcenter"
 #endif
+#define TWEAK_ID @TWEAK_ID_C
 
 // The classic item, in points (older macOS's battery is about 2.2 times as wide as it is tall).
 static const CGFloat kBodyWidth = 25, kBodyHeight = 11.5, kBodyRadius = 3, kNubWidth = 1.5, kNubHeight = 4;
 static const CGFloat kInset = 1.5;   // between the outline and the fill
 static const CGFloat kGap = 4;       // between the number and the battery
 static const CGFloat kMargin = 1;    // at either end of the item
-// The number: smaller than the menu bar's 13 points, as in older macOS (its capitals about 3/4 of the battery's height).
-static const CGFloat kTextSize = 12;
+static const CGFloat kNativeWidth = 26;   // macOS's battery without its percentage, if its view can't say
 
 static DHHook *sAssertionInit, *sSetView;
 static NSString *gBatteryItemID;   // main thread
@@ -57,6 +61,23 @@ typedef struct {
 } BatteryState;
 static BatteryState gState;
 
+typedef struct {
+    BOOL on;
+    BOOL classic;        // style: draw the older battery (else keep macOS's)
+    BOOL showPercent;
+    CGFloat textSize;    // default 12: smaller than the menu bar's 13, as in older macOS (capitals ≈ 3/4 the battery)
+} Settings;
+static Settings gSettings;   // main thread
+
+static Settings ReadSettings(void) {
+    Settings s;
+    s.on = DTPrefBool(TWEAK_ID, @"enabled", YES);
+    s.classic = ![DTPrefString(TWEAK_ID, @"style", @"classic") isEqualToString:@"apple"];
+    s.showPercent = DTPrefBool(TWEAK_ID, @"showPercent", YES);
+    s.textSize = MIN(MAX(DTPrefDouble(TWEAK_ID, @"textSize", 12), 9), 15);
+    return s;
+}
+
 static os_log_t Log(void) {
     static os_log_t log;
     static dispatch_once_t once;
@@ -64,7 +85,7 @@ static os_log_t Log(void) {
     return log;
 }
 
-static NSFont *TextFont(void) { return [NSFont menuBarFontOfSize:kTextSize]; }
+static NSFont *TextFont(void) { return [NSFont menuBarFontOfSize:gSettings.textSize]; }
 
 #pragma mark - Battery state
 
@@ -97,6 +118,10 @@ static NSString *PercentText(BatteryState state) {
 __attribute__((visibility("default"))) void CBTestSetState(double fraction, int charging, int external, int lowPower) {
     gState = (BatteryState){.present = YES, .fraction = fraction, .charging = charging, .external = external,
                             .lowPower = lowPower};
+}
+/// Test copy only: the settings the item draws with.
+__attribute__((visibility("default"))) void CBTestSetSettings(int classic, int showPercent, double textSize) {
+    gSettings = (Settings){.on = YES, .classic = classic, .showPercent = showPercent, .textSize = textSize};
 }
 #endif
 
@@ -133,16 +158,31 @@ static NSColor *MenuBarInk(NSAppearance *appearance) {
 @property (strong) NSView *hosted;
 @end
 
-/// The item's width: the number as it is now, the gap, the battery, a point at either end.
-static CGFloat ItemWidth(BatteryState state) {
-    CGFloat text = [PercentText(state) sizeWithAttributes:@{NSFontAttributeName: TextFont()}].width;
-    return ceil((kMargin + text + kGap + kBodyWidth + kNubWidth + kMargin) * 2) / 2;
+/// The width of the number as it is now, and the gap after it; 0 without the percentage.
+static CGFloat TextWidth(BatteryState state) {
+    if (!gSettings.showPercent) return 0;
+    return [PercentText(state) sizeWithAttributes:@{NSFontAttributeName: TextFont()}].width + kGap;
 }
 
 @implementation DYClassicBatteryView
 
+/// macOS's battery: as wide as ControlCenter's view wants to be (wider with Control Center's Show Percentage on).
+- (CGFloat)nativeWidth {
+    CGFloat width = self.hosted ? ceil(self.hosted.fittingSize.width) : 0;
+    return width > 0 ? width : kNativeWidth;
+}
+
+/// The item's width. Classic: the number, the battery, a point at either end. Apple's: a point, the number, then
+/// macOS's battery (whose glyph starts a point in).
+- (CGFloat)itemWidth {
+    CGFloat text = TextWidth(gState);
+    CGFloat width = gSettings.classic ? kMargin + text + kBodyWidth + kNubWidth + kMargin
+                                      : (text > 0 ? kMargin + text - 1 : 0) + self.nativeWidth;
+    return ceil(width * 2) / 2;
+}
+
 // Sized by its content: AppKit reports this to MenuBarAgent, which lays the menu bar out with it.
-- (NSSize)intrinsicContentSize { return NSMakeSize(ItemWidth(gState), NSHeight(self.hosted.frame) ?: 39); }
+- (NSSize)intrinsicContentSize { return NSMakeSize(self.itemWidth, NSHeight(self.hosted.frame) ?: 39); }
 - (NSSize)fittingSize { return self.intrinsicContentSize; }
 - (BOOL)isFlipped { return NO; }
 
@@ -154,7 +194,12 @@ static CGFloat ItemWidth(BatteryState state) {
 
 - (void)layout {
     [super layout];
-    self.hosted.frame = self.bounds;
+    // Classic: ControlCenter's view covers the item, invisible. Apple's: shown at the right end.
+    NSRect bounds = self.bounds;
+    CGFloat native = MIN(self.nativeWidth, NSWidth(bounds));
+    self.hosted.frame = gSettings.classic ? bounds : NSMakeRect(NSMaxX(bounds) - native, 0, native, NSHeight(bounds));
+    float opacity = gSettings.classic ? 0 : 1;
+    if (self.hosted.layer.opacity != opacity) self.hosted.layer.opacity = opacity;
 }
 - (BOOL)isOpaque { return NO; }
 - (void)viewDidChangeEffectiveAppearance { [super viewDidChangeEffectiveAppearance]; self.needsDisplay = YES; }
@@ -174,11 +219,15 @@ static CGFloat ItemWidth(BatteryState state) {
     // battery there, and the number on the battery.
     CGFloat midY = round(NSMidY(bounds) * 2) / 2;
 
+    if (!gSettings.classic) {   // macOS's battery is at the right end (its glyph starts a point in)
+        [self drawPercent:state ink:ink midY:midY before:NSMaxX(bounds) - MIN(self.nativeWidth, NSWidth(bounds)) + 1];
+        return;
+    }
+
     // The number and the battery, centred together.
-    NSString *text = PercentText(state);
-    CGFloat textWidth = [text sizeWithAttributes:@{NSFontAttributeName: TextFont()}].width;
-    CGFloat contentWidth = textWidth + kGap + kBodyWidth + kNubWidth;
-    CGFloat bodyX = round((NSMidX(bounds) - contentWidth / 2 + textWidth + kGap) * 2) / 2;
+    CGFloat textWidth = TextWidth(state);
+    CGFloat contentWidth = textWidth + kBodyWidth + kNubWidth;
+    CGFloat bodyX = round((NSMidX(bounds) - contentWidth / 2 + textWidth) * 2) / 2;
     NSRect body = [self aligned:NSMakeRect(bodyX, midY - kBodyHeight / 2, kBodyWidth, kBodyHeight)];
     NSRect nub = [self aligned:NSMakeRect(NSMaxX(body), midY - kNubHeight / 2, kNubWidth, kNubHeight)];
 
@@ -230,6 +279,7 @@ static CGFloat ItemWidth(BatteryState state) {
 
 /// The number, right-aligned `kGap` before `x`, its cap height centred on the battery.
 - (void)drawPercent:(BatteryState)state ink:(NSColor *)ink midY:(CGFloat)midY before:(CGFloat)x {
+    if (!gSettings.showPercent) return;
     NSFont *font = TextFont();
     NSDictionary *attributes = @{NSFontAttributeName: font, NSForegroundColorAttributeName: ink};
     NSString *text = PercentText(state);
@@ -280,19 +330,19 @@ static DYClassicBatteryView *Wrapper(NSView *hosted) {
     return wrapper;
 }
 
-/// After the wrapper became the scene's view: the SwiftUI view goes inside it, invisible, and the scene publishes the
-/// wrapper's size.
+/// After the wrapper became the scene's view: the SwiftUI view goes inside it (laid out by the wrapper), and the scene
+/// publishes the wrapper's size.
 static void Adopt(id scene, DYClassicBatteryView *wrapper) {
     NSView *hosted = wrapper.hosted;
     [wrapper addSubview:hosted];
     hosted.wantsLayer = YES;
-    hosted.layer.opacity = 0;
+    hosted.layer.opacity = gSettings.classic ? 0 : 1;
     [wrapper setFrameSize:wrapper.intrinsicContentSize];
     ((void (*)(id, SEL))objc_msgSend)(scene, NSSelectorFromString(@"viewHierarchyDidChange"));
 }
 
 static void CBSetView(id self, SEL _cmd, NSView *view) {
-    if (!view || [view isKindOfClass:[DYClassicBatteryView class]] || !IsBatteryScene(self)) {
+    if (!view || !gSettings.on || [view isKindOfClass:[DYClassicBatteryView class]] || !IsBatteryScene(self)) {
         DH_CALL_ORIG(sSetView, void (*)(id, SEL, NSView *), self, _cmd, view);
         return;
     }
@@ -309,14 +359,29 @@ static NSArray *BatteryScenes(void) {
     return out;
 }
 
+/// Gives a battery scene ControlCenter's own view back (the tweak turned off).
+static void Unwrap(id scene, DYClassicBatteryView *wrapper) {
+    NSView *hosted = wrapper.hosted;
+    [hosted removeFromSuperview];
+    hosted.layer.opacity = 1;
+    hosted.frame = (NSRect){NSZeroPoint, hosted.fittingSize};
+    ((void (*)(id, SEL, id))objc_msgSend)(scene, NSSelectorFromString(@"setView:"), hosted);   // passes through: off
+    ((void (*)(id, SEL))objc_msgSend)(scene, NSSelectorFromString(@"viewHierarchyDidChange"));
+}
+
 /// Wraps the battery scenes that aren't yet (they were set up before the hook, or before the battery's ID was known),
-/// and brings every wrapper up to date with the state: redrawn, and resized when the number's width changed.
+/// or unwraps them when the tweak is off, and brings every wrapper up to date with the state and the settings:
+/// laid out, redrawn, and resized when its width changed.
 static void Refresh(NSString *why) {
     gState = ReadState();
     NSArray *scenes = BatteryScenes();
     for (id scene in scenes) {
         NSView *view = Call(scene, @"view");
         if (!view) continue;
+        if (!gSettings.on) {
+            if ([view isKindOfClass:[DYClassicBatteryView class]]) Unwrap(scene, (DYClassicBatteryView *)view);
+            continue;
+        }
         if (![view isKindOfClass:[DYClassicBatteryView class]]) {
             DYClassicBatteryView *wrapper = Wrapper(view);
             ((void (*)(id, SEL, id))objc_msgSend)(scene, NSSelectorFromString(@"setView:"), wrapper);   // passes through
@@ -330,11 +395,12 @@ static void Refresh(NSString *why) {
             [wrapper setFrameSize:size];
             ((void (*)(id, SEL))objc_msgSend)(scene, NSSelectorFromString(@"viewHierarchyDidChange"));
         }
+        wrapper.needsLayout = YES;
         wrapper.needsDisplay = YES;
     }
-    os_log(Log(), "%{public}@: %lu battery scenes, %{public}@ charging=%d external=%d lowPower=%d, width %g", why,
-           (unsigned long)scenes.count, PercentText(gState), gState.charging, gState.external, gState.lowPower,
-           ItemWidth(gState));
+    os_log(Log(), "%{public}@: %lu battery scenes, %{public}@ charging=%d external=%d lowPower=%d; on=%d classic=%d "
+           "percent=%d text %g", why, (unsigned long)scenes.count, PercentText(gState), gState.charging, gState.external,
+           gState.lowPower, gSettings.on, gSettings.classic, gSettings.showPercent, gSettings.textSize);
 }
 
 static void PowerChanged(void *context) {
@@ -345,6 +411,7 @@ static void PowerChanged(void *context) {
 DH_CTOR(TWEAK_ID_C, TWEAK_APPS) {
     DH_REQUIRE_SYSTEM("27.0");
     gState = ReadState();
+    gSettings = ReadSettings();
     DHGroup *group = DHGroupCreate("main");
     SEL init = NSSelectorFromString(@"initWithID:behavior:isPrimary:isSpringLoaded:canDropOnBentoBox:encodedHighlight:"
                                     @"sortOrder:persistenceID:displayableID:systemIdentifier:accessibilityToken:");
@@ -358,5 +425,9 @@ DH_CTOR(TWEAK_ID_C, TWEAK_APPS) {
     [[NSNotificationCenter defaultCenter] addObserverForName:NSProcessInfoPowerStateDidChangeNotification object:nil
                                                        queue:NSOperationQueue.mainQueue
                                                   usingBlock:^(NSNotification *note) { (void)note; Refresh(@"low power"); }];
+    DTPrefObserve(TWEAK_ID, dispatch_get_main_queue(), ^{
+        gSettings = ReadSettings();
+        Refresh(@"settings");
+    });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ Refresh(@"at 2 s"); });
 }

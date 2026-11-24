@@ -22,7 +22,7 @@ dylib() {
   strip -S "$out/libClassicBattery.dylib"   # the debug map (build paths) goes; the dSYM -g made next to it keeps the symbols
   if [ "${SIGN_IDENTITY:--}" = "-" ]; then codesign --force --sign - --timestamp=none "$out/libClassicBattery.dylib"
   else codesign --force --sign "$SIGN_IDENTITY" --timestamp "$out/libClassicBattery.dylib"; fi
-  exported=$(nm -gU "$out/libClassicBattery.dylib" 2>/dev/null | grep -cv -e '^$' -e ':$' -e ' _CBTestSetState$' || true)   # the test copy's one export
+  exported=$(nm -gU "$out/libClassicBattery.dylib" 2>/dev/null | grep -cv -e '^$' -e ':$' -e ' _CBTestSetState$' -e ' _CBTestSetSettings$' || true)   # the test copy's two exports
   echo "Built $out/libClassicBattery.dylib ($(lipo -archs "$out/libClassicBattery.dylib"); exported symbols: $exported)"
   [ "$exported" = 0 ] || { nm -gU "$out/libClassicBattery.dylib"; echo "error: exported symbols" >&2; exit 1; }
 }

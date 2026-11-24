@@ -10,6 +10,7 @@
 	<key>dylib</key><string>/opt/dynject/lib/tweaks/libClassicBattery.dylib</string>
 	<key>minimumSystemVersion</key><string>27.0</string>
 	<key>testedSystemVersions</key><string>27.2</string>
+	<key>takesEffect</key><string>live</string>
 	<key>requires</key>
 	<array>
 		<dict>
@@ -21,6 +22,54 @@
 			<key>class</key><string>NSHostedViewScene</string>
 			<key>image</key><string>AppKit</string>
 			<key>methods</key><array><string>-setView:</string><string>-view</string><string>-viewHierarchyDidChange</string><string>-_FBSScene</string></array>
+		</dict>
+	</array>
+	<key>sections</key>
+	<array>
+		<dict>
+			<key>title</key><string>Battery</string>
+			<key>footer</key><string>Runs in Control Center, which draws the battery in the menu bar; clicking it still opens the usual battery menu. With Apple's battery, turn off Show Percentage in Control Center's settings so the number isn't shown twice.</string>
+			<key>items</key>
+			<array>
+				<dict>
+					<key>type</key><string>switch</string>
+					<key>key</key><string>enabled</string>
+					<key>title</key><string>Enabled</string>
+					<key>footer</key><string>Off gives the menu bar its usual battery back.</string>
+					<key>default</key><true/>
+				</dict>
+				<dict>
+					<key>type</key><string>choice</string>
+					<key>key</key><string>style</string>
+					<key>title</key><string>Battery</string>
+					<key>options</key>
+					<array>
+						<dict><key>value</key><string>classic</string><key>title</key><string>Classic</string></dict>
+						<dict><key>value</key><string>apple</string><key>title</key><string>Apple's</string></dict>
+					</array>
+					<key>footer</key><string>Classic: a thin outline whose fill shows the level. Apple's: macOS's own battery, with the number before it.</string>
+					<key>default</key><string>classic</string>
+					<key>enabledIf</key><string>enabled</string>
+				</dict>
+				<dict>
+					<key>type</key><string>switch</string>
+					<key>key</key><string>showPercent</string>
+					<key>title</key><string>Show percentage</string>
+					<key>default</key><true/>
+					<key>enabledIf</key><string>enabled</string>
+				</dict>
+				<dict>
+					<key>type</key><string>slider</string>
+					<key>key</key><string>textSize</string>
+					<key>title</key><string>Text size</string>
+					<key>footer</key><string>In points. The menu bar's text is 13; older macOS drew the percentage a little smaller.</string>
+					<key>min</key><real>9</real>
+					<key>max</key><real>15</real>
+					<key>step</key><real>0.5</real>
+					<key>default</key><real>12</real>
+					<key>enabledIf</key><string>showPercent</string>
+				</dict>
+			</array>
 		</dict>
 	</array>
 </dict>

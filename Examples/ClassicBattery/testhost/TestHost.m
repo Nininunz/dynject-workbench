@@ -20,6 +20,8 @@ static void Check(BOOL ok, NSString *what) {
 
 typedef void (*SetStateFn)(double, int, int, int);
 static SetStateFn sSetState;
+typedef void (*SetSettingsFn)(int, int, double);
+static SetSettingsFn sSetSettings;
 
 /// One drawing: its pixels and how many there are per point.
 @interface Drawing : NSObject
@@ -54,6 +56,9 @@ static Drawing *Draw(NSString *name, NSString *dir, double fraction, int chargin
     d.scale = 2;
     return d;
 }
+
+// The classic battery alone: a point at either end, the body, the nub.
+static const double kBatteryOnly = 1 + 25 + 1.5 + 1;
 
 static NSColor *Px(Drawing *d, NSInteger x, NSInteger y) { return [[d.rep colorAtX:x y:y] colorUsingColorSpace:NSColorSpace.sRGBColorSpace]; }
 static BOOL Ink(NSColor *c) { return c.alphaComponent > 0.6; }
@@ -170,6 +175,40 @@ int main(int argc, char **argv) {
         Check(darkText, @"light menu bar: the number is dark");
         Draw(@"light-80-charging", dir, 0.8, 1, 1, 0, NO);
         Draw(@"light-5-battery", dir, 0.05, 0, 0, 0, NO);
+
+        printf("settings\n");
+        sSetSettings = (SetSettingsFn)dlsym(RTLD_DEFAULT, "CBTestSetSettings");
+        Check(sSetSettings != NULL, @"the test copy exports CBTestSetSettings");
+        if (sSetSettings) {
+            NSView *probe = [[NSClassFromString(@"DYClassicBatteryView") alloc] initWithFrame:NSZeroRect];
+            sSetState(0.5, 0, 0, 0);
+            CGFloat classicWidth = probe.intrinsicContentSize.width;
+
+            sSetSettings(1, 0, 12);   // classic, no percentage
+            Drawing *bare = Draw(@"dark-50-nopercent", dir, 0.5, 0, 0, 0, YES);
+            NSArray *bareRuns = Runs(bare);
+            Check(bareRuns.count == 1, [NSString stringWithFormat:@"no percentage: only the battery (%lu runs)", (unsigned long)bareRuns.count]);
+            CGFloat bareWidth = probe.intrinsicContentSize.width;
+            Check(fabs(bareWidth - (kBatteryOnly)) < 0.01, [NSString stringWithFormat:@"no percentage: %.1f pt wide (%.1f)", bareWidth, kBatteryOnly]);
+
+            sSetSettings(1, 1, 15);   // classic, bigger number
+            Drawing *big = Draw(@"dark-50-15pt", dir, 0.5, 0, 0, 0, YES);
+            NSArray *bigRuns = Runs(big);
+            double bigText = bigRuns.count >= 2 ? [bigRuns[bigRuns.count - 2] rangeValue].length : 0;
+            Check(bigText > text.length * 1.12, [NSString stringWithFormat:@"15 pt number is wider than 12 pt (%.0f vs %lu px)", bigText, (unsigned long)text.length]);
+            Check(probe.intrinsicContentSize.width > classicWidth, @"15 pt number: the item is wider");
+
+            sSetSettings(0, 1, 12);   // Apple's battery: only the number is ours, before macOS's 26-point battery
+            Drawing *apple = Draw(@"dark-50-apple", dir, 0.5, 0, 0, 0, YES);
+            NSArray *appleRuns = Runs(apple);
+            NSInteger lastInk = appleRuns.count ? (NSInteger)NSMaxRange([appleRuns.lastObject rangeValue]) : 0;
+            Check(appleRuns.count >= 1 && lastInk <= (64 - 26) * 2,
+                  [NSString stringWithFormat:@"Apple's: the number ends before macOS's battery (at %.1f pt, battery from %d)", lastInk / 2.0, 64 - 26]);
+            CGFloat appleWidth = probe.intrinsicContentSize.width;
+            Check(appleWidth > 26 + 15 && appleWidth < classicWidth,
+                  [NSString stringWithFormat:@"Apple's: %.1f pt wide (macOS's 26 plus the number)", appleWidth]);
+            sSetSettings(1, 1, 12);   // back to the defaults
+        }
 
         printf("what it uses in ControlCenter\n");
         dlopen("/System/Library/PrivateFrameworks/MenuBarClient.framework/MenuBarClient", RTLD_LAZY);
