@@ -321,9 +321,9 @@ version 0.1.7.
     dw tweak install/uninstall, dw new         unit-tested in temp folders, real helper script run as the
                                                user; used live for every tweak in this repo. the template
                                                was built and injected into a test app.
-    approval window                            server tested as the user in temp folders; live as root once
-                                               (2026-11-24: one prompt, then two steps without). its idle
-                                               timeout has only been seen as the user.
+    approval window                            server tested as the user in temp folders; live as root
+                                               (2026-11-24: one prompt, then two steps without; closed
+                                               itself after 5 idle minutes, folder and server gone)
     inline hooks (DHHookFunction)              Tests/InlineHost; live in calculator, an apple platform
                                                binary (own text and the shared cache)
     SettingsLoader                             live in system settings 27.2: sidebar, pages, back/forward

@@ -181,6 +181,18 @@ final class TweakWhyTests: XCTestCase {
         XCTAssertEqual((json["steps"] as? [[String: Any]])?.first?.keys.sorted(), ["check", "detail", "fix", "section", "status"])
     }
 
+    func testLoginwindowIsNeverReached() {
+        var i = inputs()
+        i.app = InstalledApp(displayName: "loginwindow", bundleID: "com.apple.loginwindow", executableName: "loginwindow",
+                             executablePath: "/System/Library/CoreServices/loginwindow.app/Contents/MacOS/loginwindow",
+                             bundlePath: "/System/Library/CoreServices/loginwindow.app")
+        let r = Why.explain(i)
+        XCTAssertFalse(r.loads)
+        XCTAssertEqual(step(r, "reaches it")?.status, .fail)
+        XCTAssertTrue(r.verdict.hasPrefix("it doesn't load: dynjectd never sees loginwindow start"), r.verdict)
+        XCTAssertNil(step(Why.explain(inputs()), "reaches it"), "other apps don't get the check")
+    }
+
     func testConfigGates() {
         var r = Why.explain(inputs(config: "dylib:\(Self.dylib):deny\n"))
         XCTAssertEqual(step(r, "dylib rule")?.status, .fail)

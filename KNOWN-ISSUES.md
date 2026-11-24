@@ -14,8 +14,7 @@ platform
   machine, not just injected apps; see README "what you're giving up". macOS updates may
   re-enable SIP or break the engine.
 - dynject never injects loginwindow (which draws the lock screen): its per-session instances
-  aren't started through the xpcproxy launch dynjectd watches. `dw why` wrongly says a tweak
-  enabled there loads at loginwindow's next launch.
+  aren't started through the xpcproxy launch dynjectd watches. `dw why` says so.
 - Examples/ClassicBattery looks off on external displays (seen, not investigated yet).
 - only tested on macOS 27 on apple silicon. the package says 14+; nobody has run it there.
 - x86_64 slices of the tweaks are built but have never been run.
@@ -54,7 +53,6 @@ doctor
 install / uninstall
 - `dw tweak install/uninstall` are used live for every tweak here. workbench's install tweak...
   button shares the code but hasn't been clicked live. `--dry-run` first is still a good habit.
-- the approval window's idle timeout has only been tested running as the user, not as root.
 - uninstall removes a global `allow:<App>` line only when nothing else needs it (`--keep-rules`
   keeps them all).
 - uninstall refuses to remove the config's last dylib (dynjectd won't start without one).

@@ -4,6 +4,13 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
+unreleased
+----------
+
+- `dw why` says loginwindow can't be reached (dynjectd never sees it start) instead of "it should
+  load at the next launch".
+
+
 0.1.7 (2026-11-24)
 ------------------
 

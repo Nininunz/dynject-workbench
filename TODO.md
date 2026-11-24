@@ -11,7 +11,7 @@ todo
 - tweaks for the Dock (ControlCenter has Examples/ClassicBattery; respring restarts both:
   `--system`).
 - a way into loginwindow (the lock screen): dynjectd never injects it. ClassicBattery's lock-screen
-  hook is ready for it. and `dw why` should say loginwindow can't be reached instead of "should load".
+  hook is ready for it.
 - `dw diagnose`: bundle logs, config, state.json and crash reports for bug reports.
 - reinstall the safe mode watcher automatically when workbench is updated.
 - test on intel.

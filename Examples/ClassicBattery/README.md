@@ -79,8 +79,7 @@ it doesn't reach the lock screen yet: dynjectd never injects loginwindow. after 
 enabled for `com.apple.loginwindow`, dynjectd's log has no line for the new loginwindow at all (it caught
 MenuBarAgent and ControlCenter seconds later). loginwindow is a launchd job with one instance per session
 (`com.apple.loginwindow.<UUID>`), started some way that doesn't go through the xpcproxy launch dynjectd watches.
-`dw why` still predicts it loads there; that's wrong. the hook is checked in the test host, so it's ready for a way
-in.
+`dw why` says so. the hook is checked in the test host, so it's ready for a way in.
 
 an earlier version ran in MenuBarAgent: it hid ControlCenter's drawing in the slot, drew over it, and widened the
 slot by answering MenuBarAgent's size reads, so the slot was always as wide as "100%" needed. working in ControlCenter

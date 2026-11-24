@@ -399,6 +399,13 @@ public enum Why {
 
     static func clock(_ d: Date?) -> String { Doctor.clock(d) }
 
+    /// Apps dynjectd never gets into, whatever the config says, and why (seen on macOS 27.2).
+    public static let unreachable: [String: String] = [
+        "com.apple.loginwindow": "dynjectd never sees loginwindow start: macOS starts its per-session copies "
+            + "(com.apple.loginwindow.<UUID>) outside the xpcproxy launch dynjectd watches, and its log has no line "
+            + "for them, so no tweak gets in",
+    ]
+
     public static func explain(_ i: WhyInputs) -> WhyReport {
         var steps: [WhyStep] = []
         func add(_ section: String, _ check: String, _ status: WhyStatus, _ detail: String, fix: String? = nil) {
@@ -422,6 +429,7 @@ public enum Why {
         } else {
             add(engine, "running", .pass, "running (pid \(i.daemon.processes[0].pid)), with the current config")
         }
+        if let why = unreachable[bundle] { add(engine, "reaches it", .fail, why) }
 
         // dynjectd.conf, at launch
         let conf = "dynjectd.conf (at launch)"
