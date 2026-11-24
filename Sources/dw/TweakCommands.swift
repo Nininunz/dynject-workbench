@@ -6,7 +6,7 @@ import Foundation
 let tweakUsage = """
 usage:
   dw tweak install <folder|manifest.workbench.plist> [--for <bundleID>]... [--dylib <built.dylib>]
-                   [--allow-downgrade] [--force] [--dry-run]
+                   [--also <bundleID>]... [--allow-downgrade] [--force] [--dry-run]
   dw tweak uninstall <tweakID|manifest.workbench.plist> [--keep-file] [--keep-rules] [--force] [--dry-run]
   dw tweak list
   dw new <Name> [--id <reverse.dns.id>] [--app <bundleID>] [--dir <path>] [--sdk <dir>]
@@ -17,7 +17,8 @@ usage:
              to ~/Library/Application Support/Dynject Workbench/Tweaks/. Running it again after a rebuild replaces
              the dylib (backed up first). Refuses an older version than the installed one (--allow-downgrade),
              a macOS below the manifest's minimumSystemVersion or unmet depends (--force); warns outside
-             testedSystemVersions.
+             testedSystemVersions. Refuses a config edit that would also reach apps it doesn't name (rules match
+             service names by substring); --also <bundleID> accepts one such app.
   uninstall  removes the tweak's dylib: and dylib-override: lines, deletes the dylib (not with --keep-file),
              restarts dynjectd (one prompt), then deletes its manifest and Safe Mode entries. Its settings stay.
              An allow:<executable> rule that only let this tweak's apps through goes too (--keep-rules keeps it);
@@ -38,7 +39,7 @@ struct TweakArguments {
     var values: [String: [String]] = [:]
     var flags: Set<String> = []
 
-    static let valued: Set<String> = ["--for", "--dylib", "--root", "--id", "--app", "--dir", "--sdk"]
+    static let valued: Set<String> = ["--for", "--dylib", "--root", "--id", "--app", "--dir", "--sdk", "--also"]
     static let boolean: Set<String> = ["--dry-run", "--keep-file", "--keep-rules", "--allow-downgrade", "--force"]
 
     init(_ args: [String]) {
@@ -150,8 +151,10 @@ func tweakInstall(_ path: String, _ a: TweakArguments) {
                 InjectionTarget(app: $0, service: ServiceNameResolver.resolve($0, log: log).value)
             }
         }
+        let also = Set((a.values["--also"] ?? []).flatMap { $0.split(separator: ",").map(String.init) })
         let options = TweakInstallOptions(allowDowngrade: a.flags.contains("--allow-downgrade"), force: a.flags.contains("--force"),
-                                          components: BuiltInComponent.installedStatus(launchAgentsDirectory: ctx.launchAgentsDirectory))
+                                          components: BuiltInComponent.installedStatus(launchAgentsDirectory: ctx.launchAgentsDirectory),
+                                          alsoAffecting: also)
         let plan = try TweakInstaller.plan(source: source, enableFor: bundleIDs, targets: targets, locations: ctx.locations,
                                            options: options)
         print("\(plan.manifest.name) (\(plan.manifest.id)\(plan.manifest.version.map { " v\($0)" } ?? "")) from \(source.manifestPath)")

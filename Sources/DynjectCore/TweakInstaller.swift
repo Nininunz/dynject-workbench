@@ -409,8 +409,18 @@ public enum TweakInstaller {
         }
         let others = ConfigEditor.affectedApps(from: original, to: doc, targets: targets, fileExists: exists)
             .filter { !wanted.contains($0.app.bundleID) }
-        if !others.isEmpty {
-            throw TweakInstallError.refused("This config edit would also change what loads in \(others.map(\.app.displayName).joined(separator: ", ")). Enable it in Workbench (Apps & Injection) instead.")
+        let accepted = others.filter { options.alsoAffecting.contains($0.app.bundleID) }
+        let unaccepted = others.filter { !options.alsoAffecting.contains($0.app.bundleID) }
+        if !unaccepted.isEmpty {
+            throw TweakInstallError.refused("""
+            This config edit would also change what loads in \(unaccepted.map { "\($0.app.displayName) (\($0.app.bundleID))" }.joined(separator: ", ")): \
+            dynjectd matches service names by substring. If that's fine (a tweak whose DH_CTOR lists only the apps you \
+            named stays out of the others), accept it with \(unaccepted.map { "--also \($0.app.bundleID)" }.joined(separator: " ")); \
+            or enable it in Workbench (Apps & Injection).
+            """)
+        }
+        for t in accepted {
+            notes.append("Also reaches \(t.app.displayName) (\(t.app.bundleID)), accepted with --also.")
         }
         try refuseNewErrors(from: original, to: doc)
         let configNew = doc.text == original.text ? nil : doc.text

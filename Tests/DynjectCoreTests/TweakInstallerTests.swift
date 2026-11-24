@@ -262,6 +262,29 @@ final class TweakInstallerTests: XCTestCase {
         XCTAssertEqual(config, Fixtures.text("live.conf"))
     }
 
+    func testAlsoAcceptsAnotherAppTheEditReaches() throws {
+        // Rules match service names by substring: enabling for Control Center (launchd label com.apple.controlcenter)
+        // also reaches com.apple.controlcenter.PreloginSystemBannerRenderer.
+        let cc = Apps.make("ControlCenter", "com.apple.controlcenter", dir: "/System/Library/CoreServices")
+        let prelogin = Apps.make("PreloginSystemBannerRenderer", "com.apple.controlcenter.PreloginSystemBannerRenderer",
+                                 dir: "/System/Library/CoreServices")
+        // The fixture has ui_apps:no; let the prelogin app through the process gate, as the live config does.
+        try (config + "allow:PreloginSystemBannerRenderer\n").write(toFile: loc.configPath, atomically: true, encoding: .utf8)
+        let source = try TweakSource.locate(src.path)
+        let targets = Apps.targets(Apps.all + [cc, prelogin])
+        XCTAssertThrowsError(try TweakInstaller.plan(source: source, enableFor: ["com.apple.controlcenter"], targets: targets, locations: loc)) { e in
+            XCTAssertTrue(e.localizedDescription.contains("PreloginSystemBannerRenderer (com.apple.controlcenter.PreloginSystemBannerRenderer)") &&
+                          e.localizedDescription.contains("--also com.apple.controlcenter.PreloginSystemBannerRenderer"), e.localizedDescription)
+        }
+        XCTAssertThrowsError(try TweakInstaller.plan(source: source, enableFor: ["com.apple.controlcenter"], targets: targets, locations: loc,
+                                                     options: TweakInstallOptions(alsoAffecting: ["com.apple.TextEdit"])),
+                             "accepting a different app doesn't accept this one")
+        let plan = try TweakInstaller.plan(source: source, enableFor: ["com.apple.controlcenter"], targets: targets, locations: loc,
+                                           options: TweakInstallOptions(alsoAffecting: ["com.apple.controlcenter.PreloginSystemBannerRenderer"]))
+        XCTAssertTrue(plan.notes.contains { $0.contains("Also reaches PreloginSystemBannerRenderer") && $0.contains("--also") }, "\(plan.notes)")
+        XCTAssertEqual(plan.enabledFor.map(\.bundleID), ["com.apple.controlcenter"])
+    }
+
     func testDylibWarningsAndExplicitDylibPath() throws {
         let other = root.appendingPathComponent("elsewhere.dylib")
         try FakeMachO.make([FakeMachO.arm64e], signed: false).write(to: other)

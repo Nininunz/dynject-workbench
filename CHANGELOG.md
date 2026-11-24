@@ -7,6 +7,12 @@ newest first. for testers; the commit log has the details.
 unreleased
 ----------
 
+- `dw tweak install --also <bundleID>`: accepts a config edit that also reaches another app.
+  dynjectd matches service names by substring, so enabling a tweak for `com.apple.controlcenter`
+  also reaches `com.apple.controlcenter.PreloginSystemBannerRenderer`; install refused that before,
+  with no way around it but Workbench. the refusal now names each app with its bundle ID and the
+  `--also` options that accept it, and the plan notes every app accepted. a tweak whose `DH_CTOR`
+  lists only the apps you named stays out of the others anyway.
 - `dw respring --system`: also restarts macOS's UI agents tweaks go into (the Dock, Control Center,
   MenuBarAgent, SystemUIServer, Notification Center), or name one with `--only`. they're sent
   SIGTERM and launchd starts them again; respring never opens them (that would make a second copy)

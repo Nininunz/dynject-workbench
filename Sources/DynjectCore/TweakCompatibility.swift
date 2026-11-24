@@ -233,13 +233,18 @@ public struct TweakInstallOptions: Sendable, Equatable {
     public var systemVersion: SystemVersion
     /// Which components are installed, for `depends`. Missing entries are unknown and never unmet.
     public var components: [BuiltInComponent: Bool]
+    /// Other apps the config edit may reach too, accepted by bundle ID (`--also`). dynjectd matches service names
+    /// by substring, so enabling a tweak for com.apple.controlcenter also reaches
+    /// com.apple.controlcenter.PreloginSystemBannerRenderer; a tweak whose DH_CTOR names only the first stays out of it.
+    public var alsoAffecting: Set<String>
 
     public init(allowDowngrade: Bool = false, force: Bool = false, systemVersion: SystemVersion = .current,
-                components: [BuiltInComponent: Bool] = [:]) {
+                components: [BuiltInComponent: Bool] = [:], alsoAffecting: Set<String> = []) {
         self.allowDowngrade = allowDowngrade
         self.force = force
         self.systemVersion = systemVersion
         self.components = components
+        self.alsoAffecting = alsoAffecting
     }
 }
 
