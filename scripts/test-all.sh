@@ -105,6 +105,7 @@ step inspector         in_dir Tweaks/Inspector ./build.sh
 step oledfinder        in_dir Examples/OLEDFinder ./build.sh
 step titlebadge        in_dir Examples/TitleBadge ./build.sh
 step notchpadding      in_dir Examples/NotchPadding ./build.sh
+step classicbattery    in_dir Examples/ClassicBattery ./build.sh
 step template          template
 
 if [ "$mode" != quick ]; then
@@ -113,6 +114,7 @@ if [ "$mode" != quick ]; then
   step oledfinder-host in_dir Examples/OLEDFinder ./build.sh test
   step titlebadge-host in_dir Examples/TitleBadge ./build.sh test
   step notchpadding-host in_dir Examples/NotchPadding ./build.sh test
+  step classicbattery-host in_dir Examples/ClassicBattery ./build.sh test
   step imports-host    Tests/ImportHost/run.sh
   step template-host   template_host
   step dev-once        dev_once

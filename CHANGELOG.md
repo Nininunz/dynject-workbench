@@ -7,6 +7,11 @@ newest first. for testers; the commit log has the details.
 unreleased
 ----------
 
+- new example: Examples/ClassicBattery, the menu bar battery as in older macOS (the percentage
+  beside a thin-outline battery whose fill shows the level; bolt, plug, red, yellow). it runs in
+  ControlCenter and replaces the battery scene's view, so MenuBarAgent lays it out like any item
+  and its width follows the number; clicks and the menu stay macOS's own. `./build.sh test` draws
+  every state in dark and light and checks the pixels (19 checks, in `scripts/test-all.sh`).
 - `DHHookFunction`: inline function hooks in the tweak sdk, like `MSHookFunction`. the function's
   first 16 bytes jump away, so every call is caught, inside one image, between system libraries,
   and in apple's own apps (calculator); c, c++ and swift functions by address.

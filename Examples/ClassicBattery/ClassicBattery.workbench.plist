@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>formatVersion</key><integer>1</integer>
+	<key>identifier</key><string>local.dynject.classicbattery</string>
+	<key>name</key><string>Classic Battery</string>
+	<key>summary</key><string>The menu bar battery as in older macOS: the percentage beside a thin-outline battery.</string>
+	<key>version</key><string>0.1.0</string>
+	<key>dylib</key><string>/opt/dynject/lib/tweaks/libClassicBattery.dylib</string>
+	<key>minimumSystemVersion</key><string>27.0</string>
+	<key>testedSystemVersions</key><string>27.2</string>
+	<key>requires</key>
+	<array>
+		<dict>
+			<key>class</key><string>MBControlCenterItemAssertionXPC</string>
+			<key>image</key><string>MenuBarClient</string>
+			<key>methods</key><array><string>-initWithID:behavior:isPrimary:isSpringLoaded:canDropOnBentoBox:encodedHighlight:sortOrder:persistenceID:displayableID:systemIdentifier:accessibilityToken:</string><string>-assertionID</string></array>
+		</dict>
+		<dict>
+			<key>class</key><string>NSHostedViewScene</string>
+			<key>image</key><string>AppKit</string>
+			<key>methods</key><array><string>-setView:</string><string>-view</string><string>-viewHierarchyDidChange</string><string>-_FBSScene</string></array>
+		</dict>
+	</array>
+</dict>
+</plist>
