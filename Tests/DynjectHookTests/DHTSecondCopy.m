@@ -11,6 +11,10 @@
 #define DHGroupSetEnabled DHT2_DHGroupSetEnabled
 #define DHGroupIsEnabled DHT2_DHGroupIsEnabled
 #define DHHookMessage DHT2_DHHookMessage
+#define DHHookFunction DHT2_DHHookFunction
+#define DHHookFunctionEx DHT2_DHHookFunctionEx
+#define DHFunctionOriginal DHT2_DHFunctionOriginal
+#define DHFunctionHookIsActive DHT2_DHFunctionHookIsActive
 #define DHHookMessageEx DHT2_DHHookMessageEx
 #define DHOriginal DHT2_DHOriginal
 #define DHHookIsActive DHT2_DHHookIsActive

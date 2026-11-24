@@ -30,12 +30,27 @@ public struct HookReport: Sendable {
         public var active: Bool
     }
 
+    /// A function hooked inline (DHHookFunction).
+    public struct Function: Equatable, Sendable {
+        public var image: String
+        public var tweakID: String
+        /// The function's address in the process ("0x…"): the same function has the same address for every tweak.
+        public var address: String
+        /// "image`symbol+offset", or the address when it has no symbol.
+        public var name: String
+        public var active: Bool
+        /// Went on top of another inline hook, so it runs before that one.
+        public var stacked: Bool
+        public var group: String?
+    }
+
     public struct Copy: Equatable, Sendable {
         public var image: String
         public var tweakID: String
         public var sdk: String?
         public var hooks: [Hook] = []
         public var imports: [Import] = []
+        public var functions: [Function] = []
         /// Its "end" line arrived.
         public var complete = false
     }
@@ -88,6 +103,12 @@ public struct HookReport: Sendable {
                 let lib = value(f[3], "lib")
                 r.copies[i].imports.append(Import(image: image, tweakID: tweak, symbol: f[2], library: lib == "-" ? nil : lib,
                                                   sites: Int(value(f[4], "sites") ?? "") ?? 0, active: f[5] == "active"))
+            case "function" where f.count >= 7:
+                let tweak = f[1]
+                guard let image = current[tweak], let i = index(image) else { continue }
+                let group = body.range(of: " group=").map { String(body[$0.upperBound...]) }
+                r.copies[i].functions.append(Function(image: image, tweakID: tweak, address: f[2], name: f[3], active: f[4] == "active",
+                                                      stacked: f[5] == "stacked", group: group == "-" ? nil : group))
             case "end" where f.count >= 2:
                 if let image = current[f[1]], let i = index(image) { r.copies[i].complete = true }
             case "scan-begin":
@@ -124,7 +145,7 @@ public struct HookReport: Sendable {
                 byMethod[h.method, default: []].append(h)
             }
         }
-        return order.compactMap { m in
+        let methods: [Conflict] = order.compactMap { m in
             let hooks = byMethod[m] ?? []
             var images: [String] = []
             for h in hooks where !images.contains(h.image) { images.append(h.image) }
@@ -132,6 +153,26 @@ public struct HookReport: Sendable {
             let ids = images.map { img in hooks.first { $0.image == img }!.tweakID }
             return Conflict(method: m, tweakIDs: ids, top: hooks.first { $0.top }?.tweakID)
         }
+        // Functions: by address. The hook that went on top of the others runs first; with more than two, the last
+        // one stacked is on top, which the report can't tell apart from the middle ones.
+        var addresses: [String] = []
+        var byAddress: [String: [Function]] = [:]
+        for c in copies {
+            for f in c.functions {
+                if byAddress[f.address] == nil { addresses.append(f.address) }
+                byAddress[f.address, default: []].append(f)
+            }
+        }
+        let functions: [Conflict] = addresses.compactMap { a in
+            let hooks = byAddress[a] ?? []
+            var images: [String] = []
+            for h in hooks where !images.contains(h.image) { images.append(h.image) }
+            guard images.count > 1 else { return nil }
+            let ids = images.map { img in hooks.first { $0.image == img }!.tweakID }
+            let stacked = hooks.filter(\.stacked)
+            return Conflict(method: "function " + hooks[0].name, tweakIDs: ids, top: stacked.count == 1 ? stacked[0].tweakID : nil)
+        }
+        return methods + functions
     }
 
     /// --scan results that no answering copy reported as its own hook: other hooking code, or categories.
@@ -174,9 +215,10 @@ public struct HookReport: Sendable {
         if copies.isEmpty { out.append("no DynjectHook tweak in it answered") }
         for c in copies {
             out.append(label(c) + (c.complete ? "" : "  [report cut short]"))
-            let width = min(56, max(30, (c.hooks.map(\.method.count) + c.imports.map { $0.symbol.count + 7 }).max() ?? 30))
+            let width = min(56, max(30, (c.hooks.map(\.method.count) + c.imports.map { $0.symbol.count + 7 }
+                                          + c.functions.map { $0.name.count + 9 }).max() ?? 30))
             func pad(_ s: String) -> String { s.count >= width ? s + "  " : s + String(repeating: " ", count: width - s.count + 2) }
-            if c.hooks.isEmpty && c.imports.isEmpty { out.append("  no hooks") }
+            if c.hooks.isEmpty && c.imports.isEmpty && c.functions.isEmpty { out.append("  no hooks") }
             for h in c.hooks {
                 var what = h.state
                 if h.present { what += h.top ? ", top" : ", beneath another hook" }
@@ -186,6 +228,12 @@ public struct HookReport: Sendable {
             for i in c.imports {
                 let lib = i.library.map { " (\($0))" } ?? ""
                 out.append("  \(pad("import " + i.symbol))\(i.sites) site\(i.sites == 1 ? "" : "s")\(lib), \(i.active ? "active" : "inactive")")
+            }
+            for f in c.functions {
+                var what = f.active ? "active" : "inactive"
+                if f.stacked { what += ", on top of another hook" }
+                if let g = f.group { what += ", group \(g)" }
+                out.append("  \(pad("function " + f.name))\(what)")
             }
             out.append("")
         }

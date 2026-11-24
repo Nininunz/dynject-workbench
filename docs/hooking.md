@@ -438,6 +438,8 @@ changed: on a Mac set up for Dynject that's every process the engine injects int
 platform binary, arm64e, with code-signing `KILL` set, tested on macOS 27.2). macOS normally refuses to make
 memory executable without a JIT entitlement; on such a Mac that refusal is off, most likely because of what the engine
 needs relaxed. Where it isn't, `DHHookFunction` returns NULL, logs "may not run code it made", and changes nothing.
+`dw doctor` reads those lines for the installed tweaks (last 24 hours): a process that couldn't run code it changed is
+a problem there, a function that couldn't be hooked a warning.
 
 **How.** The page is copied, the copy is changed and mapped over the original in one step (`mach_vm_remap`), so the
 code being patched never stops being executable, not even for the thread doing it. The function's first four
@@ -606,7 +608,9 @@ Each tweak compiles its own copy of DynjectHook, so the copies must not interfer
   class name, the runtime uses one of them and logs a "Class X is implemented in both…" warning.
 - **One `DH_CTOR` per tweak** and **one target per hook class**.
 - **Seeing who hooked what.** `dw hooks <app>` asks every copy in a running app for its hooks: each method hook with
-  its state and whether it's on top, its group, and each import hook. It warns when two tweaks hook the same method.
+  its state and whether it's on top, its group, each import hook, and each function hook (`DHHookFunction`: its address,
+symbol, whether it's active and whether it went on top of another inline hook). It warns when two tweaks hook the same
+method, or the same function (by address).
   A copy answers once it is active: when `DHShouldLoad` lets it load, or when it installs a hook. `dw` sets the state
   of the Darwin notification `dynject.hooks.report.<pid>` to a request ID and posts it, and each copy writes its list to
   the unified log under the subsystem `dynject.hooks`. Both work in sandboxed apps. `--scan` also lists methods of other

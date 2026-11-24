@@ -7,6 +7,13 @@ newest first. for testers; the commit log has the details.
 unreleased
 ----------
 
+- `dw hooks` lists function hooks (`DHHookFunction`): address, symbol, active, whether it went on
+  top of another, group; and warns when two tweaks hook the same function. needs tweaks built
+  with this sdk. checked end to end in Tests/HooksHost (two tweaks on one function) and
+  Tests/InlineHost.
+- `dw doctor` has an inline hooks section: from the installed tweaks' log lines of the last 24
+  hours, a process that couldn't run code it changed (a problem: this mac can't do inline
+  hooks there), functions that couldn't be hooked (warnings), and how many hooks went in.
 - `dw why` says loginwindow can't be reached (dynjectd never sees it start) instead of "it should
   load at the next launch".
 

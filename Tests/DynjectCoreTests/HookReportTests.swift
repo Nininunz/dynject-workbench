@@ -70,6 +70,33 @@ final class HookReportTests: XCTestCase {
         XCTAssertEqual(same.conflicts, [])
     }
 
+    func testFunctionHooks() {
+        let r = HookReport.parse([
+            "R 3 begin local.a sdk=0.1.7 image=/a",
+            "R 3 function local.a 0x2ec402dec libsystem_m.dylib`cbrt+0 active first group=-",
+            "R 3 function local.a 0x100bc2e40 host`f_tbz+0 inactive first group=inline",
+            "R 3 end local.a hooks=0 imports=0 functions=2",
+            "R 3 begin local.b sdk=0.1.7 image=/b",
+            "R 3 function local.b 0x2ec402dec libsystem_m.dylib`cbrt+0 active stacked group=-",
+            "R 3 end local.b hooks=0 imports=0 functions=1",
+        ], request: 3)
+        XCTAssertEqual(r.copies.map(\.functions.count), [2, 1])
+        XCTAssertEqual(r.copies[0].functions[1], HookReport.Function(image: "/a", tweakID: "local.a", address: "0x100bc2e40",
+                                                                    name: "host`f_tbz+0", active: false, stacked: false, group: "inline"))
+        XCTAssertEqual(r.conflicts, [HookReport.Conflict(method: "function libsystem_m.dylib`cbrt+0", tweakIDs: ["local.a", "local.b"],
+                                                         top: "local.b")])
+        let text = r.text(header: "h", names: ["local.b": "Bee"], silent: [], bundleID: "x")
+        XCTAssertTrue(text.contains("function host`f_tbz+0"), text)
+        XCTAssertTrue(text.contains("inactive, group inline"), text)
+        XCTAssertTrue(text.contains("active, on top of another hook"), text)
+        XCTAssertTrue(text.contains("! function libsystem_m.dylib`cbrt+0 is hooked by 2 tweaks: local.a, Bee (top)"), text)
+        // One tweak hooking a function twice is its own business; and an old SDK's report has no function lines.
+        let one = HookReport.parse(["R 1 begin x sdk=0.1.7 image=/a", "R 1 function x 0x1 f active first group=-",
+                                    "R 1 function x 0x1 f active stacked group=-", "R 1 end x hooks=0 imports=0 functions=2"], request: 1)
+        XCTAssertEqual(one.conflicts, [])
+        XCTAssertEqual(HookReport.parse(lines(), request: 7).copies.map(\.functions), [[], []])
+    }
+
     func testSilence() {
         XCTAssertEqual(HookReport.silence(supportsReports: false, usesDynjectHook: false), .noDynjectHook)
         XCTAssertEqual(HookReport.silence(supportsReports: false, usesDynjectHook: true), .tooOld)

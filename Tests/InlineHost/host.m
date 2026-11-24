@@ -43,6 +43,12 @@ HOOK1(f_tbz, 1000)
 
 static DHFunctionHook *h_bcond2;
 static int r_bcond2(int x) { return DH_CALL_FUNCTION_ORIG(h_bcond2, int (*)(int), x) + 10000; }
+static NSMutableArray<NSString *> *sReport;
+static void ReportSink(const char *line) {
+    if (!sReport) sReport = [NSMutableArray array];
+    [sReport addObject:@(line)];
+}
+
 static DHFunctionHook *h_cbrt;
 static double r_cbrt(double x) { return DH_CALL_FUNCTION_ORIG(h_cbrt, double (*)(double), x) * 2; }
 static int r_unused(int x) { return x; }
@@ -145,6 +151,28 @@ int main(void) {
         Check(h_strlen && len == 5 && formatted.length == 23 && atomic_load(&sStrlenCalls) >= 1,
               [NSString stringWithFormat:@"strlen, which DynjectHook's own logging uses: hooked, %ld calls so far",
                                          atomic_load(&sStrlenCalls)]);
+
+        printf("hook report (dw hooks)\n");
+        DHGroupSetEnabled(g, NO);
+        DHSetReportSinkForTesting(ReportSink);
+        DHReportForTesting(7);
+        DHSetReportSinkForTesting(NULL);
+        DHGroupSetEnabled(g, YES);
+        NSArray<NSString *> *functions = [sReport filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"SELF BEGINSWITH 'R 7 function '"]];
+        NSString *(^line)(NSString *) = ^NSString *(NSString *needle) {
+            for (NSString *l in functions) if ([l containsString:needle]) return l;
+            return nil;
+        };
+        NSString *cbrtLine = line(@"`cbrt+0 "), *tbzLine = line(@"f_tbz"), *bcondLine = line(@"f_bcond");
+        Check(cbrtLine && [cbrtLine containsString:@" active first group=-"], [NSString stringWithFormat:@"cbrt reported: %@", cbrtLine]);
+        Check(tbzLine && [tbzLine containsString:@" inactive "] && [tbzLine hasSuffix:@"group=inline"],
+              [NSString stringWithFormat:@"a hook in a switched-off group reports inactive: %@", tbzLine]);
+        NSArray *bconds = [functions filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"SELF CONTAINS 'f_bcond'"]];
+        Check(bconds.count == 2 && [[bconds filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"SELF CONTAINS ' stacked '"]] count] == 1,
+              [NSString stringWithFormat:@"two hooks on one function: one reported stacked (%@)", bcondLine]);
+        NSString *end = [[sReport filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"SELF BEGINSWITH 'R 7 end '"]] firstObject];
+        Check([end hasSuffix:[NSString stringWithFormat:@" functions=%lu", (unsigned long)functions.count]] && functions.count >= 10,
+              [NSString stringWithFormat:@"%lu function hooks reported; end line: %@", (unsigned long)functions.count, end]);
 
         printf("%d checks, %d failed\n", sChecks, sFailures);
         return sFailures ? 1 : 0;

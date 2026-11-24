@@ -105,7 +105,9 @@ private func run(pid: pid_t, appName: String, bundleID: String, scan: Bool, json
             "app": appName, "bundleID": bundleID, "pid": pid, "request": request,
             "copies": report.copies.map { c in
                 ["tweakID": c.tweakID, "image": c.image, "sdk": c.sdk as Any, "complete": c.complete, "hooks": c.hooks.map(hook),
-                 "imports": c.imports.map { ["symbol": $0.symbol, "library": $0.library as Any, "sites": $0.sites, "active": $0.active] }]
+                 "imports": c.imports.map { ["symbol": $0.symbol, "library": $0.library as Any, "sites": $0.sites, "active": $0.active] },
+                 "functions": c.functions.map { ["address": $0.address, "name": $0.name, "active": $0.active, "stacked": $0.stacked,
+                                                 "group": $0.group as Any] }]
             },
             "conflicts": report.conflicts.map { ["method": $0.method, "tweakIDs": $0.tweakIDs, "top": $0.top as Any] },
             "foreign": report.scanned ? report.foreignNotReported.map { ["method": $0.method, "image": $0.image, "classImage": $0.classImage] } : [],

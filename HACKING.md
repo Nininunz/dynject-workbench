@@ -43,7 +43,8 @@ layout
     Tests/DynjectHookTests/       objective-c tests for DynjectHook, and the bridge sdk's local refusals
     Tests/DynjectHookSwiftFixtures/  swift classes for DynjectHook's swift class lookup tests
     Tests/ImportHost/             DHHookImport in real arm64e, arm64 and x86_64 processes (run.sh)
-    Tests/HooksHost/              dw hooks against a process with three tweaks injected (run.sh)
+    Tests/HooksHost/              dw hooks against a process with three tweaks injected (run.sh): method,
+                                  import and function hooks, and clashes
     Tests/DynjectWorkbenchTests/  the app's launch arguments, the respring sheet's model, install tweak
                                   in fixture mode, the bridge page's isolation
     Resources/Info.plist          app bundle metadata, url scheme dynject-workbench://

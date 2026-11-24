@@ -150,6 +150,8 @@ public struct DoctorContext {
     public var version = WorkbenchInfo.version
     /// The macOS that minimumSystemVersion and testedSystemVersions are checked against.
     public var systemVersion = SystemVersion.current
+    /// DynjectHook's DHHookFunction log lines (`log show --style compact`) since the given date; nil to skip.
+    public var inlineHookLog: ((Date) -> String?)? = nil
 
     public init(locations: TweakLocations, daemonStatus: @escaping () -> DaemonStatus, sipStatus: @escaping () -> String?,
                 codeSignatureProblem: @escaping (String) -> String?, safeModeAgent: UserLaunchAgent, bridgeAgent: UserLaunchAgent,
@@ -197,6 +199,19 @@ public struct DoctorContext {
             },
             workbenchApps: [NSHomeDirectory() + "/Applications/" + workbenchAppName, "/Applications/" + workbenchAppName],
             thisDw: Bundle.main.executableURL?.resolvingSymlinksInPath().path)
+        .with(inlineHookLog: { since in
+            let f = DateFormatter()
+            f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+            // DynjectHook logs under the category "hook": filtering on it keeps a day's search to seconds.
+            return (try? ProcessRunner.run("/usr/bin/log", ["show", "--start", f.string(from: since), "--style", "compact",
+                                                            "--predicate", #"category == "hook" AND eventMessage BEGINSWITH "DHHookFunction""#]))?.stdout
+        })
+    }
+
+    func with(inlineHookLog: @escaping (Date) -> String?) -> DoctorContext {
+        var c = self
+        c.inlineHookLog = inlineHookLog
+        return c
     }
 }
 
@@ -358,6 +373,7 @@ public enum Doctor {
         var checks = engine(c, daemon: daemon)
         checks += config(c, text: configText, manifests: manifests)
         checks += tweaks(c)
+        checks += inlineHooks(c, tweakIDs: Set(manifests.map(\.id)))
         checks += agents(c, manifests: manifests)
         checks += appleMenu(c, manifests: manifests)
         if let plan = c.respringPlan, let configText { checks += apps(plan(configText, manifests, daemon)) }
@@ -559,6 +575,61 @@ public enum Doctor {
                 if i.severity == .error { s.problem(i.kind.doctorCheck, detail, fix: i.fix) }
                 else { s.warn(i.kind.doctorCheck, detail, fix: i.fix) }
             }
+        }
+        return s.checks
+    }
+
+    // MARK: inline hooks
+
+    /// What the installed tweaks' DHHookFunction calls logged in the last `crashWindow` (DynjectHook logs under the
+    /// tweak's ID as subsystem; other copies, like test hosts', are left out): hooks that went in, and the ones that
+    /// didn't. "may not run code it made" is about the Mac (the process can't map code it changed); the others are
+    /// about the function or the tweak.
+    static func inlineHooks(_ c: DoctorContext, tweakIDs: Set<String>) -> [DoctorCheck] {
+        guard let read = c.inlineHookLog else { return [] }
+        var s = DoctorSection("inline hooks")
+        let hours = Int(c.crashWindow / 3600)
+        guard let text = read(c.now.addingTimeInterval(-c.crashWindow)) else {
+            s.warn("log", "couldn't read the unified log to see DHHookFunction's results")
+            return s.checks
+        }
+        var hooked: [String: Int] = [:]
+        var cantRunCode: [String: Int] = [:]
+        var other: [String] = []
+        // compact: "<date> <time> <type> <process>[<pid>:<tid>] [<subsystem>:hook] <message>"; the process name may
+        // have spaces ("System Settings").
+        let pattern = try! NSRegularExpression(pattern: #"^\S+ \S+ \S+ (.+?)\[\d+:[0-9a-fx]+\] \[([^:\]]+):hook\] (DHHookFunction.*)$"#)
+        for line in text.split(separator: "\n").map(String.init) {
+            let ns = line as NSString
+            guard let m = pattern.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else { continue }
+            let process = ns.substring(with: m.range(at: 1)), subsystem = ns.substring(with: m.range(at: 2))
+            let message = ns.substring(with: m.range(at: 3))
+            guard tweakIDs.contains(subsystem) else { continue }
+            if message.hasSuffix(": hooking") || message.contains(": hooking (") { hooked[process, default: 0] += 1 }
+            else if message.contains("may not run code it made") { cantRunCode[process, default: 0] += 1 }
+            else if message.contains("not hooked") || message.contains("is NULL") {
+                let entry = "\(subsystem) in \(process): \(message)"
+                if !other.contains(entry) { other.append(entry) }
+            }
+        }
+        func list(_ counts: [String: Int]) -> String {
+            counts.sorted { $0.key < $1.key }.map { "\($0.key) (\($0.value))" }.joined(separator: ", ")
+        }
+        if !cantRunCode.isEmpty {
+            s.problem("can patch code", "DHHookFunction couldn't hook in \(list(cantRunCode)) in the last \(hours) h: "
+                      + "those processes may not run code they changed, which inline hooks need",
+                      fix: "keep SIP's debugging restrictions off and dynject's loader running (it patches amfid): dw doctor's engine "
+                           + "checks; tweaks fall back to method or import hooks there")
+        }
+        if !hooked.isEmpty {
+            s.ok("hooked", "\(hooked.values.reduce(0, +)) function hook(s) in the last \(hours) h: \(list(hooked))")
+        }
+        for o in other.prefix(10) {
+            s.warn("refused", o, fix: "that function can't be hooked inline (docs/hooking.md, \"Hooking any function\"); hook a caller or use DHHookImport")
+        }
+        if other.count > 10 { s.warn("refused", "… \(other.count - 10) more") }
+        if hooked.isEmpty && cantRunCode.isEmpty && other.isEmpty {
+            s.ok("hooked", "no installed tweak used DHHookFunction in the last \(hours) h")
         }
         return s.checks
     }

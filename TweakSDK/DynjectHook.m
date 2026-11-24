@@ -1665,7 +1665,14 @@ struct DHFunctionHook {
     void *replacement;    // as passed
     void *original;       // the trampoline, signed for calling on arm64e
     DHGroup *group;
+    char *name;           // "image`symbol+offset", for dw hooks
+    bool stacked;         // went on top of another inline hook
+    DHFunctionHook *next; // sFunctionHooks
 };
+
+// The function hooks this copy installed, for hook reports (dw hooks). Never removed: hooks aren't undone.
+static DHFunctionHook *sFunctionHooks;
+static os_unfair_lock sFunctionHooksLock = OS_UNFAIR_LOCK_INIT;
 
 static void *DHStrip(void *p) {
 #if __has_feature(ptrauth_calls)
@@ -1894,14 +1901,21 @@ static DHFunctionHook *DHInstallFunctionHook(void *function, void *replacement, 
     // Log before the jump goes in: once it's there, any call to the function goes to the replacement, which may call
     // the original through a handle its caller hasn't received yet. Logging formats strings, and the function may be
     // strlen or anything else formatting uses. Nothing after the write calls out (a failed write changed nothing).
-    DHLog(@"DHHookFunction %@: hooking%s", name, DHIsOurJump(code) ? " (on top of another hook)" : "");
+    hook->stacked = DHIsOurJump(code);
+    hook->name = strdup(name.UTF8String);
+    DHLog(@"DHHookFunction %@: hooking%s", name, hook->stacked ? " (on top of another hook)" : "");
     DHLogHookMap(replacement, name.UTF8String);
+    DHReportRegister();
     uint32_t jump[4] = {DHLdrLiteral(17, 8), DHBr(17), (uint32_t)page, (uint32_t)((uint64_t)page >> 32)};
     const char *error = DHWriteCode(target, jump, sizeof jump);
     if (error) {
         DHLog(@"DHHookFunction %@: not hooked: patching its code failed (%s)", name, error);
         return NULL;   // hook and page are left: *outHook may already point at the hook
     }
+    os_unfair_lock_lock(&sFunctionHooksLock);
+    hook->next = sFunctionHooks;
+    sFunctionHooks = hook;
+    os_unfair_lock_unlock(&sFunctionHooksLock);
     return hook;
 }
 
@@ -2135,7 +2149,17 @@ static void DHReportAnswer(uint64_t state) {
         DHReportLine("R %u import %s %s lib=%s sites=%zu %s", request, tweak, imports[i].symbol + 1, imports[i].library ?: "-",
                      imports[i].sites, imports[i].active ? "active" : "inactive");
     }
-    DHReportLine("R %u end %s hooks=%zu imports=%zu", request, tweak, n, m);
+    // Function hooks (DHHookFunction): the name has no spaces ("image`symbol+offset" or an address).
+    os_unfair_lock_lock(&sFunctionHooksLock);
+    size_t functionCount = 0;
+    for (DHFunctionHook *f = sFunctionHooks; f; f = f->next) {
+        DHReportLine("R %u function %s 0x%llx %s %s %s group=%s", request, tweak, (unsigned long long)(uintptr_t)f->function,
+                     f->name ?: "?", DHFunctionHookIsActive(f) ? "active" : "inactive", f->stacked ? "stacked" : "first",
+                     f->group ? f->group->name : "-");
+        functionCount++;
+    }
+    os_unfair_lock_unlock(&sFunctionHooksLock);
+    DHReportLine("R %u end %s hooks=%zu imports=%zu functions=%zu", request, tweak, n, m, functionCount);
     free(hooks);
     free(imports);
     if (scan && DHReportElected(request)) DHReportScan(request);

@@ -36,7 +36,7 @@ r = json.load(open(sys.argv[1])); host = open(sys.argv[2]).read()
 checks = []
 def check(ok, what): checks.append(ok); print(("[PASS] " if ok else "[FAIL] ") + what)
 copies = {c["tweakID"]: c for c in r["copies"]}
-check("value=111 other=2 third=33 ppid=1" in host, "the host saw the hooks: " + host.strip())
+check("value=111 other=2 third=33 ppid=1 compute=21027" in host, "the host saw the hooks: " + host.strip())
 check(set(copies) == {"local.hooks.a", "local.hooks.b"}, "both DynjectHook tweaks answered: %s" % sorted(copies))
 check(all(c["complete"] for c in r["copies"]), "both reports complete")
 a, b = copies.get("local.hooks.a", {}), copies.get("local.hooks.b", {})
@@ -47,7 +47,13 @@ check(hb.get("-[HHTarget other]", {}).get("state") == "restored" and hb["-[HHTar
 imp = [i for i in a.get("imports", []) if i["symbol"] == "getppid"]
 check(len(imp) == 1 and imp[0]["sites"] >= 1 and imp[0]["active"], "A's import hook on getppid: %s" % imp)
 conf = r["conflicts"]
-check(len(conf) == 1 and conf[0]["method"] == "-[HHTarget value]" and conf[0]["top"] == "local.hooks.b" and sorted(conf[0]["tweakIDs"]) == ["local.hooks.a", "local.hooks.b"], "the clash on -[HHTarget value], B on top: %s" % conf)
+mconf = [c for c in conf if not c["method"].startswith("function ")]
+check(len(mconf) == 1 and mconf[0]["method"] == "-[HHTarget value]" and mconf[0]["top"] == "local.hooks.b" and sorted(mconf[0]["tweakIDs"]) == ["local.hooks.a", "local.hooks.b"], "the clash on -[HHTarget value], B on top: %s" % mconf)
+fa = [f for f in a.get("functions", []) if "hh_compute" in f["name"]]; fb = [f for f in b.get("functions", []) if "hh_compute" in f["name"]]
+check(len(fa) == 1 and fa[0]["active"] and not fa[0]["stacked"], "A's inline hook on hh_compute: active, first: %s" % fa)
+check(len(fb) == 1 and fb[0]["stacked"] and fb and fa and fb[0]["address"] == fa[0]["address"], "B's: on top of A's, same address: %s" % fb)
+fconf = [c for c in conf if c["method"].startswith("function ")]
+check(len(fconf) == 1 and "hh_compute" in fconf[0]["method"] and fconf[0]["top"] == "local.hooks.b", "the clash on hh_compute, B on top: %s" % fconf)
 fm = {(f["method"], f["image"].split("/")[-1]) for f in r["foreign"]}
 check(("-[HHTarget third]", "libhhc.dylib") in fm, "the scan finds C's swizzle")
 check(not any(m == "-[HHTarget value]" for m, _ in fm), "and doesn't repeat what DynjectHook reported")

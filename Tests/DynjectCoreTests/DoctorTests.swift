@@ -133,6 +133,42 @@ final class DoctorTests: XCTestCase {
         XCTAssertEqual(r.text(quiet: true, header: "h"), "", "quiet with nothing to report prints nothing")
     }
 
+    func testInlineHooksFromTheLog() throws {
+        var c = try healthy().context
+        let id = TweakManifestLoader.load(directories: c.locations.manifestSearchDirectories).manifests[0].id
+        var since: Date?
+        let line = "2026-11-24 04:47:00.591 Df "
+        c.inlineHookLog = { date in
+            since = date
+            return [
+                "Timestamp               Ty Process[PID:TID]",
+                line + "Calculator[16250:a071fb] [\(id):hook] DHHookFunction libsystem_m.dylib`cbrt+0: hooking",
+                line + "Calculator[16250:a071fb] [\(id):hook] DHHookFunction host`f+0: hooking (on top of another hook)",
+                line + "ControlCenter[9:1] [\(id):hook] DHHookFunction libfoo.dylib`bar+0: hooking",
+                line + "Finder[7:1] [\(id):hook] DHHookFunction AppKit`baz+0: not hooked: this process may not run code it made ((os/kern) protection failure)",
+                line + "Finder[7:1] [\(id):hook] DHHookFunction AppKit`qux+0: not hooked: instruction 2 of its first four returns or branches away, so it is too short",
+                line + "Finder[8:1] [\(id):hook] DHHookFunction AppKit`qux+0: not hooked: instruction 2 of its first four returns or branches away, so it is too short",
+                line + "System Settings[5:2] [\(id):hook] DHHookFunction a`b+0: hooking",
+                line + "host-arm64[3:1] [dynject.hook:hook] DHHookFunction host`f_short+0: not hooked: instruction 2 of its first four returns",
+            ].joined(separator: "\n")
+        }
+        let r = Doctor.run(c)
+        XCTAssertEqual(since, c.now.addingTimeInterval(-c.crashWindow))
+        let section = r.checks.filter { $0.section == "inline hooks" }
+        XCTAssertEqual(section.first { $0.check == "can patch code" }?.status, .problem)
+        XCTAssertTrue(section.first { $0.check == "can patch code" }?.detail.contains("Finder (1)") == true, "\(section)")
+        XCTAssertEqual(section.first { $0.check == "hooked" }?.detail, "4 function hook(s) in the last 24 h: Calculator (2), ControlCenter (1), System Settings (1)")
+        XCTAssertEqual(section.filter { $0.check == "refused" }.count, 1, "the same refusal once; not the test host's (not an installed tweak)")
+        XCTAssertTrue(section.first { $0.check == "refused" }?.detail.hasPrefix("\(id) in Finder: DHHookFunction AppKit`qux+0: not hooked") == true,
+                      "\(section)")
+
+        c.inlineHookLog = { _ in "" }
+        XCTAssertEqual(Doctor.run(c).checks.filter { $0.section == "inline hooks" }.map(\.detail),
+                       ["no installed tweak used DHHookFunction in the last 24 h"])
+        c.inlineHookLog = nil
+        XCTAssertTrue(Doctor.run(c).checks.filter { $0.section == "inline hooks" }.isEmpty, "skipped without a log reader")
+    }
+
     func testBrokenEngineIsAProblemWithFixes() throws {
         var s = try healthy()
         s.context.daemonStatus = { DaemonStatus(processes: [], job: nil, configModified: nil) }
