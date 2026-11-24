@@ -5,8 +5,11 @@ for people writing tweaks. you know objective-c and you know what a dylib is.
 references: docs/hooking.md, docs/tweak-format.md, docs/safe-mode.md, docs/respring.md,
 docs/bridge.md.
 working examples: Examples/TitleBadge (settings, no swizzling), Examples/OLEDFinder (hook
-classes on appkit views, one app, no settings) and Tweaks/MenuLoader (hooks a private appkit
-class, listens for notifications). Tweaks/Inspector looks inside an app while you write one.
+classes on appkit views, one app, no settings), Examples/NotchPadding (MenuBarAgent, a system
+agent), Examples/ClassicBattery (ControlCenter: replaces a scene's view, live settings, a test
+host that checks pixels), Tweaks/MenuLoader (hooks a private appkit class, listens for
+notifications) and Tweaks/SettingsLoader (swift and objective-c, injected into system settings).
+Tweaks/Inspector looks inside an app while you write one.
 
 
 the loop

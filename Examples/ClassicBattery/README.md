@@ -6,8 +6,8 @@ level. a bolt while charging, a plug while it's plugged in but held at a limit, 
 or less on battery. clicking it opens the usual battery menu.
 
 tweak id `local.dynject.classicbattery`, dylib `/opt/dynject/lib/tweaks/libClassicBattery.dylib`. it loads into
-ControlCenter (`com.apple.controlcenter`), which draws the menu bar's battery, and, if you enable it there,
-loginwindow (`com.apple.loginwindow`), which draws the lock screen's.
+ControlCenter (`com.apple.controlcenter`), which draws the menu bar's battery. it has the code for the lock screen
+too (loginwindow, below), but dynject doesn't get into loginwindow yet, so the lock screen stays macOS's.
 
 built with dynject-workbench's sdk: free and noncommercial; don't sell tweaks built with it.
 
@@ -73,9 +73,14 @@ LoginUIKit asks BatteryUIKit for the picture with `+[BUIImage batteryImagesForPa
 1`, which picks today's filled battery. BatteryUIKit still has the older one, Apple's own artwork: a thin outline with
 the level fill inside it. in loginwindow, with the classic style on, the tweak passes `"Modern Style" = 0` (to
 `+imageSizeForParameters:` too, so the size matches) and the lock screen gets that battery. it loads BatteryUIKit
-itself, since loginwindow only loads it when it first draws the battery. loginwindow loads tweaks only when it starts,
-at login, and a crash in it logs you out: enable it there knowingly (`dw tweak install . --for com.apple.loginwindow`
-plus your ControlCenter options), then log out and in.
+itself, since loginwindow only loads it when it first draws the battery.
+
+it doesn't reach the lock screen yet: dynjectd never injects loginwindow. after a logout and login with the tweak
+enabled for `com.apple.loginwindow`, dynjectd's log has no line for the new loginwindow at all (it caught
+MenuBarAgent and ControlCenter seconds later). loginwindow is a launchd job with one instance per session
+(`com.apple.loginwindow.<UUID>`), started some way that doesn't go through the xpcproxy launch dynjectd watches.
+`dw why` still predicts it loads there; that's wrong. the hook is checked in the test host, so it's ready for a way
+in.
 
 an earlier version ran in MenuBarAgent: it hid ControlCenter's drawing in the slot, drew over it, and widened the
 slot by answering MenuBarAgent's size reads, so the slot was always as wide as "100%" needed. working in ControlCenter

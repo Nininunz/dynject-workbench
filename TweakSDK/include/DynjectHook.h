@@ -54,7 +54,7 @@
 /// The version of this SDK, the same as Dynject Workbench's. DynjectHook.m embeds it in every dylib
 /// it is compiled into as the C string "dynject.sdk:<version>"; Workbench, `dw tweak list` and
 /// `dw doctor` read it back and suggest a rebuild when it is older than theirs. Don't edit it.
-#define DH_SDK_VERSION "0.1.6"
+#define DH_SDK_VERSION "0.1.7"
 
 #ifdef __cplusplus
 extern "C" {

@@ -8,7 +8,10 @@ todo
 - a `toggle:` menu action handled by the safe mode agent, so a menu item can flip a setting
   from sandboxed apps.
 - a dynject menu bar extra (status, panic switch, respring).
-- tweaks for Dock and ControlCenter (respring restarts them since 0.1.6: `--system`).
+- tweaks for the Dock (ControlCenter has Examples/ClassicBattery; respring restarts both:
+  `--system`).
+- a way into loginwindow (the lock screen): dynjectd never injects it. ClassicBattery's lock-screen
+  hook is ready for it. and `dw why` should say loginwindow can't be reached instead of "should load".
 - `dw diagnose`: bundle logs, config, state.json and crash reports for bug reports.
 - reinstall the safe mode watcher automatically when workbench is updated.
 - test on intel.

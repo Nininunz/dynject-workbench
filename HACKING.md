@@ -307,7 +307,7 @@ process
 status
 ------
 
-version 0.1.6.
+version 0.1.7.
 
     config parser, evaluator, minimal editor   unit-tested against fixtures incl. a byte copy of a live config
     app discovery, configured vs loaded        "loaded" confirmed with lsof on running apps
@@ -319,8 +319,15 @@ version 0.1.6.
     respring                                   unit-tested with fakes, smoke test with simulated apps;
                                                real controller checked on test apps only
     dw tweak install/uninstall, dw new         unit-tested in temp folders, real helper script run as the
-                                               user; not yet run against the live engine. the template was
-                                               built and injected into a test app.
+                                               user; used live for every tweak in this repo. the template
+                                               was built and injected into a test app.
+    approval window                            server tested as the user in temp folders; live as root once
+                                               (2026-11-24: one prompt, then two steps without). its idle
+                                               timeout has only been seen as the user.
+    inline hooks (DHHookFunction)              Tests/InlineHost; live in calculator, an apple platform
+                                               binary (own text and the shared cache)
+    SettingsLoader                             live in system settings 27.2: sidebar, pages, back/forward
+                                               compared step by step with privacy & security
 
 
 live trial
@@ -358,5 +365,5 @@ TitleBadge, same day: injected by dynject into sandboxed calculator; its own log
 confirmed it read settings written by workbench, picked up live changes and a per-app
 override, and went back to defaults on revert.
 
-since then `dw install`, `dw enable` and `dw config apply` have been used live;
-`dw tweak install/uninstall` has not. see KNOWN-ISSUES.md.
+since then `dw install`, `dw enable`, `dw config apply` and `dw tweak install/uninstall`
+have all been used live. see KNOWN-ISSUES.md.

@@ -13,10 +13,14 @@ platform
 - the engine needs SIP relaxed (`--without fs --without debug`). that weakens the whole
   machine, not just injected apps; see README "what you're giving up". macOS updates may
   re-enable SIP or break the engine.
+- dynject never injects loginwindow (which draws the lock screen): its per-session instances
+  aren't started through the xpcproxy launch dynjectd watches. `dw why` wrongly says a tweak
+  enabled there loads at loginwindow's next launch.
+- Examples/ClassicBattery looks off on external displays (seen, not investigated yet).
 - only tested on macOS 27 on apple silicon. the package says 14+; nobody has run it there.
 - x86_64 slices of the tweaks are built but have never been run.
-- Inspector has only run in its own test host (`Tweaks/Inspector/build.sh test`), not
-  in a real app through dynject yet. while ⌃⌥⌘ are held it takes L and clicks, so apps
+- Inspector loads into real apps through dynject, but its picker and panels have only been
+  exercised in its own test host (`Tweaks/Inspector/build.sh test`). while ⌃⌥⌘ are held it takes L and clicks, so apps
   with ⌃⌥⌘L or ⌃⌥⌘-click shortcuts lose them (turn off its hotkey for those apps).
 - MenuLoader relies on the private `_NSAppleMenu` and two of its methods. if a macOS update
   changes them it logs one line and does nothing. since macOS 27 appkit hides menu-item
@@ -48,10 +52,11 @@ doctor
 - the apps section is respring's plan, so it shares its limits (lsof, see respring).
 
 install / uninstall
-- `dw tweak install/uninstall` were run live once (a dw new tweak in chess, 2026-11-19).
-  workbench's install tweak... button shares the code but hasn't been clicked live. `--dry-run`
-  first is still a good habit.
-- uninstall leaves global `allow:<App>` lines that were added for the tweak.
+- `dw tweak install/uninstall` are used live for every tweak here. workbench's install tweak...
+  button shares the code but hasn't been clicked live. `--dry-run` first is still a good habit.
+- the approval window's idle timeout has only been tested running as the user, not as root.
+- uninstall removes a global `allow:<App>` line only when nothing else needs it (`--keep-rules`
+  keeps them all).
 - uninstall refuses to remove the config's last dylib (dynjectd won't start without one).
 - uninstall keeps the tweak's settings key `dynject.tweak.<id>`.
 

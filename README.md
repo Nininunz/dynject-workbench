@@ -147,10 +147,12 @@ what's in the box
 - dw: the cli. install/uninstall tweaks, enable per app, respring, logs, safe mode,
   `dw doctor`, `dw why` (why a tweak doesn't load somewhere), `dw dev` (the
   build-test-install-relaunch loop, on every save), `dw hooks` (what the tweaks in a
-  running app hooked, and where two clash), `dw inspect` (Inspector in background apps).
-- DynjectHook: objective-c hooking library you compile into your tweak. docs/hooking.md.
-- settings sdk: `DynjectTweak.h` plus a manifest gives your tweak a settings page.
-  docs/tweak-format.md.
+  running app hooked, and where two clash), `dw inspect` (Inspector in background apps),
+  `dw auth` (one password covers tweak installs for 5 minutes).
+- DynjectHook: hooking library you compile into your tweak: objective-c methods, and any
+  function by address (`DHHookFunction`, c, c++ or swift). docs/hooking.md.
+- settings sdk: `DynjectTweak.h` plus a manifest gives your tweak a settings page, in
+  workbench and in system settings (SettingsLoader). docs/tweak-format.md.
 - MenuLoader: tweaks declare apple-menu items, it adds them. Tweaks/MenuLoader.
 - SettingsLoader: every tweak's settings as a native page in system settings (tweaks, at the
   bottom of the sidebar), with system settings' own back and forward. Tweaks/SettingsLoader.
@@ -163,6 +165,10 @@ what's in the box
   notifications, open declared links. narrow, declared in the manifest. docs/bridge.md.
 - TitleBadge: example tweak with every kind of setting. Examples/TitleBadge.
 - OLEDFinder: example tweak, pure black finder windows, hooks, no settings. Examples/OLEDFinder.
+- NotchPadding: example tweak in MenuBarAgent, keeps the menu bar's contents a set distance
+  from the notch. Examples/NotchPadding.
+- ClassicBattery: example tweak in ControlCenter, the menu bar battery as in older macOS, with
+  live settings. Examples/ClassicBattery.
 
 
 where to go next

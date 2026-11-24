@@ -4,8 +4,8 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
-unreleased
-----------
+0.1.7 (2026-11-24)
+------------------
 
 - fewer password prompts. the first privileged step opens an approval window: a small root
   server, started by that one prompt, does the steps installing tweaks needs (write
@@ -14,9 +14,10 @@ unreleased
   anything else still asks. `dw auth status`, `dw auth end`; `DW_NO_AUTH_WINDOW=1` turns it
   off. while it's open, programs running as you can ask it for those steps too.
 - `dw tweak install` takes several folders: one password for all of them.
-- Examples/ClassicBattery: the lock screen too, if enabled for loginwindow. loginwindow draws it with
-  BatteryUIKit, which still has the older battery (outline, fill inside); the tweak turns its "Modern
-  Style" parameter off there. checked in the test host through LoginUIKit (31 checks).
+- Examples/ClassicBattery: the code for the lock screen. loginwindow draws it with BatteryUIKit,
+  which still has the older battery (outline, fill inside); in loginwindow the tweak turns its
+  "Modern Style" parameter off. checked in the test host through LoginUIKit (31 checks). it doesn't
+  show yet: dynject never injects loginwindow (KNOWN-ISSUES.md).
 
 
 0.1.6 (2026-11-24)

@@ -103,6 +103,13 @@ that shows the diff and which installed apps change.
   directly in a real, root-owned `/opt/dynject/lib/tweaks`, not a symlink), stages and verifies every new file next
   to its target, and only then renames and removes, so a failed check writes nothing. Tweak install and uninstall use
   this.
+- **One password for a while.** The first privileged step also opens an approval window: a small root server, started
+  by that prompt, that runs the helper for later tweak-install steps (write `dynjectd.conf`, install or remove a plain
+  `*.dylib` in `/opt/dynject/lib/tweaks`, restart dynjectd) without asking again, until it has been idle for 5 minutes
+  (at most an hour). It checks that a request is one of those; anything else (the plist editor's protected files)
+  asks for the password as before. Workbench and `dw` share it. While it's open, any program running as you could ask
+  it for those steps too. `dw auth status` shows it, `dw auth end` closes it, `DW_NO_AUTH_WINDOW=1` turns it off for
+  `dw`. Details: HACKING.md, `PrivilegedSession.swift`.
 
 ## Plist editor
 
