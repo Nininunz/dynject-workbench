@@ -4,15 +4,16 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
-unreleased
-----------
+0.1.6 (2026-11-24)
+------------------
 
 - SettingsLoader (Tweaks/SettingsLoader): preferenceloader for system settings. every installed
   tweak with settings gets a native page under tweaks, at the bottom of the sidebar, drawn from
   its manifest with workbench's controls and saved the way workbench saves. system settings' own
   header works on them: the title, and back and forward through its history, the same as on
-  apple's panes. it runs inside system settings: a stub settings extension (`build.sh register`)
-  gives the sidebar entry, and the page is shown in place of that extension, which never starts.
+  apple's panes. it runs inside system settings: a stub settings extension (registered by `dw tweak
+  install`, below) gives the sidebar entry, and the page is shown in place of that extension, which
+  never starts.
 - manifest key `extensionsApp`: an app in the tweak's folder whose app extensions it needs. `dw tweak
   install` copies it into workbench's Extensions folder and registers them with pluginkit; uninstall
   unregisters them and deletes it. SettingsLoader names its stub app, so installing it is one command.

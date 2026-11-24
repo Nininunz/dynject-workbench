@@ -3,7 +3,7 @@ import Foundation
 
 public enum WorkbenchInfo {
     /// Keep in step with CFBundleShortVersionString in Resources/Info.plist (a test checks).
-    public static let version = "0.1.5"
+    public static let version = "0.1.6"
 
     public static let licenseNotice =
         "free software (PolyForm Noncommercial 1.0.0). if you paid for it, you were scammed — report the seller: https://github.com/Nininunz/dynject-workbench/issues"
