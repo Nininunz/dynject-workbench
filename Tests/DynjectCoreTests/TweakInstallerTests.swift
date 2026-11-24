@@ -113,6 +113,75 @@ final class TweakInstallerTests: XCTestCase {
         XCTAssertEqual(again.alreadyEnabledFor.map(\.bundleID), ["com.apple.TextEdit"])
     }
 
+    // MARK: Extensions (extensionsApp)
+
+    /// A fake app with one extension, at src/build/MyTweak.app; the manifest names it.
+    func addExtensionsApp(tag: String = "1") throws {
+        let appex = src.appendingPathComponent("build/MyTweak.app/Contents/Extensions/Tweaks.appex/Contents")
+        try FileManager.default.createDirectory(at: appex, withIntermediateDirectories: true)
+        try Data("appex \(tag)".utf8).write(to: appex.appendingPathComponent("Info.plist"))
+        let manifest = template.manifest.replacingOccurrences(
+            of: "<key>identifier</key>", with: "<key>extensionsApp</key><string>build/MyTweak.app</string>\n\t<key>identifier</key>")
+        XCTAssertNotEqual(manifest, template.manifest)
+        try manifest.write(to: src.appendingPathComponent("MyTweak.workbench.plist"), atomically: true, encoding: .utf8)
+    }
+
+    final class Recorder: @unchecked Sendable {
+        var calls: [String] = []
+        var registrar: ExtensionRegistrar {
+            ExtensionRegistrar(register: { self.calls.append("+ " + ($0 as NSString).lastPathComponent) },
+                               unregister: { self.calls.append("- " + ($0 as NSString).lastPathComponent) })
+        }
+    }
+
+    func testExtensionsAppIsCopiedRegisteredReplacedAndRemoved() throws {
+        try addExtensionsApp()
+        let installed = (loc.extensionsDirectory as NSString).appendingPathComponent("MyTweak.app")
+        let plan = try planInstall()
+        XCTAssertEqual(plan.extensionsAppDestination, installed)
+        XCTAssertEqual(plan.extensionsAction, .create)
+        XCTAssertEqual(plan.extensionNames, ["Tweaks.appex"])
+        XCTAssertTrue(plan.summary.contains { $0.hasPrefix("Copy ") && $0.contains("register its extensions (Tweaks.appex)") }, "\(plan.summary)")
+
+        let rec = Recorder()
+        let result = try TweakInstaller.execute(plan, writer: writer(), restarter: SimulatedRestarter(), registrar: rec.registrar)
+        XCTAssertEqual(result.problems, [])
+        XCTAssertEqual(result.extensionsRegistered, [installed + "/Contents/Extensions/Tweaks.appex"])
+        XCTAssertEqual(rec.calls, ["+ Tweaks.appex"])
+        XCTAssertNotNil(TweakExtensions.digest(installed))
+
+        // Same build: nothing to do. A new build: unregistered, replaced, registered again.
+        XCTAssertTrue(try planInstall().changesNothing)
+        try addExtensionsApp(tag: "2")
+        let again = try planInstall()
+        XCTAssertEqual(again.extensionsAction, .replace)
+        _ = try TweakInstaller.execute(again, writer: writer(), restarter: SimulatedRestarter(), registrar: rec.registrar)
+        XCTAssertEqual(rec.calls, ["+ Tweaks.appex", "- Tweaks.appex", "+ Tweaks.appex"])
+        XCTAssertEqual(TweakExtensions.digest(installed), TweakExtensions.digest(src.appendingPathComponent("build/MyTweak.app").path))
+
+        let uninstall = try TweakInstaller.planUninstall("local.mytweak", keepFile: false, locations: loc, safeMode: nil)
+        XCTAssertEqual(uninstall.extensionsAppToRemove, installed)
+        XCTAssertTrue(uninstall.summary.contains("Unregister the extensions in \(installed) and delete it"), "\(uninstall.summary)")
+        let removed = try TweakInstaller.executeUninstall(uninstall, writer: writer(), restarter: SimulatedRestarter(), safeMode: nil,
+                                                          registrar: rec.registrar)
+        XCTAssertEqual(removed.extensionsUnregistered.map { ($0 as NSString).lastPathComponent }, ["Tweaks.appex"])
+        XCTAssertEqual(rec.calls.last, "- Tweaks.appex")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: installed))
+    }
+
+    func testExtensionsAppMustBeBuiltAndInsideTheFolder() throws {
+        try addExtensionsApp()
+        try FileManager.default.removeItem(at: src.appendingPathComponent("build/MyTweak.app"))
+        XCTAssertThrowsError(try planInstall()) { XCTAssertTrue("\($0.localizedDescription)".contains("Build it first"), "\($0)") }
+        for bad in ["/Applications/X.app", "../X.app", "build/X.bundle"] {
+            let text = template.manifest.replacingOccurrences(
+                of: "<key>identifier</key>", with: "<key>extensionsApp</key><string>\(bad)</string><key>identifier</key>")
+            let (m, issues) = TweakManifestParser.parse(data: Data(text.utf8), path: "/x/MyTweak.workbench.plist", fileExists: { _ in true })
+            XCTAssertNil(m?.extensionsApp, bad)
+            XCTAssertTrue(issues.contains { $0.severity == .error && $0.message.contains("extensionsApp") }, bad)
+        }
+    }
+
     func testFailedRestartAfterTheWritesStillInstallsTheManifestAndSaysSo() throws {
         // Live, 2026-11-19: dynject_loader exited with "amfid not found", so the restart failed after the dylib
         // and config were written, and the manifest step was skipped.

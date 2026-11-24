@@ -23,6 +23,9 @@ public struct TweakManifest: Identifiable, Sendable {
     public var takesEffect: TakesEffect
     /// Run as the user (no shell) after settings change. Optional.
     public var applyCommand: [String]?
+    /// An app bundle, relative to the manifest's folder, whose app extensions the tweak needs registered
+    /// (`extensionsApp`, e.g. "build/SettingsLoader.app"). Installs copy it and register them (TweakExtensions).
+    public var extensionsApp: String?
     public var sections: [Section]
     public var sourcePath: String
     /// Items this tweak declares for the Apple menu (MenuLoader). Optional; see docs/tweak-format.md.
@@ -216,6 +219,16 @@ public enum TweakManifestParser {
             }
         }
 
+        var extensionsApp: String?
+        if let value = root["extensionsApp"] {
+            let parts = (value as? String)?.split(separator: "/").map(String.init) ?? []
+            if let s = value as? String, !s.hasPrefix("/"), s.hasSuffix(".app"), !parts.contains(".."), !parts.isEmpty {
+                extensionsApp = s
+            } else {
+                err("extensionsApp must be a path to an .app inside the tweak's folder (like build/MyTweak.app); ignored.")
+            }
+        }
+
         var sections: [TweakManifest.Section] = []
         var seenKeys = Set<String>()
         var switchKeys = Set<String>()
@@ -257,6 +270,7 @@ public enum TweakManifestParser {
                                      appleMenu: appleMenu, appleMenuPlacement: menuGroup.placement,
                                      appleMenuTitle: menuGroup.title, appleMenuSymbol: menuGroup.symbol, bridge: bridge,
                                      requires: requires)
+        manifest.extensionsApp = extensionsApp
         parseCompatibility(root, id: id, into: &manifest, error: err, warning: warn)
         return (manifest, issues)
     }

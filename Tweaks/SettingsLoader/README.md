@@ -24,15 +24,13 @@ From the repo root (macOS 27, tested on 27.2):
 
     Tweaks/SettingsLoader/build.sh
     dw tweak install Tweaks/SettingsLoader --for com.apple.systempreferences
-    Tweaks/SettingsLoader/build.sh register
     dw respring com.apple.systempreferences
 
-`register` copies `build/SettingsLoader.app` to `~/Library/Application Support/Dynject Workbench/SettingsLoader/` and
-registers the Settings extension inside it (`pluginkit -a`, as you, no password). The app and the extension are
-stubs that never run: the extension only gives System Settings a sidebar entry to show. To remove everything:
-
-    dw tweak uninstall local.dynject.settingsloader
-    Tweaks/SettingsLoader/build.sh unregister
+The manifest names `build/SettingsLoader.app` (`extensionsApp`), so the install also copies it to
+`~/Library/Application Support/Dynject Workbench/Extensions/` and registers the Settings extension inside it
+(`pluginkit -a`, as you). The app and the extension are stubs that never run: the extension only gives System
+Settings a sidebar entry to show. `dw tweak uninstall local.dynject.settingsloader` removes everything, the
+extension's registration included.
 
 ## For tweak authors
 
@@ -70,4 +68,4 @@ them; when one is missing, SettingsLoader stays out of the way (no sidebar entry
 - Per-app overrides are left to Workbench.
 - One level of pages: the Tweaks list, then a tweak's page.
 - The dylib is about 8 MB: it carries Workbench's DynjectCore for three architectures.
-- If the Tweaks extension isn't registered, there's no sidebar entry and the log says to run `build.sh register`.
+- If the Tweaks extension isn't registered, there's no sidebar entry and the log says so: install it again with `dw`.

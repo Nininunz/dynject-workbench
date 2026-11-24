@@ -188,6 +188,8 @@ func tweakInstall(_ path: String, _ a: TweakArguments) {
         case .mismatch: print("note: the \(dylibName).dSYM next to the build is from another build; not kept")
         case .failed: break   // in problems
         }
+        let simulated = ctx.locations.isLive ? "" : " (simulated, --root: not registered with pluginkit)"
+        for appex in result.extensionsRegistered { print("extension registered: \(appex)\(simulated)") }
         printLines(result.problems, prefix: "warning: ")
         if ctx.locations.isLive { republishAppleMenu(ctx.locations) }
         let apps = plan.enabledFor + plan.alreadyEnabledFor
@@ -224,6 +226,7 @@ func tweakUninstall(_ tweak: String, _ a: TweakArguments) {
                 print(r.simulated ? "dynjectd restart simulated (--root)" : "dynjectd restarted: now \(r.after.map(String.init).joined(separator: " "))")
             }
         }
+        for appex in result.extensionsUnregistered { print("extension unregistered: \(appex)") }
         printLines(result.problems, prefix: "warning: ")
         if ctx.locations.isLive { republishAppleMenu(ctx.locations) }
         print("Uninstalled \(plan.name). Apps that loaded it keep it until they quit: `dw respring` relaunches them. Its settings (dynject.tweak.\(plan.tweakID)) are kept.")

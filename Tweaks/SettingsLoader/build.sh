@@ -2,10 +2,10 @@
 # Builds SettingsLoader (x86_64 + arm64 + arm64e, ad-hoc signed, no exported symbols) and its stub app.
 #
 #   ./build.sh             build/libSettingsLoader.dylib and build/SettingsLoader.app (the "Tweaks" extension)
-#   ./build.sh register    copies SettingsLoader.app to ~/Library/Application Support/Dynject Workbench/SettingsLoader
-#                          and registers its extension with pluginkit (as the user; no administrator rights)
-#   ./build.sh unregister  undoes register
-#   ./build.sh install     prints the commands that install the dylib; it runs nothing
+#   ./build.sh install     prints the commands that install it; it runs nothing
+#
+# `dw tweak install` registers the extension: the manifest names the app (extensionsApp), which install copies to
+# ~/Library/Application Support/Dynject Workbench/Extensions and registers with pluginkit; uninstall undoes that.
 #
 # The tweak links Workbench's own manifest and settings code (Sources/DynjectCore) and settings controls
 # (Sources/DynjectSettingsUI), compiled here per architecture into build/obj/<arch> and reused while unchanged.
@@ -20,35 +20,18 @@ SWIFTC=$(xcrun -find swiftc)
 OUT="$DIR/build"
 APP="$OUT/SettingsLoader.app"
 APPEX="$APP/Contents/Extensions/Tweaks.appex"
-EXT_ID=local.dynject.settingsloader.extension
-REGISTERED="$HOME/Library/Application Support/Dynject Workbench/SettingsLoader/SettingsLoader.app"
 ARCHS="x86_64 arm64 arm64e"
 
 case "${1:-release}" in
   release) ;;
-  register)
-    [ -d "$APP" ] || { echo "error: build first (./build.sh)" >&2; exit 1; }
-    mkdir -p "$(dirname "$REGISTERED")"
-    rm -rf "$REGISTERED"
-    cp -R "$APP" "$REGISTERED"
-    pluginkit -a "$REGISTERED/Contents/Extensions/Tweaks.appex"
-    echo "Registered $EXT_ID from $REGISTERED"
-    pluginkit -m -v -i "$EXT_ID" || true
-    exit 0 ;;
-  unregister)
-    [ -d "$REGISTERED" ] && pluginkit -r "$REGISTERED/Contents/Extensions/Tweaks.appex" || true
-    rm -rf "$REGISTERED"
-    echo "Unregistered $EXT_ID"
-    exit 0 ;;
   install)
     cat <<EOF
-Install (one password prompt), register the Tweaks extension, relaunch System Settings:
+Install (one password prompt; it also registers the Tweaks extension), then relaunch System Settings:
   dw tweak install "$DIR" --for com.apple.systempreferences
-  "$DIR/build.sh" register
   dw respring com.apple.systempreferences
 EOF
     exit 0 ;;
-  *) echo "usage: $0 [release|register|unregister|install]" >&2; exit 2 ;;
+  *) echo "usage: $0 [release|install]" >&2; exit 2 ;;
 esac
 
 # Rebuilds $1 (a module's static library) when any of the following sources is newer.

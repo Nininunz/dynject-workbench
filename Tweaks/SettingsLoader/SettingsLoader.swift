@@ -82,7 +82,7 @@ private enum Sidebar {
             .first(where: { $0.bundleIdentifier == extensionID }) else {
             if !reportedMissing {
                 reportedMissing = true
-                log.error("the Tweaks extension isn't registered (\(extensionID, privacy: .public)): run Tweaks/SettingsLoader/build.sh register")
+                log.error("the Tweaks extension isn't registered (\(extensionID, privacy: .public)): install SettingsLoader again with dw tweak install, which registers it")
             }
             return
         }

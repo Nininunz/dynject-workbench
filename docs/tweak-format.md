@@ -47,6 +47,7 @@ A property list with a dictionary at the top level. See [`Examples/ExampleTweak.
 | `testedSystemVersions` | no | macOS versions it was tested on: `"27.0 - 27.2"` or one version (`"27.2"`). Outside them installs and `dw doctor` warn. |
 | `depends` | no | Array of strings: `"<tweak id>"`, `"<tweak id> >= <version>"`, `"bridge"` or `"safemode"`. Installs refuse while one isn't met. |
 | `takesEffect` | no | `live` (the tweak observes changes) or `relaunch` (default). Workbench uses it to tell the user what to do, and offers to relaunch the apps that have the tweak loaded. |
+| `extensionsApp` | no | Path of an app bundle inside the tweak's folder (`build/MyTweak.app`) whose app extensions the tweak needs registered. `dw tweak install` (and Workbench) copies it to `~/Library/Application Support/Dynject Workbench/Extensions/` and registers each `Contents/Extensions/*.appex` with `pluginkit`; uninstalling unregisters them and deletes the copy. Install refuses while the app isn't built. SettingsLoader uses it for its Settings extension. |
 | `applyCommand` | no | Array: absolute executable path plus arguments. Run as the user, with no shell and a 10 s timeout, after each change. Only needed if the tweak must do extra work beyond the notification. |
 | `sections` | yes | Array of `{ title?, footer?, items: [item] }`. May be empty when the manifest only declares `appleMenu` items or `bridge` capabilities. |
 | `appleMenu` | no | Array of Apple-menu items, added to the Apple menu by MenuLoader. See [Apple menu items](#apple-menu-items-menuloader). |

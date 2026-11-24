@@ -12,6 +12,9 @@
 	<key>author</key><string>Dynject Workbench</string>
 	<key>dylib</key><string>/opt/dynject/lib/tweaks/libSettingsLoader.dylib</string>
 	<key>takesEffect</key><string>relaunch</string>
+	<!-- The stub app with the "Tweaks" Settings extension: dw tweak install copies it to Workbench's Extensions
+	     folder and registers it with pluginkit; uninstall unregisters it. -->
+	<key>extensionsApp</key><string>build/SettingsLoader.app</string>
 	<!-- What dw doctor --apis checks after a macOS update. The System Settings names are Swift properties it reads
 	     with Mirror (see SettingsLoader.swift). -->
 	<key>requires</key>

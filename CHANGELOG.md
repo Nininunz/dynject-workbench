@@ -13,6 +13,9 @@ unreleased
   header works on them: the title, and back and forward through its history, the same as on
   apple's panes. it runs inside system settings: a stub settings extension (`build.sh register`)
   gives the sidebar entry, and the page is shown in place of that extension, which never starts.
+- manifest key `extensionsApp`: an app in the tweak's folder whose app extensions it needs. `dw tweak
+  install` copies it into workbench's Extensions folder and registers them with pluginkit; uninstall
+  unregisters them and deletes it. SettingsLoader names its stub app, so installing it is one command.
 - Workbench's settings controls moved to a `DynjectSettingsUI` target, shared with SettingsLoader.
 - new example: Examples/ClassicBattery, the menu bar battery as in older macOS (the percentage
   beside a thin-outline battery whose fill shows the level; bolt, plug, red, yellow). it runs in

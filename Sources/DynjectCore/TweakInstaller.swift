@@ -65,6 +65,16 @@ public struct TweakLocations: Sendable, Equatable {
         ((manifestsDirectory as NSString).deletingLastPathComponent as NSString).appendingPathComponent("Symbols")
     }
 
+    /// Where installs keep the apps whose extensions tweaks need registered (`extensionsApp`): next to the Tweaks folder.
+    public var extensionsDirectory: String {
+        ((manifestsDirectory as NSString).deletingLastPathComponent as NSString).appendingPathComponent("Extensions")
+    }
+
+    /// The installed copy of a manifest's `extensionsApp`, or nil when it has none.
+    public func installedExtensionsApp(for manifest: TweakManifest) -> String? {
+        manifest.extensionsApp.map { (extensionsDirectory as NSString).appendingPathComponent(($0 as NSString).lastPathComponent) }
+    }
+
     /// Folders searched for installed manifests: the Tweaks folder, then next to the installed dylibs.
     public var manifestSearchDirectories: [String] { [manifestsDirectory, dylibFileDirectory] }
 
@@ -220,6 +230,8 @@ public struct TweakSource: Sendable {
     public var manifestWarnings: [String]
     /// The built dylib to install.
     public var dylibPath: String
+    /// The built app named by the manifest's `extensionsApp`, if it has one.
+    public var extensionsAppPath: String? = nil
 
     /// `path` is a tweak folder or a manifest. The dylib is `dylib` if given, else build/<install name> or
     /// <install name> next to the manifest.
@@ -268,8 +280,17 @@ public struct TweakSource: Sendable {
             }
             dylibPath = found
         }
+        var extensionsAppPath: String?
+        if let app = manifest.extensionsApp {
+            let path = (folder as NSString).appendingPathComponent(app)
+            guard fm.fileExists(atPath: path) else {
+                throw TweakInstallError.refused("The app with the tweak's extensions (extensionsApp, \(app)) isn't in \(folder). Build it first (./build.sh).")
+            }
+            extensionsAppPath = path
+        }
         return TweakSource(manifestPath: manifestPath, manifestData: data, manifest: manifest,
-                           manifestWarnings: issues.filter { $0.severity == .warning }.map(\.message), dylibPath: dylibPath)
+                           manifestWarnings: issues.filter { $0.severity == .warning }.map(\.message), dylibPath: dylibPath,
+                           extensionsAppPath: extensionsAppPath)
     }
 }
 
@@ -308,10 +329,17 @@ public struct TweakInstallPlan: Sendable {
     /// Version change, macOS and `depends` checks (TweakCompatibility.swift). `execute` refuses while
     /// `compatibility.refusals` isn't empty.
     public var compatibility = TweakInstallCheck()
+    /// Where the manifest's `extensionsApp` is copied to and registered from; nil without one.
+    public var extensionsAppDestination: String?
+    public var extensionsAction: TweakFileAction = .unchanged
+    /// The extensions in the app to install (their file names).
+    public var extensionNames: [String] = []
 
     public var restartsDaemon: Bool { configNew != nil }
     public var needsPrivilegedStep: Bool { dylibAction != .unchanged || configNew != nil }
-    public var changesNothing: Bool { !needsPrivilegedStep && manifestAction == .unchanged && manifestsReplaced.isEmpty }
+    public var changesNothing: Bool {
+        !needsPrivilegedStep && manifestAction == .unchanged && manifestsReplaced.isEmpty && extensionsAction == .unchanged
+    }
     public var isRefused: Bool { !compatibility.refusals.isEmpty }
 
     /// What will happen, one line each, for `dw` and Workbench's review sheet.
@@ -341,6 +369,14 @@ public struct TweakInstallPlan: Sendable {
         case .unchanged: out.append("\(manifestDestination) is already up to date")
         }
         for p in manifestsReplaced { out.append("Remove \(p) (an older manifest of this tweak)") }
+        if let destination = extensionsAppDestination, let app = source.extensionsAppPath {
+            let names = extensionNames.isEmpty ? "none found" : extensionNames.joined(separator: ", ")
+            switch extensionsAction {
+            case .create: out.append("Copy \(app) to \(destination) and register its extensions (\(names))")
+            case .replace: out.append("Replace \(destination) with \(app) and register its extensions again (\(names))")
+            case .unchanged: out.append("\(destination) is already this build")
+            }
+        }
         return out
     }
 }
@@ -353,6 +389,8 @@ public struct TweakInstallResult: Sendable {
     public var problems: [String]
     /// Whether the build's dSYM was kept for naming crash frames (TweakSymbolStore).
     public var symbols: TweakSymbolStore.KeepResult = .noDSYM
+    /// The app extensions registered (`extensionsApp`), at their installed paths.
+    public var extensionsRegistered: [String] = []
 }
 
 public enum TweakInstaller {
@@ -459,12 +497,20 @@ public enum TweakInstaller {
             manifestDestination: destination, manifestCurrent: manifestCurrent, manifestAction: manifestAction,
             manifestsReplaced: replaced, warnings: warnings, notes: notes)
         plan.compatibility = compatibility
+        if let app = source.extensionsAppPath, let destination = locations.installedExtensionsApp(for: manifest) {
+            plan.extensionsAppDestination = destination
+            plan.extensionNames = TweakExtensions.extensions(in: app).map { ($0 as NSString).lastPathComponent }
+            let current = TweakExtensions.digest(destination)
+            plan.extensionsAction = current == nil ? .create : current == TweakExtensions.digest(app) ? .unchanged : .replace
+            if plan.extensionNames.isEmpty { plan.warnings.append("\(app) has no app extensions (Contents/Extensions/*.appex).") }
+        }
         return plan
     }
 
     /// Runs a plan: dylib and config in one `apply` (one administrator prompt at most, restart folded in), then the
     /// manifest. Files that changed since planning are never overwritten.
-    public static func execute(_ plan: TweakInstallPlan, writer: ProtectedFileWriter, restarter: DaemonRestarter) throws -> TweakInstallResult {
+    public static func execute(_ plan: TweakInstallPlan, writer: ProtectedFileWriter, restarter: DaemonRestarter,
+                               registrar: ExtensionRegistrar? = nil) throws -> TweakInstallResult {
         guard !plan.isRefused else { throw TweakInstallError.refused(plan.compatibility.refusalText) }
         var changes: [ProtectedChange] = []
         if plan.dylibAction != .unchanged {
@@ -503,7 +549,17 @@ public enum TweakInstaller {
         let symbols = TweakSymbolStore(directory: URL(fileURLWithPath: plan.locations.symbolsDirectory, isDirectory: true))
             .keep(dylibAt: plan.source.dylibPath)
         if case let .failed(why) = symbols { problems.append("The build's debug symbols weren't kept: \(why)") }
-        return TweakInstallResult(plan: plan, outcome: outcome, manifestWritten: written, problems: problems, symbols: symbols)
+        var registered: [String] = []
+        if let app = plan.source.extensionsAppPath, let destination = plan.extensionsAppDestination, plan.extensionsAction != .unchanged {
+            do {
+                registered = try TweakExtensions.install(app: app, to: destination,
+                                                         registrar: registrar ?? .standard(for: plan.locations))
+            } catch {
+                problems.append("The tweak's extensions weren't registered: \(error.localizedDescription)")
+            }
+        }
+        return TweakInstallResult(plan: plan, outcome: outcome, manifestWritten: written, problems: problems, symbols: symbols,
+                                  extensionsRegistered: registered)
     }
 
     static func writeManifest(_ plan: TweakInstallPlan, backups: BackupStore) throws -> Bool {
@@ -564,6 +620,8 @@ public struct TweakUninstallPlan: Sendable {
     /// Bundle IDs listed for this tweak in "dynject.safemode" (removed too).
     public var safeModeEntries: [String]
     public var notes: [String]
+    /// The installed copy of its `extensionsApp`: its extensions are unregistered and it is deleted.
+    public var extensionsAppToRemove: String? = nil
 
     public var restartsDaemon: Bool { configNew != nil }
     public var needsPrivilegedStep: Bool { configNew != nil || dylibToRemove != nil }
@@ -582,6 +640,7 @@ public struct TweakUninstallPlan: Sendable {
         if restartsDaemon { out.append("Restart dynjectd") }
         out += manifestFiles.map { "Delete the manifest \($0)" }
         if !safeModeEntries.isEmpty { out.append("Remove its Safe Mode entries (\(safeModeEntries.joined(separator: ", ")))") }
+        if let app = extensionsAppToRemove { out.append("Unregister the extensions in \(app) and delete it") }
         return out + notes
     }
 }
@@ -590,6 +649,8 @@ public struct TweakUninstallResult: Sendable {
     public var plan: TweakUninstallPlan
     public var outcome: BatchOutcome?
     public var problems: [String]
+    /// The app extensions unregistered.
+    public var extensionsUnregistered: [String] = []
 }
 
 public extension ConfigEditor {
@@ -740,13 +801,14 @@ public extension TweakInstaller {
         return TweakUninstallPlan(
             locations: locations, tweakID: m.id, name: m.name, dylibInstallPath: installPath, dylibFilePath: filePath,
             dylibToRemove: toRemove, configOriginal: configData, configNew: removed.isEmpty ? nil : doc.text,
-            removedConfigLines: removed, manifestFiles: files, safeModeEntries: entries, notes: notes)
+            removedConfigLines: removed, manifestFiles: files, safeModeEntries: entries, notes: notes,
+            extensionsAppToRemove: locations.installedExtensionsApp(for: m).flatMap { fm.fileExists(atPath: $0) ? $0 : nil })
     }
 
     /// Config edit and file deletion in one `apply` (one administrator prompt at most, restart folded in), then the
     /// manifests and Safe Mode entries.
     static func executeUninstall(_ plan: TweakUninstallPlan, writer: ProtectedFileWriter, restarter: DaemonRestarter,
-                                 safeMode: SafeMode?) throws -> TweakUninstallResult {
+                                 safeMode: SafeMode?, registrar: ExtensionRegistrar? = nil) throws -> TweakUninstallResult {
         var changes: [ProtectedChange] = []
         if let text = plan.configNew {
             changes.append(.write(Data(text.utf8), to: plan.locations.configPath, expectedCurrent: plan.configOriginal, category: "config"))
@@ -777,7 +839,13 @@ public extension TweakInstaller {
                 }
             }
         }
-        return TweakUninstallResult(plan: plan, outcome: outcome, problems: problems)
+        var unregistered: [String] = []
+        if let app = plan.extensionsAppToRemove {
+            do { unregistered = try TweakExtensions.remove(app, registrar: registrar ?? .standard(for: plan.locations)) } catch {
+                problems.append("Couldn't remove \(app): \(error.localizedDescription)")
+            }
+        }
+        return TweakUninstallResult(plan: plan, outcome: outcome, problems: problems, extensionsUnregistered: unregistered)
     }
 }
 
