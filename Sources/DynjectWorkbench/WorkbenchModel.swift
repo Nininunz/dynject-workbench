@@ -180,7 +180,8 @@ final class WorkbenchModel {
             restarter = SimulatedRestarter()
             writer = ProtectedFileWriter(backups: backups, executor: RefusingExecutor())
         } else {
-            let exec = OsascriptExecutor()
+            // The approval window: one password covers the tweak-install steps of the next 5 minutes (dw too).
+            let exec = SessionExecutor.shared
             restarter = PrivilegedRestarter(executor: exec)
             writer = ProtectedFileWriter(backups: backups, executor: exec)
         }

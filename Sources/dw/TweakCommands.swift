@@ -5,7 +5,7 @@ import Foundation
 
 let tweakUsage = """
 usage:
-  dw tweak install <folder|manifest.workbench.plist> [--for <bundleID>]... [--dylib <built.dylib>]
+  dw tweak install <folder|manifest.workbench.plist>... [--for <bundleID>]... [--dylib <built.dylib>]
                    [--also <bundleID>]... [--allow-downgrade] [--force] [--dry-run]
   dw tweak uninstall <tweakID|manifest.workbench.plist> [--keep-file] [--keep-rules] [--force] [--dry-run]
   dw tweak list
@@ -126,6 +126,13 @@ func tweakCommand(_ args: [String]) {
     let p = a.positional
     switch (p.first, p.count) {
     case ("install", 2): tweakInstall(p[1], a)
+    case ("install", let n) where n > 2:
+        // Several tweaks: one after another; the approval window makes it one password for all of them.
+        if a.value("--dylib") != nil { fail("--dylib names one build; install one tweak at a time with it") }
+        for (i, path) in p.dropFirst().enumerated() {
+            if i > 0 { print("") }
+            tweakInstall(path, a)
+        }
     case ("uninstall", 2): tweakUninstall(p[1], a)
     case ("list", 1): tweakList(a)
     default:
@@ -171,7 +178,7 @@ func tweakInstall(_ path: String, _ a: TweakArguments) {
         }
         if plan.changesNothing { print("Nothing to do: it is already installed like this."); return }
         if a.dryRun { print("Dry run: nothing was changed."); return }
-        if plan.needsPrivilegedStep && !ctx.simulated { print("Asking for your password once for the steps above…") }
+        if plan.needsPrivilegedStep && !ctx.simulated, let notice = PromptedExecutor.notice() { print(notice) }
 
         let result = try TweakInstaller.execute(plan, writer: ctx.writer, restarter: ctx.restarter)
         if let o = result.outcome {
@@ -218,7 +225,7 @@ func tweakUninstall(_ tweak: String, _ a: TweakArguments) {
         print("\(plan.name) (\(plan.tweakID)), dylib \(plan.dylibInstallPath)")
         printLines(plan.summary)
         if a.dryRun { print("Dry run: nothing was changed."); return }
-        if plan.needsPrivilegedStep && !ctx.simulated { print("Asking for your password once for the steps above…") }
+        if plan.needsPrivilegedStep && !ctx.simulated, let notice = PromptedExecutor.notice() { print(notice) }
         let result = try TweakInstaller.executeUninstall(plan, writer: ctx.writer, restarter: ctx.restarter, safeMode: ctx.safeMode)
         if let o = result.outcome {
             for (path, url) in o.backups.sorted(by: { $0.key < $1.key }) { print("backed up \(path) to \(url.path)") }

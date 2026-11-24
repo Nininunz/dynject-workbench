@@ -231,6 +231,17 @@ one user-visible change = one helper call = one password prompt. the restart sto
 every dynjectd and starts exactly one, because the loader detaches and
 `kickstart -k` piles up daemons. details: docs/workbench.md#writing-protected-files-and-restarting.
 
+approval window (`PrivilegedSession.swift`). the first privileged step starts, through that
+same prompt, a small root server that runs the helper for later requests without asking
+again, until it's idle for 5 minutes (at most an hour). it only takes the steps installing
+tweaks needs: write /opt/dynject/etc/dynjectd.conf, install or remove a plain `*.dylib`
+directly in /opt/dynject/lib/tweaks, restart; it checks that itself, and dw/workbench send
+anything else (a protected plist) to the plain prompt. requests go through FIFOs in a
+root-owned /private/var/run/dynject-workbench.<uid> (`req` writable only by the user,
+`resp` root's), serialized by `session.lock`. while it runs, any program running as the
+user can ask it for those steps: that's the trade. `dw auth [status|end]`;
+`DW_NO_AUTH_WINDOW=1` asks every time.
+
 the global keys live in the global preferences domain because it's readable from
 sandboxed apps. workbench publishes, tweaks read. MenuLoader's list format and
 backwards-compat rules: Tweaks/MenuLoader/README.md.

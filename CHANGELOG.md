@@ -7,6 +7,13 @@ newest first. for testers; the commit log has the details.
 unreleased
 ----------
 
+- fewer password prompts. the first privileged step opens an approval window: a small root
+  server, started by that one prompt, does the steps installing tweaks needs (write
+  dynjectd.conf, install or remove a dylib in /opt/dynject/lib/tweaks, restart dynjectd) for
+  dw and workbench without asking again until it's idle for 5 minutes (at most an hour).
+  anything else still asks. `dw auth status`, `dw auth end`; `DW_NO_AUTH_WINDOW=1` turns it
+  off. while it's open, programs running as you can ask it for those steps too.
+- `dw tweak install` takes several folders: one password for all of them.
 - Examples/ClassicBattery: the lock screen too, if enabled for loginwindow. loginwindow draws it with
   BatteryUIKit, which still has the older battery (outline, fill inside); the tweak turns its "Modern
   Style" parameter off there. checked in the test host through LoginUIKit (31 checks).

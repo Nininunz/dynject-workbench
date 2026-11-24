@@ -28,10 +28,36 @@ func fail(_ message: String, _ code: Int32 = 1) -> Never {
     exit(code)
 }
 
+/// The administrator prompt, through the approval window (SessionExecutor): one password covers the tweak-install
+/// steps of the next 5 minutes, for dw and Workbench. DW_NO_AUTH_WINDOW=1 asks every time instead.
 struct PromptedExecutor: PrivilegedExecutor {
     let what: String
+    static var windowEnabled: Bool { ProcessInfo.processInfo.environment["DW_NO_AUTH_WINDOW"] == nil }
     func run(_ arguments: [String], prompt: String) throws -> String {
-        try OsascriptExecutor().run(arguments, prompt: "dw: \(what)\n\n\(prompt)")
+        let text = "dw: \(what)\n\n\(prompt)"
+        guard Self.windowEnabled else { return try OsascriptExecutor().run(arguments, prompt: text) }
+        return try SessionExecutor.shared.run(arguments, prompt: text)
+    }
+    /// What to say before a privileged step: nothing when the approval window will take it.
+    static func notice(_ arguments: [String] = ["restart"]) -> String? {
+        if windowEnabled && SessionExecutor.allowed(arguments) && SessionExecutor.shared.isAlive { return nil }
+        return "Asking for your password once for the steps above…"
+    }
+}
+
+func authCommand(_ args: [String]) {
+    switch args.first {
+    case "status", nil:
+        guard let s = SessionExecutor.shared.status else { print("No approval window: the next tweak install asks for your password."); return }
+        let age = Int(Date().timeIntervalSince(s.startedAt))
+        print("Approval window open (server pid \(s.pid), \(age / 60) min \(age % 60) s old): tweak installs, enable/disable and "
+              + "dynjectd restarts don't ask for a password until it's idle for \(Int(SessionExecutor.idle / 60)) min "
+              + "(at most \(Int(SessionExecutor.maximum / 60)) min). `dw auth end` closes it.")
+    case "end":
+        do { try SessionExecutor.shared.end(); print("Approval window closed: the next step asks for your password.") }
+        catch { fail(error.localizedDescription) }
+    default:
+        print("usage: dw auth [status | end]"); exit(2)
     }
 }
 
@@ -143,6 +169,7 @@ case ("safemode", _): safeModeCommand(Array(a.dropFirst()))
 case ("bridge", _): bridgeCommand(Array(a.dropFirst()))
 case ("respring", _): respringCommand(Array(a.dropFirst()))
 case ("tweak", _): tweakCommand(Array(a.dropFirst()))
+case ("auth", _): authCommand(Array(a.dropFirst()))
 case ("doctor", _): doctorCommand(Array(a.dropFirst()))
 case ("why", _): whyCommand(Array(a.dropFirst()))
 case ("dev", _): devCommand(Array(a.dropFirst()))
@@ -162,7 +189,7 @@ case ("log", 3): showLog(a[1], minutes: Int(a[2]) ?? 5)
 default:
     print("""
     usage:
-      dw tweak install <folder|manifest> [--for <bundleID>]... [--dylib <path>] [--dry-run]   (dw tweak --help)
+      dw tweak install <folder|manifest>... [--for <bundleID>]... [--dylib <path>] [--dry-run]   (dw tweak --help)
       dw tweak uninstall <tweakID|manifest> [--keep-file] [--keep-rules] [--dry-run]
       dw tweak list
       dw new <Name> [--id <reverse.dns.id>] [--app <bundleID>] [--dir <path>]
@@ -180,6 +207,7 @@ default:
       dw inspect <app> [--pick | --tree | --stop]   drive Inspector in an app, background apps included
       dw eval <app> <path>                          read a value in a running app (NSApp.windows[0].frame), through Inspector
       dw log <subsystem> [minutes]
+      dw auth [status | end]            the approval window: one password covers tweak installs for 5 minutes
       dw safemode ...   (dw safemode help)
       dw bridge ...     (dw bridge help)
       dw --version

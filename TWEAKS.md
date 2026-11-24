@@ -15,7 +15,7 @@ the loop
     dw new WindowTitles --app com.apple.TextEdit     # folder with source, manifest, build.sh, sdk/
     cd WindowTitles && ./build.sh                    # build/libWindowTitles.dylib
     ./build.sh test                                  # its test host: checks it in a local app, nothing installed
-    dw tweak install . --for com.apple.TextEdit      # one password prompt
+    dw tweak install . --for com.apple.TextEdit      # one password prompt (then none for 5 minutes: dw auth)
     dw respring                                      # or workbench -> respring...
     dw log local.windowtitles 10                     # last 10 minutes of its log
 
