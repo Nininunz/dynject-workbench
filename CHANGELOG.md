@@ -7,6 +7,13 @@ newest first. for testers; the commit log has the details.
 unreleased
 ----------
 
+- `DHHookFunction`: inline function hooks in the tweak sdk, like `MSHookFunction`. the function's
+  first 16 bytes jump away, so every call is caught, inside one image, between system libraries,
+  and in apple's own apps (calculator); c, c++ and swift functions by address.
+  arm64 and arm64e; groups switch it off without patching again; hooks chain. it needs a process
+  that may run code it changed, which a mac set up for dynject is (tested on macos 27.2);
+  elsewhere it returns NULL and changes nothing. checked by `Tests/InlineHost/run.sh` (also in
+  `scripts/test-all.sh`).
 - `dw tweak install --also <bundleID>`: accepts a config edit that also reaches another app.
   dynjectd matches service names by substring, so enabling a tweak for `com.apple.controlcenter`
   also reaches `com.apple.controlcenter.PreloginSystemBannerRenderer`; install refused that before,

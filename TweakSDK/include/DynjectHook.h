@@ -297,6 +297,67 @@ DH_HIDDEN NSUInteger DHImportHookSiteCount(DHImportHook *hook);
 ///   DH_CALL_IMPORT_ORIG(sCopyValue, CFPropertyListRef (*)(CFStringRef, CFStringRef), key, app);
 #define DH_CALL_IMPORT_ORIG(hook, FN_TYPE, ...) ((FN_TYPE)DHImportOriginal(hook))(__VA_ARGS__)
 
+#pragma mark - Hooking functions (inline)
+
+/// A handle to one inline function hook. Opaque; lives for the rest of the process.
+typedef struct DHFunctionHook DHFunctionHook;
+
+/// Redirects every call to `function`, from anywhere in the process, to `replacement`, a function of the same
+/// type: the function's first 16 bytes are rewritten to jump away. Unlike DHHookImport this catches calls
+/// inside one image, between system frameworks, through dlsym pointers, and in Apple's own apps, and it works
+/// on any function whose address you have: C, C++, or Swift (a Swift function by its mangled name through
+/// dlsym, or an address found another way).
+///
+/// - arm64 and arm64e only (arm64e: the addresses you pass may be signed; the original is handed back signed
+///   for calling). On x86_64 it returns NULL and logs.
+/// - It needs a process that may run code it changed. On a Mac set up for Dynject that's every process the
+///   engine injects into, Apple's included (tested on macOS 27.2); where it isn't allowed, it returns NULL and
+///   logs, and nothing is changed.
+/// - Patching: the page is copied, the copy is changed and mapped over the original in one step, so the code
+///   being patched never stops being executable. The first four instructions move to a trampoline (the
+///   original), with the ones that depend on where they are (adr, adrp, literal loads, b, bl, b.cond, cbz,
+///   cbnz, tbz, tbnz) rewritten to work from there.
+/// - Refused (NULL, logged): a function whose first three instructions include a return or an unconditional
+///   branch, since it may be shorter than the 16 bytes the jump needs.
+/// - Hooks chain: hooking a function already hooked (by this or another tweak) puts the new hook on top, and
+///   its original is the earlier hook's replacement.
+/// - Groups: the jump goes through a small stub that checks the group, so disabling a group makes the
+///   function behave as if unhooked without patching anything again (safe with other threads and with hooks
+///   on top). The code is never put back.
+/// - Registers x16 and x17 are used at the function's start and around moved branches, as the arm64 calling
+///   convention allows.
+///
+/// Returns NULL (and logs) if `function` or `replacement` is NULL. Install hooks before other threads call the
+/// function, typically in DH_CTOR; otherwise use DHHookFunctionEx.
+///
+///   static DHFunctionHook *sCbrt;
+///   static double MyCbrt(double x) { return DH_CALL_FUNCTION_ORIG(sCbrt, double (*)(double), x) * 2; }
+///   DH_CTOR("com.you.tweak", "com.apple.calculator") {
+///       sCbrt = DHHookFunction((void *)cbrt, (void *)MyCbrt, NULL);
+///   }
+///
+/// The ABI rule above applies: the replacement and FN_TYPE must have the function's exact type, and don't hook
+/// variadic functions.
+DH_HIDDEN DHFunctionHook *DHHookFunction(void *function, void *replacement, DHGroup *group);
+
+/// DHHookFunction for a function other threads may already be calling: `*outHook` is written before the jump
+/// is in place, so a call racing in never finds the handle variable still NULL. On failure NULL is returned and
+/// `*outHook` keeps its value. `outHook` may be NULL.
+DH_HIDDEN DHFunctionHook *DHHookFunctionEx(void *function, void *replacement, DHGroup *group,
+                                           DHFunctionHook **outHook);
+
+/// The function to call as "the original" (see DHHookFunction): a trampoline running the function's first
+/// instructions and jumping back into it. NULL for a NULL hook.
+DH_HIDDEN void *DHFunctionOriginal(DHFunctionHook *hook);
+
+/// NO for NULL and for every hook whose group is disabled, YES otherwise.
+DH_HIDDEN BOOL DHFunctionHookIsActive(DHFunctionHook *hook);
+
+/// Calls the original behind a function hook. FN_TYPE is the function's exact non-variadic type:
+///
+///   DH_CALL_FUNCTION_ORIG(sCbrt, double (*)(double), x);
+#define DH_CALL_FUNCTION_ORIG(hook, FN_TYPE, ...) ((FN_TYPE)DHFunctionOriginal(hook))(__VA_ARGS__)
+
 #pragma mark - Class lookup
 
 /// objc_getClass(name); NULL if there is no such class or `name` is NULL.

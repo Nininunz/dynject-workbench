@@ -1640,6 +1640,302 @@ NSUInteger DHImportHookSiteCount(DHImportHook *hook) {
     return n;
 }
 
+#pragma mark - Function hooks (inline)
+
+// DHHookFunction. Layout of one hook, all in one page of its own (made r-x once written):
+//
+//   gate (the function's first 16 bytes jump here):
+//     ldr x16, flag ; ldrb w16, [x16] ; cbz w16, original ; ldr x16, replacement ; br x16
+//     original: ldr x16, trampoline ; br x16 ; nop ; flag: .quad ; replacement: .quad ; trampoline: .quad
+//   trampoline (the original): the function's first four instructions, moved, then a jump to function + 16
+//
+// `flag` is the group's `enabled` byte (a constant 1 for ungrouped hooks), so a group is switched without touching
+// code. The function's first 16 bytes become `ldr x17, #8 ; br x17 ; .quad gate`.
+
+#include <dlfcn.h>
+#include <libkern/OSCacheControl.h>
+#include <mach/mach.h>
+#include <mach/mach_vm.h>
+#if __has_include(<ptrauth.h>)
+#include <ptrauth.h>
+#endif
+
+struct DHFunctionHook {
+    void *function;       // stripped address
+    void *replacement;    // as passed
+    void *original;       // the trampoline, signed for calling on arm64e
+    DHGroup *group;
+};
+
+static void *DHStrip(void *p) {
+#if __has_feature(ptrauth_calls)
+    return ptrauth_strip(p, ptrauth_key_function_pointer);
+#else
+    return p;
+#endif
+}
+
+
+static NSString *DHDescribeAddress(void *address) {
+    Dl_info info;
+    if (dladdr(address, &info) && info.dli_fname) {
+        const char *image = strrchr(info.dli_fname, '/');
+        image = image ? image + 1 : info.dli_fname;
+        if (info.dli_sname && info.dli_saddr)
+            return [NSString stringWithFormat:@"%s`%s+%ld", image, info.dli_sname,
+                                              (long)((char *)address - (char *)DHStrip(info.dli_saddr))];
+        return [NSString stringWithFormat:@"%s+0x%lx", image, (unsigned long)((char *)address - (char *)info.dli_fbase)];
+    }
+    return [NSString stringWithFormat:@"%p", address];
+}
+
+#if defined(__arm64__)
+
+static const atomic_bool kDHAlwaysEnabled = true;
+
+static void *DHSignFunction(void *p) {
+#if __has_feature(ptrauth_calls)
+    return ptrauth_sign_unauthenticated(p, ptrauth_key_function_pointer, 0);
+#else
+    return p;
+#endif
+}
+
+/// Writes `length` bytes at `address` in executable memory: copies the page(s), changes the copy, makes it r-x
+/// and maps it over the original, so the code there never stops being executable. Returns the failing kernel
+/// call's message, or NULL.
+static const char *DHWriteCode(void *address, const void *bytes, size_t length) {
+    mach_vm_size_t pageSize = vm_page_size;
+    mach_vm_address_t start = (mach_vm_address_t)address & ~(pageSize - 1);
+    mach_vm_address_t end = ((mach_vm_address_t)address + length + pageSize - 1) & ~(pageSize - 1);
+    mach_vm_size_t size = end - start;
+    mach_vm_address_t scratch = 0;
+    kern_return_t kr = mach_vm_allocate(mach_task_self(), &scratch, size, VM_FLAGS_ANYWHERE);
+    if (kr != KERN_SUCCESS) return mach_error_string(kr);
+    memcpy((void *)scratch, (void *)start, size);
+    memcpy((void *)(scratch + ((mach_vm_address_t)address - start)), bytes, length);
+    kr = mach_vm_protect(mach_task_self(), scratch, size, FALSE, VM_PROT_READ | VM_PROT_EXECUTE);
+    if (kr == KERN_SUCCESS) {
+        mach_vm_address_t target = start;
+        vm_prot_t cur = 0, max = 0;
+        kr = mach_vm_remap(mach_task_self(), &target, size, 0, VM_FLAGS_FIXED | VM_FLAGS_OVERWRITE, mach_task_self(),
+                           scratch, TRUE, &cur, &max, VM_INHERIT_COPY);
+    }
+    mach_vm_deallocate(mach_task_self(), scratch, size);
+    if (kr != KERN_SUCCESS) return mach_error_string(kr);
+    sys_icache_invalidate(address, length);
+    return NULL;
+}
+
+// Instruction encodings.
+static uint32_t DHLdrLiteral(uint32_t rt, int32_t offset) { return 0x58000000u | ((((uint32_t)offset >> 2) & 0x7ffff) << 5) | rt; }
+static uint32_t DHBr(uint32_t rn) { return 0xd61f0000u | (rn << 5); }
+static uint32_t DHBlr(uint32_t rn) { return 0xd63f0000u | (rn << 5); }
+static uint32_t DHB(int32_t offset) { return 0x14000000u | (((uint32_t)offset >> 2) & 0x3ffffff); }
+static int64_t DHSignExtend(uint64_t value, int bits) { return (int64_t)(value << (64 - bits)) >> (64 - bits); }
+
+typedef struct { uint32_t words[64]; size_t count; } DHCode;
+static void DHEmit(DHCode *c, uint32_t w) { if (c->count < 64) c->words[c->count++] = w; }
+static void DHEmit64(DHCode *c, uint64_t v) { DHEmit(c, (uint32_t)v); DHEmit(c, (uint32_t)(v >> 32)); }
+
+/// The patch DHHookFunction writes: `ldr x17, #8 ; br x17 ; .quad destination`.
+static BOOL DHIsOurJump(const uint32_t *code) { return code[0] == DHLdrLiteral(17, 8) && code[1] == DHBr(17); }
+
+/// May end the function: a return or an unconditional branch (b, br, braa…), but not a call.
+static BOOL DHEndsFlow(uint32_t insn) {
+    if ((insn & 0xfc000000u) == 0x14000000u) return YES;                     // b
+    if ((insn & 0xfe000000u) == 0xd6000000u) {                               // branch (register)
+        if ((insn & 0xfffffc1fu) == 0xd63f0000u) return NO;                  // blr
+        if ((insn & 0xfefff800u) == 0xd63f0800u) return NO;                  // blraa, blrab, blraaz, blrabz
+        return YES;                                                          // ret, br, retaa, braa…, eret
+    }
+    return NO;
+}
+
+/// Where a b, bl, b.cond, cbz, cbnz, tbz or tbnz at `pc` branches to; NO for other instructions.
+static BOOL DHBranchTarget(uint32_t insn, uint64_t pc, uint64_t *target) {
+    if ((insn & 0x7c000000u) == 0x14000000u) { *target = pc + (uint64_t)(DHSignExtend(insn & 0x3ffffff, 26) << 2); return YES; }
+    if ((insn & 0xff000010u) == 0x54000000u || (insn & 0x7e000000u) == 0x34000000u) {
+        *target = pc + (uint64_t)(DHSignExtend((insn >> 5) & 0x7ffff, 19) << 2);
+        return YES;
+    }
+    if ((insn & 0x7e000000u) == 0x36000000u) { *target = pc + (uint64_t)(DHSignExtend((insn >> 5) & 0x3fff, 14) << 2); return YES; }
+    return NO;
+}
+
+/// Moves one instruction that was at `pc` into `out`, rewriting those that depend on where they are. `inside`
+/// tells whether an address is in the bytes being overwritten (whose contents change).
+static void DHRelocate(uint32_t insn, uint64_t pc, const uint32_t *original, uint64_t function, DHCode *out) {
+    uint32_t rt = insn & 0x1f;
+    if ((insn & 0x9f000000u) == 0x10000000u || (insn & 0x9f000000u) == 0x90000000u) {   // adr, adrp
+        int64_t imm = DHSignExtend((((insn >> 5) & 0x7ffff) << 2) | ((insn >> 29) & 3), 21);
+        uint64_t value = (insn & 0x80000000u) ? (pc & ~0xfffull) + (uint64_t)(imm << 12) : pc + (uint64_t)imm;
+        DHEmit(out, DHLdrLiteral(rt, 8)); DHEmit(out, DHB(12)); DHEmit64(out, value);
+        return;
+    }
+    if ((insn & 0x3b000000u) == 0x18000000u) {                                          // ldr (literal)
+        uint64_t address = pc + (uint64_t)(DHSignExtend((insn >> 5) & 0x7ffff, 19) << 2);
+        uint32_t opc = insn >> 30, simd = (insn >> 26) & 1;
+        if (!simd && opc == 3) { DHEmit(out, 0xd503201fu); return; }                     // prfm: nop
+        if (!simd && address >= function && address + 8 <= function + 16) {
+            // the literal is in the overwritten bytes: load its value now
+            uint64_t value = 0;
+            memcpy(&value, (const uint8_t *)original + (address - function), opc == 1 ? 8 : 4);
+            if (opc == 0) value = (uint32_t)value;
+            if (opc == 2) value = (uint64_t)(int64_t)(int32_t)value;
+            DHEmit(out, DHLdrLiteral(rt, 8)); DHEmit(out, DHB(12)); DHEmit64(out, value);
+            return;
+        }
+        uint32_t base = simd ? 17 : rt;
+        DHEmit(out, DHLdrLiteral(base, 8)); DHEmit(out, DHB(12)); DHEmit64(out, address);
+        uint32_t load;
+        if (simd) load = opc == 0 ? 0xbd400000u : opc == 1 ? 0xfd400000u : 0x3dc00000u;   // ldr s/d/q, [x17]
+        else load = opc == 0 ? 0xb9400000u : opc == 1 ? 0xf9400000u : 0xb9800000u;        // ldr w/x, ldrsw x, [xt]
+        DHEmit(out, load | (base << 5) | rt);
+        return;
+    }
+    if ((insn & 0x7c000000u) == 0x14000000u) {                                          // b, bl
+        uint64_t target = pc + (uint64_t)(DHSignExtend(insn & 0x3ffffff, 26) << 2);
+        if (insn & 0x80000000u) {   // bl: ldr x17, #12 ; blr x17 ; b #12 ; .quad target
+            DHEmit(out, DHLdrLiteral(17, 12)); DHEmit(out, DHBlr(17)); DHEmit(out, DHB(12)); DHEmit64(out, target);
+        } else {
+            DHEmit(out, DHLdrLiteral(17, 8)); DHEmit(out, DHBr(17)); DHEmit64(out, target);
+        }
+        return;
+    }
+    uint64_t target = 0;
+    uint32_t moved = 0;
+    if ((insn & 0xff000010u) == 0x54000000u) {                                          // b.cond
+        target = pc + (uint64_t)(DHSignExtend((insn >> 5) & 0x7ffff, 19) << 2);
+        moved = (insn & ~(0x7ffffu << 5)) | (2u << 5);
+    } else if ((insn & 0x7e000000u) == 0x34000000u) {                                   // cbz, cbnz
+        target = pc + (uint64_t)(DHSignExtend((insn >> 5) & 0x7ffff, 19) << 2);
+        moved = (insn & ~(0x7ffffu << 5)) | (2u << 5);
+    } else if ((insn & 0x7e000000u) == 0x36000000u) {                                   // tbz, tbnz
+        target = pc + (uint64_t)(DHSignExtend((insn >> 5) & 0x3fff, 14) << 2);
+        moved = (insn & ~(0x3fffu << 5)) | (2u << 5);
+    }
+    if (moved) {   // the same test, now to +8: [test → +8] [b +20] [ldr x17, #8] [br x17] [.quad target]
+        DHEmit(out, moved); DHEmit(out, DHB(20)); DHEmit(out, DHLdrLiteral(17, 8)); DHEmit(out, DHBr(17));
+        DHEmit64(out, target);
+        return;
+    }
+    DHEmit(out, insn);
+}
+
+static DHFunctionHook *DHInstallFunctionHook(void *function, void *replacement, DHGroup *group,
+                                             DHFunctionHook **outHook) {
+    uint8_t *target = DHStrip(function);
+    NSString *name = DHDescribeAddress(target);
+    uint32_t code[4];
+    memcpy(code, target, sizeof code);
+
+    // The original: the first four instructions moved, then back into the function.
+    DHCode trampoline = {.count = 0};
+    if (DHIsOurJump(code)) {
+        uint64_t previous = (uint64_t)code[2] | ((uint64_t)code[3] << 32);   // an earlier hook's gate
+        DHEmit(&trampoline, DHLdrLiteral(17, 8)); DHEmit(&trampoline, DHBr(17)); DHEmit64(&trampoline, previous);
+    } else {
+        for (int i = 0; i < 3; i++) {
+            if (DHEndsFlow(code[i])) {
+                DHLog(@"DHHookFunction %@: not hooked: instruction %d of its first four returns or branches away, so it "
+                      @"may be shorter than the 16 bytes the jump needs", name, i + 1);
+                return NULL;
+            }
+        }
+        for (int i = 0; i < 4; i++) {
+            uint64_t to = 0;
+            if (DHBranchTarget(code[i], (uint64_t)target + 4 * i, &to) && to > (uint64_t)target && to < (uint64_t)target + 16) {
+                DHLog(@"DHHookFunction %@: not hooked: instruction %d branches into the first 16 bytes, which the jump "
+                      @"overwrites", name, i + 1);
+                return NULL;
+            }
+        }
+        for (int i = 0; i < 4; i++) DHRelocate(code[i], (uint64_t)target + 4 * i, code, (uint64_t)target, &trampoline);
+        DHEmit(&trampoline, DHLdrLiteral(17, 8)); DHEmit(&trampoline, DHBr(17)); DHEmit64(&trampoline, (uint64_t)target + 16);
+    }
+
+    // The hook's page: gate at 0, trampoline at 64.
+    mach_vm_address_t page = 0;
+    kern_return_t kr = mach_vm_allocate(mach_task_self(), &page, vm_page_size, VM_FLAGS_ANYWHERE);
+    if (kr != KERN_SUCCESS) {
+        DHLog(@"DHHookFunction %@: not hooked: allocate: %s", name, mach_error_string(kr));
+        return NULL;
+    }
+    uint32_t *gate = (uint32_t *)page;
+    uint32_t *tramp = (uint32_t *)(page + 64);
+    const atomic_bool *flag = group ? &group->enabled : &kDHAlwaysEnabled;
+    gate[0] = DHLdrLiteral(16, 32);                  // ldr x16, flag
+    gate[1] = 0x39400000u | (16u << 5) | 16u;        // ldrb w16, [x16]
+    gate[2] = 0x34000000u | (3u << 5) | 16u;         // cbz w16, +12 (gate[5])
+    gate[3] = DHLdrLiteral(16, 28);                  // ldr x16, replacement
+    gate[4] = DHBr(16);
+    gate[5] = DHLdrLiteral(16, 28);                  // ldr x16, trampoline
+    gate[6] = DHBr(16);
+    gate[7] = 0xd503201fu;                           // nop (keeps the literals 8-byte aligned)
+    uint64_t literals[3] = {(uint64_t)flag, (uint64_t)DHStrip(replacement), (uint64_t)tramp};
+    memcpy(&gate[8], literals, sizeof literals);
+    memcpy(tramp, trampoline.words, trampoline.count * 4);
+    kr = mach_vm_protect(mach_task_self(), page, vm_page_size, FALSE, VM_PROT_READ | VM_PROT_EXECUTE);
+    if (kr != KERN_SUCCESS) {
+        DHLog(@"DHHookFunction %@: not hooked: this process may not run code it made (%s)", name, mach_error_string(kr));
+        mach_vm_deallocate(mach_task_self(), page, vm_page_size);
+        return NULL;
+    }
+    sys_icache_invalidate((void *)page, vm_page_size);
+
+    DHFunctionHook *hook = calloc(1, sizeof *hook);
+    hook->function = target;
+    hook->replacement = replacement;
+    hook->original = DHSignFunction(tramp);
+    hook->group = group;
+    if (outHook) *outHook = hook;
+
+    // Log before the jump goes in: once it's there, any call to the function goes to the replacement, which may call
+    // the original through a handle its caller hasn't received yet. Logging formats strings, and the function may be
+    // strlen or anything else formatting uses. Nothing after the write calls out (a failed write changed nothing).
+    DHLog(@"DHHookFunction %@: hooking%s", name, DHIsOurJump(code) ? " (on top of another hook)" : "");
+    DHLogHookMap(replacement, name.UTF8String);
+    uint32_t jump[4] = {DHLdrLiteral(17, 8), DHBr(17), (uint32_t)page, (uint32_t)((uint64_t)page >> 32)};
+    const char *error = DHWriteCode(target, jump, sizeof jump);
+    if (error) {
+        DHLog(@"DHHookFunction %@: not hooked: patching its code failed (%s)", name, error);
+        return NULL;   // hook and page are left: *outHook may already point at the hook
+    }
+    return hook;
+}
+
+#endif
+
+DHFunctionHook *DHHookFunctionEx(void *function, void *replacement, DHGroup *group, DHFunctionHook **outHook) {
+    if (!function || !replacement) {
+        DHLog(@"DHHookFunction: %s is NULL", function ? "replacement" : "function");
+        return NULL;
+    }
+#if defined(__arm64__)
+    os_unfair_lock *processLock = DHProcessLock();   // the same function patched by two copies at once
+    os_unfair_lock_lock(processLock);
+    DHFunctionHook *hook = DHInstallFunctionHook(function, replacement, group, outHook);
+    os_unfair_lock_unlock(processLock);
+    return hook;
+#else
+    (void)group; (void)outHook;
+    DHLog(@"DHHookFunction %@: not hooked: inline hooks are arm64 only", DHDescribeAddress(function));
+    return NULL;
+#endif
+}
+
+DHFunctionHook *DHHookFunction(void *function, void *replacement, DHGroup *group) {
+    return DHHookFunctionEx(function, replacement, group, NULL);
+}
+
+void *DHFunctionOriginal(DHFunctionHook *hook) { return hook ? hook->original : NULL; }
+
+BOOL DHFunctionHookIsActive(DHFunctionHook *hook) {
+    if (!hook) return NO;
+    return hook->group ? atomic_load(&hook->group->enabled) : YES;
+}
+
 #pragma mark - Hook reports (dw hooks)
 
 // `dw hooks <app>` asks every DynjectHook copy in a process what it has hooked. It sets the state of the Darwin

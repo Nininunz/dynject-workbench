@@ -415,6 +415,56 @@ patched, for functions other threads may already be calling.
 original through. Don't hook variadic functions (`open`, `printf`, `NSLog`): on arm64 their variadic arguments are on
 the stack, where a C replacement can't reach them. Hook the non-variadic form (`vprintf`) instead.
 
+## Hooking any function: `DHHookFunction`
+
+```objc
+static DHFunctionHook *sCbrt;
+static double MyCbrt(double x) {
+    return DH_CALL_FUNCTION_ORIG(sCbrt, double (*)(double), x) * 2;
+}
+
+DH_CTOR("com.you.cuberoot", "com.apple.calculator") {
+    sCbrt = DHHookFunction((void *)cbrt, (void *)MyCbrt, NULL);
+}
+```
+
+An inline hook: the function's first 16 bytes are rewritten to jump away, so every call to it is redirected, from
+anywhere in the process. Unlike `DHHookImport` it catches calls inside one image, calls between system libraries in
+the dyld shared cache, calls through `dlsym` pointers, and works in Apple's own apps. Any function whose address you
+have: C, C++, or Swift (a Swift function by its mangled name through `dlsym`, or an address found another way).
+
+**Where it works.** arm64 and arm64e (on x86_64 it returns NULL and logs). It needs a process that may run code it
+changed: on a Mac set up for Dynject that's every process the engine injects into, Apple's included (Calculator: a
+platform binary, arm64e, with code-signing `KILL` set, tested on macOS 27.2). macOS normally refuses to make
+memory executable without a JIT entitlement; on such a Mac that refusal is off, most likely because of what the engine
+needs relaxed. Where it isn't, `DHHookFunction` returns NULL, logs "may not run code it made", and changes nothing.
+
+**How.** The page is copied, the copy is changed and mapped over the original in one step (`mach_vm_remap`), so the
+code being patched never stops being executable, not even for the thread doing it. The function's first four
+instructions move to a trampoline, which is the original: the ones that depend on their own address (`adr`, `adrp`,
+literal `ldr`, `ldrsw`, `ldr s/d/q`, `b`, `bl`, `b.cond`, `cbz`, `cbnz`, `tbz`, `tbnz`) are rewritten to work from
+there. On arm64e the addresses you pass may be signed, and the original is handed back signed for calling.
+
+**Refused** (NULL, logged, nothing changed): a function whose first three instructions include a return or an
+unconditional branch (it may be shorter than 16 bytes), and one whose first four instructions branch back into those
+16 bytes.
+
+**Chaining and groups.** Hooking a function already hooked, by this tweak or another, puts the new hook on top; its
+original is the earlier hook's replacement. The jump goes through a small stub that checks the hook's group, so
+disabling a group makes the function behave as if unhooked without patching anything again: safe while other threads
+call it, and with other hooks on top. The code itself is never put back. `DHFunctionHookIsActive` says whether the
+group is on; `DHHookFunctionEx` writes the handle before the jump is in place, for functions other threads may
+already be calling. Use it for anything the process calls all the time (`strlen`, `malloc`, `objc` helpers): with
+the plain form another thread can call the function after the jump is in and before your handle variable is set,
+and the replacement then calls the original through NULL. (Seen live: `strlen` in Calculator went through the hook
+323,418 times in 5 seconds, from Calculator's own threads.)
+
+**Registers.** x16 and x17 (the intra-procedure-call registers) are used at the function's start and around moved
+branches and literal loads, as the arm64 calling convention allows.
+
+The ABI rule applies as for imports: the replacement and the type you call the original through must be the
+function's exact type, and don't hook variadic functions.
+
 ## Finding classes
 
 ```objc
@@ -572,7 +622,9 @@ The library's tests are the `DynjectHookTests` target (Objective-C XCTest, with 
 loads it, to exercise `DHWhenClassLoads` through dyld; it is skipped if no compiler is available. The import hook tests
 (`DHTImportTests.m`) compile a provider and callers the same way. `Tests/ImportHost/run.sh` runs import hooks in real
 processes, injected with `DYLD_INSERT_LIBRARIES`: an arm64e host (signed `__auth_got` entries), an arm64 one, and an
-x86_64 one under Rosetta when it is installed.
+x86_64 one under Rosetta when it is installed. `Tests/InlineHost/run.sh` runs `DHHookFunction` in an arm64 and an
+arm64e host: assembly functions that start with each kind of moved instruction, the two refusals, chaining, groups,
+four threads calling while a group flips 2000 times, and `cbrt` in the shared cache.
 
 ```sh
 swift test --filter DynjectHookTests   # the DynjectHook tests only
@@ -581,14 +633,14 @@ swift test                             # everything
 
 ## Limits
 
-- **C and Swift functions only through imports, and only in third-party apps.** `DHHookImport` redirects calls that go
-  through an image's imports (see [Hooking C functions](#hooking-c-functions-dhhookimport)); there is no inline hooking
-  (`MSHookFunction`): the hardened runtime and code signing block patching executable pages. Calls between system
-  libraries inside the dyld shared cache are bound directly, and Apple's own apps keep their imports read-only, so
-  neither can be redirected.
-- **Swift methods** can be hooked only when they are reached through `objc_msgSend`: `@objc` methods called from
-  Objective-C (for example AppKit calling an `@objc override`), or `@objc dynamic` methods. Swift-to-Swift calls use the
-  vtable or direct dispatch and bypass the hook.
+- **Inline hooks need a Mac set up for Dynject, and arm64.** `DHHookFunction` relies on the process being allowed to
+  run code it changed (see [Hooking any function](#hooking-any-function-dhhookfunction)); x86_64 isn't supported.
+  `DHHookImport` works everywhere but only on calls through an image's imports, and not in Apple's own apps, which keep
+  their imports read-only.
+- **Swift methods** can be hooked as methods only when they are reached through `objc_msgSend`: `@objc` methods called
+  from Objective-C (for example AppKit calling an `@objc override`), or `@objc dynamic` methods. Swift-to-Swift calls
+  use the vtable or direct dispatch and bypass a method hook; hook the Swift function itself with `DHHookFunction`
+  instead, once you have its address.
 - **No unhooking.** Hooks and groups live for the life of the process. Use a group to turn hooks off.
 - **Hook classes only replace methods.** To add new methods or per-object state, use `class_addMethod` and associated objects.
 
@@ -608,5 +660,5 @@ swift test                             # everything
 | Substrate safe mode | `dynject.safemode` key and the Shift bypass |
 | `%new` | Not supported; use `class_addMethod` |
 | `%property` | `objc_setAssociatedObject` |
-| `%hookf` / `MSHookFunction` | `DHHookImport("name", NULL, (void *)replacement, group)`, then `DH_CALL_IMPORT_ORIG`. Only calls through an image's imports (see [Limits](#limits)). |
+| `%hookf` / `MSHookFunction` | `DHHookFunction((void *)function, (void *)replacement, group)`, then `DH_CALL_FUNCTION_ORIG`: an inline hook, arm64 (see [Hooking any function](#hooking-any-function-dhhookfunction)). Or `DHHookImport("name", NULL, …)` for calls through imports only, which also works on x86_64. |
 | `%log` / `NSLog` | `DHLog(@"…")` |
