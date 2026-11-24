@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>formatVersion</key><integer>1</integer>
+	<key>identifier</key><string>local.dynject.settingsloader</string>
+	<key>name</key><string>SettingsLoader</string>
+	<key>summary</key><string>Shows the settings of installed tweaks as native pages in System Settings, under Tweaks in the sidebar, with System Settings' own back and forward. Pure infrastructure: it has no settings of its own.</string>
+	<key>version</key><string>0.1.0</string>
+	<key>minimumSystemVersion</key><string>27.0</string>
+	<key>testedSystemVersions</key><string>27.2</string>
+	<key>author</key><string>Dynject Workbench</string>
+	<key>dylib</key><string>/opt/dynject/lib/tweaks/libSettingsLoader.dylib</string>
+	<key>takesEffect</key><string>relaunch</string>
+	<!-- What dw doctor --apis checks after a macOS update. The System Settings names are Swift properties it reads
+	     with Mirror (see SettingsLoader.swift). -->
+	<key>requires</key>
+	<array>
+		<dict>
+			<key>class</key><string>_EXHostViewController</string>
+			<key>image</key><string>ExtensionKit</string>
+			<key>methods</key><array><string>-setConfiguration:</string><string>-embedPlaceholder</string><string>-viewWillAppear</string><string>-viewDidDisappear</string><string>-viewDidLayout</string></array>
+		</dict>
+		<dict>
+			<key>class</key><string>_EXHostViewControllerConfiguration</string>
+			<key>image</key><string>ExtensionKit</string>
+			<key>methods</key><array><string>-extensionIdentity</string><string>-setBeginHostingImmediately:</string><string>-setRetryOnHostingFailure:</string></array>
+		</dict>
+		<dict>
+			<key>class</key><string>Settings.NavigationToken</string>
+			<key>image</key><string>Settings</string>
+		</dict>
+		<dict>
+			<key>class</key><string>Settings.SettingsNavigationPath</string>
+			<key>image</key><string>Settings</string>
+		</dict>
+		<dict>
+			<key>string</key><string>_extensionUIProxy</string>
+			<key>image</key><string>/System/Applications/System Settings.app/Contents/MacOS/System Settings</string>
+		</dict>
+		<dict>
+			<key>string</key><string>_coordinators</string>
+			<key>image</key><string>/System/Applications/System Settings.app/Contents/MacOS/System Settings</string>
+		</dict>
+		<dict>
+			<key>string</key><string>_settingsAppState</string>
+			<key>image</key><string>/System/Applications/System Settings.app/Contents/MacOS/System Settings</string>
+		</dict>
+		<dict>
+			<key>string</key><string>navigationSplitViewState</string>
+			<key>image</key><string>/System/Applications/System Settings.app/Contents/MacOS/System Settings</string>
+		</dict>
+		<dict>
+			<key>string</key><string>$__lazy_storage_$_sidebarListState</string>
+			<key>image</key><string>/System/Applications/System Settings.app/Contents/MacOS/System Settings</string>
+		</dict>
+		<dict>
+			<key>string</key><string>settingsSidebarListContextProvider</string>
+			<key>image</key><string>/System/Applications/System Settings.app/Contents/MacOS/System Settings</string>
+		</dict>
+		<dict>
+			<key>string</key><string>systemSettingsExtensionsStateProvider</string>
+			<key>image</key><string>/System/Applications/System Settings.app/Contents/MacOS/System Settings</string>
+		</dict>
+		<dict>
+			<key>string</key><string>snapshotsContinuation</string>
+			<key>image</key><string>/System/Applications/System Settings.app/Contents/MacOS/System Settings</string>
+		</dict>
+		<dict>
+			<key>string</key><string>_currentSettingsSidebarListContext</string>
+			<key>image</key><string>/System/Applications/System Settings.app/Contents/MacOS/System Settings</string>
+		</dict>
+		<dict>
+			<key>string</key><string>systemSettingsExtensionsSnapshot</string>
+			<key>image</key><string>/System/Applications/System Settings.app/Contents/MacOS/System Settings</string>
+		</dict>
+	</array>
+	<key>sections</key>
+	<array/>
+</dict>
+</plist>

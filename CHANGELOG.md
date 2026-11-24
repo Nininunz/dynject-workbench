@@ -7,6 +7,13 @@ newest first. for testers; the commit log has the details.
 unreleased
 ----------
 
+- SettingsLoader (Tweaks/SettingsLoader): preferenceloader for system settings. every installed
+  tweak with settings gets a native page under tweaks, at the bottom of the sidebar, drawn from
+  its manifest with workbench's controls and saved the way workbench saves. system settings' own
+  header works on them: the title, and back and forward through its history, the same as on
+  apple's panes. it runs inside system settings: a stub settings extension (`build.sh register`)
+  gives the sidebar entry, and the page is shown in place of that extension, which never starts.
+- Workbench's settings controls moved to a `DynjectSettingsUI` target, shared with SettingsLoader.
 - new example: Examples/ClassicBattery, the menu bar battery as in older macOS (the percentage
   beside a thin-outline battery whose fill shows the level; bolt, plug, red, yellow). it runs in
   ControlCenter and replaces the battery scene's view, so MenuBarAgent lays it out like any item

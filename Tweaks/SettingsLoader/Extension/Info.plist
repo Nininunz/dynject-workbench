@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key><string>Tweaks</string>
+	<key>CFBundleExecutable</key><string>SettingsLoaderExtension</string>
+	<key>CFBundleIdentifier</key><string>local.dynject.settingsloader.extension</string>
+	<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+	<key>CFBundleName</key><string>Tweaks</string>
+	<key>CFBundlePackageType</key><string>XPC!</string>
+	<key>CFBundleShortVersionString</key><string>0.1.0</string>
+	<key>CFBundleVersion</key><string>1</string>
+	<key>CFBundleSupportedPlatforms</key><array><string>MacOSX</string></array>
+	<key>LSMinimumSystemVersion</key><string>27.0</string>
+	<key>CFBundleIcons</key>
+	<dict>
+		<key>ISGraphicIconConfiguration</key>
+		<dict>
+			<key>ISEnclosureColor</key><string>Purple</string>
+			<key>ISSymbolColor</key><string>White</string>
+			<key>ISSymbolName</key><string>puzzlepiece.extension.fill</string>
+		</dict>
+	</dict>
+	<key>EXAppExtensionAttributes</key>
+	<dict>
+		<key>EXExtensionPointIdentifier</key><string>com.apple.Settings.extension.ui</string>
+		<key>SettingsExtensionAttributes</key>
+		<dict>
+			<key>allowsXAppleSystemPreferencesURLScheme</key><true/>
+			<key>presentsInSidebar</key><true/>
+			<key>representations</key>
+			<array>
+				<dict>
+					<key>sidebar-name</key><string>Tweaks</string>
+					<key>sidebar-uuid</key><string>DynjectTweaks</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+</dict>
+</plist>

@@ -101,6 +101,7 @@ echo
 step swift-test        swift test
 step app               scripts/build-app.sh
 step menuloader        in_dir Tweaks/MenuLoader ./build.sh
+step settingsloader    in_dir Tweaks/SettingsLoader ./build.sh
 step inspector         in_dir Tweaks/Inspector ./build.sh
 step oledfinder        in_dir Examples/OLEDFinder ./build.sh
 step titlebadge        in_dir Examples/TitleBadge ./build.sh

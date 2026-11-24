@@ -152,6 +152,8 @@ what's in the box
 - settings sdk: `DynjectTweak.h` plus a manifest gives your tweak a settings page.
   docs/tweak-format.md.
 - MenuLoader: tweaks declare apple-menu items, it adds them. Tweaks/MenuLoader.
+- SettingsLoader: every tweak's settings as a native page in system settings (tweaks, at the
+  bottom of the sidebar), with system settings' own back and forward. Tweaks/SettingsLoader.
 - Inspector: flex-style in-app inspector. hold ⌃⌥⌘, point at a view or layer, click: class,
   hierarchy, properties, methods, ivars, runtime browser, copy a hook skeleton. read-only.
   Tweaks/Inspector.

@@ -7,7 +7,8 @@ per-app overrides built in, and one storage location per tweak.
 A tweak has three parts:
 
 1. **The dylib**, declared in `dynjectd.conf` as usual. Dynject decides *which apps* load it.
-2. **A manifest**, `<anything>.workbench.plist`, which describes the settings. Workbench draws the UI from it.
+2. **A manifest**, `<anything>.workbench.plist`, which describes the settings. Workbench draws the UI from it,
+   and so does [SettingsLoader](../Tweaks/SettingsLoader/README.md), as a page in System Settings.
 3. **The SDK header**, [`TweakSDK/include/DynjectTweak.h`](../TweakSDK/include/DynjectTweak.h), which the dylib
    uses to read its settings for the app it is running in.
 

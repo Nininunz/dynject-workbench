@@ -11,7 +11,9 @@ let package = Package(
     ],
     targets: [
         .target(name: "DynjectCore"),
-        .executableTarget(name: "DynjectWorkbench", dependencies: ["DynjectCore"]),
+        .executableTarget(name: "DynjectWorkbench", dependencies: ["DynjectCore", "DynjectSettingsUI"]),
+        // SwiftUI controls for tweak settings, shared by Workbench and SettingsLoader's System Settings pages.
+        .target(name: "DynjectSettingsUI", dependencies: ["DynjectCore"]),
         // Live privileged trial against /opt/dynject. Run only with the owner's approval.
         .executableTarget(name: "DynjectLiveTrial", dependencies: ["DynjectCore"]),
         // `dw` CLI for tweak development: install, enable/disable per app, relaunch, logs.
