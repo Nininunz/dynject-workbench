@@ -4,6 +4,14 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
+unreleased
+----------
+
+- Examples/ClassicBattery: the lock screen too, if enabled for loginwindow. loginwindow draws it with
+  BatteryUIKit, which still has the older battery (outline, fill inside); the tweak turns its "Modern
+  Style" parameter off there. checked in the test host through LoginUIKit (31 checks).
+
+
 0.1.6 (2026-11-24)
 ------------------
 

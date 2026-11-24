@@ -8,6 +8,7 @@
 // still exist on this macOS (all but MenuBarCore's container view, which lives in MenuBarAgent itself).
 #import <AppKit/AppKit.h>
 #import <dlfcn.h>
+#import <objc/message.h>
 #import <objc/runtime.h>
 
 static int sChecks, sFailures;
@@ -208,6 +209,55 @@ int main(int argc, char **argv) {
             Check(appleWidth > 26 + 15 && appleWidth < classicWidth,
                   [NSString stringWithFormat:@"Apple's: %.1f pt wide (macOS's 26 plus the number)", appleWidth]);
             sSetSettings(1, 1, 12);   // back to the defaults
+        }
+
+        printf("lock screen (loginwindow's LoginUIKit, through BatteryUIKit)\n");
+        dlopen("/System/Library/PrivateFrameworks/LoginUIKit.framework/Versions/A/LoginUIKit", RTLD_NOW);
+        Class luiBattery = NSClassFromString(@"LUIBattery"), luiController = NSClassFromString(@"LUIBatteryStatusController");
+        Class buiImage = NSClassFromString(@"BUIImage");
+        Check(buiImage && [buiImage respondsToSelector:NSSelectorFromString(@"batteryImagesForParameters:")]
+              && [buiImage respondsToSelector:NSSelectorFromString(@"imageSizeForParameters:")],
+              @"BatteryUIKit: BUIImage +batteryImagesForParameters: +imageSizeForParameters:");
+        id luiPower = [luiBattery new];
+        BOOL present = luiPower && ((BOOL (*)(id, SEL))objc_msgSend)(luiPower, NSSelectorFromString(@"isPresent"));
+        if (!luiController || ![luiController instancesRespondToSelector:NSSelectorFromString(@"_imageForBattery:")]) {
+            Check(NO, @"LoginUIKit: LUIBatteryStatusController -_imageForBattery:");
+        } else if (!present || !sSetSettings) {
+            printf("  [SKIP] no internal battery here\n");
+        } else {
+            id controller = ((id (*)(id, SEL, long))objc_msgSend)([luiController alloc], NSSelectorFromString(@"initWithStyle:"), 0);
+            NSImage *(^image)(int) = ^NSImage *(int classic) {
+                sSetSettings(classic, 1, 12);
+                return ((id (*)(id, SEL, id))objc_msgSend)(controller, NSSelectorFromString(@"_imageForBattery:"), luiPower);
+            };
+            NSImage *classic = image(1), *apple = image(0);
+            sSetSettings(1, 1, 12);
+            Check([classic isKindOfClass:[NSImage class]] && [apple isKindOfClass:[NSImage class]], @"LoginUIKit draws the battery");
+            Check(classic.size.width > apple.size.width,
+                  [NSString stringWithFormat:@"classic: BatteryUIKit's older battery (%.0f pt wide; Apple's %.0f)", classic.size.width, apple.size.width]);
+            // The older battery is an outline with the fill inside it: along the middle row, ink, then a clear gap.
+            NSBitmapImageRep *(^pixels)(NSImage *, NSString *) = ^NSBitmapImageRep *(NSImage *img, NSString *name) {
+                NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL
+                    pixelsWide:(NSInteger)img.size.width * 4 pixelsHigh:(NSInteger)img.size.height * 4 bitsPerSample:8
+                    samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSDeviceRGBColorSpace bytesPerRow:0 bitsPerPixel:0];
+                [NSGraphicsContext saveGraphicsState];
+                NSGraphicsContext.currentContext = [NSGraphicsContext graphicsContextWithBitmapImageRep:rep];
+                [img drawInRect:NSMakeRect(0, 0, rep.pixelsWide, rep.pixelsHigh)];
+                [NSGraphicsContext restoreGraphicsState];
+                [[rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}]
+                    writeToFile:[dir stringByAppendingPathComponent:name] atomically:YES];
+                return rep;
+            };
+            BOOL (^outlined)(NSBitmapImageRep *) = ^BOOL(NSBitmapImageRep *rep) {
+                NSInteger y = rep.pixelsHigh / 2, x = 0, w = rep.pixelsWide;
+                while (x < w && [rep colorAtX:x y:y].alphaComponent < 0.5) x++;   // to the outline
+                while (x < w && [rep colorAtX:x y:y].alphaComponent >= 0.5) x++;  // across it
+                NSInteger gap = 0;
+                while (x < w && [rep colorAtX:x y:y].alphaComponent < 0.5) { x++; gap++; }
+                return gap > 0 && x < w * 3 / 4;   // a clear gap, then the fill
+            };
+            Check(outlined(pixels(classic, @"lock-classic.png")), @"classic: an outline with the fill inside it (lock-classic.png)");
+            Check(!outlined(pixels(apple, @"lock-apple.png")), @"Apple's style: macOS's filled battery (lock-apple.png)");
         }
 
         printf("what it uses in ControlCenter\n");

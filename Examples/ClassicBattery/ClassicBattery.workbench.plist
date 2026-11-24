@@ -23,6 +23,12 @@
 			<key>image</key><string>AppKit</string>
 			<key>methods</key><array><string>-setView:</string><string>-view</string><string>-viewHierarchyDidChange</string><string>-_FBSScene</string></array>
 		</dict>
+		<dict>
+			<key>class</key><string>BUIImage</string>
+			<key>image</key><string>BatteryUIKit</string>
+			<key>methods</key><array><string>+batteryImagesForParameters:</string><string>+imageSizeForParameters:</string></array>
+			<key>optional</key><true/>
+		</dict>
 	</array>
 	<key>sections</key>
 	<array>

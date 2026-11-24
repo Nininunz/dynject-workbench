@@ -5,8 +5,9 @@ the menu bar battery as it looked before macOS 26: the percentage, then a thin-o
 level. a bolt while charging, a plug while it's plugged in but held at a limit, yellow in Low Power Mode, red at 10%
 or less on battery. clicking it opens the usual battery menu.
 
-tweak id `local.dynject.classicbattery`, dylib `/opt/dynject/lib/tweaks/libClassicBattery.dylib`. it loads only into
-ControlCenter (`com.apple.controlcenter`), which draws the battery item.
+tweak id `local.dynject.classicbattery`, dylib `/opt/dynject/lib/tweaks/libClassicBattery.dylib`. it loads into
+ControlCenter (`com.apple.controlcenter`), which draws the menu bar's battery, and, if you enable it there,
+loginwindow (`com.apple.loginwindow`), which draws the lock screen's.
 
 built with dynject-workbench's sdk: free and noncommercial; don't sell tweaks built with it.
 
@@ -66,6 +67,16 @@ percentage a little smaller); the battery is 25 × 11.5 points plus a 1.5-point 
 centred on the same line as the icons beside it (search, Control Center), with the number centred on the battery;
 the ink is 92% white on a dark menu bar and 85% black on a light one, like the clock and the icons.
 
+the lock screen is drawn by loginwindow, not ControlCenter (when the screen locks, loginwindow logs `Status
+viewDidLoad _batteryViewController … created` and `Battery _updateViews`; ControlCenter makes no new scene). its
+LoginUIKit asks BatteryUIKit for the picture with `+[BUIImage batteryImagesForParameters:]`, passing `"Modern Style" =
+1`, which picks today's filled battery. BatteryUIKit still has the older one, Apple's own artwork: a thin outline with
+the level fill inside it. in loginwindow, with the classic style on, the tweak passes `"Modern Style" = 0` (to
+`+imageSizeForParameters:` too, so the size matches) and the lock screen gets that battery. it loads BatteryUIKit
+itself, since loginwindow only loads it when it first draws the battery. loginwindow loads tweaks only when it starts,
+at login, and a crash in it logs you out: enable it there knowingly (`dw tweak install . --for com.apple.loginwindow`
+plus your ControlCenter options), then log out and in.
+
 an earlier version ran in MenuBarAgent: it hid ControlCenter's drawing in the slot, drew over it, and widened the
 slot by answering MenuBarAgent's size reads, so the slot was always as wide as "100%" needed. working in ControlCenter
 removes all of that.
@@ -80,7 +91,9 @@ each state, dark and light, and checks the pixels: the gap, the battery's propor
 fill against the level (25, 50, 100%), red at 5% on battery and not on power, yellow in Low Power Mode, the bolt and
 the plug cut out of the fill, dark ink on a light menu bar; then, through `CBTestSetSettings`, the battery alone
 without the percentage, a wider number at 15 points, and Apple's style (the number ending before macOS's battery). it
-saves every drawing in `build/test/render/`. it also
+saves every drawing in `build/test/render/`. for the lock screen it loads LoginUIKit, asks its
+`LUIBatteryStatusController` for the battery image as loginwindow does, and checks that the classic style gets
+BatteryUIKit's older battery (wider, an outline with a gap before the fill) and Apple's style the filled one. it also
 checks that what the tweak uses in ControlCenter still exists: `MBControlCenterItemAssertionXPC`'s initializer (and
 its type encoding) and `-assertionID`, `NSHostedViewScene` (`-setView:`, `-view`, `-viewHierarchyDidChange`,
 `-_FBSScene`) and `NSApplication -connectedScenes`.

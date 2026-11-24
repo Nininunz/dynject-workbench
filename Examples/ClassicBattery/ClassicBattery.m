@@ -19,12 +19,19 @@
 //      width changes (9% → 10%, 99% → 100%, a setting) the scene publishes the new size and MenuBarAgent follows.
 //      State comes from IOKit power sources and Low Power Mode, redrawn when they change.
 //
+//
+// The lock screen's battery is drawn by loginwindow (LoginUIKit), not ControlCenter: it asks BatteryUIKit for the
+// picture with +[BUIImage batteryImagesForParameters:], whose "Modern Style" parameter picks today's filled pill.
+// BatteryUIKit still has the older one (a thin outline with the level fill inside it), so in loginwindow, with the
+// classic style, the tweak turns "Modern Style" off and the lock screen gets Apple's own classic battery.
+//
 //   ./build.sh && dw tweak install . --for com.apple.controlcenter --also com.apple.controlcenter.PreloginSystemBannerRenderer
 //   dw respring --only com.apple.controlcenter
 //   log stream --predicate 'subsystem == "local.dynject.classicbattery"'
 #import <AppKit/AppKit.h>
 #import <IOKit/ps/IOPSKeys.h>
 #import <IOKit/ps/IOPowerSources.h>
+#import <dlfcn.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
 #import <os/log.h>
@@ -35,10 +42,10 @@
 // CBTestSetState and CBTestSetSettings so the host can draw the item in any state, with any settings.
 #ifdef TWEAK_TEST
 #define TWEAK_ID_C "local.dynject.classicbattery.test"
-#define TWEAK_APPS "com.apple.controlcenter", "local.dynject.classicbattery.testhost"
+#define TWEAK_APPS "com.apple.controlcenter", "com.apple.loginwindow", "local.dynject.classicbattery.testhost"
 #else
 #define TWEAK_ID_C "local.dynject.classicbattery"
-#define TWEAK_APPS "com.apple.controlcenter"
+#define TWEAK_APPS "com.apple.controlcenter", "com.apple.loginwindow"
 #endif
 #define TWEAK_ID @TWEAK_ID_C
 
@@ -49,7 +56,8 @@ static const CGFloat kGap = 4;       // between the number and the battery
 static const CGFloat kMargin = 1;    // at either end of the item
 static const CGFloat kNativeWidth = 26;   // macOS's battery without its percentage, if its view can't say
 
-static DHHook *sAssertionInit, *sSetView;
+static DHHook *sAssertionInit, *sSetView, *sBatteryImages, *sBatteryImageSize;
+static BOOL gMenuBar;   // this process draws the menu bar's battery (ControlCenter, or the test host)
 static NSString *gBatteryItemID;   // main thread
 
 typedef struct {
@@ -403,6 +411,39 @@ static void Refresh(NSString *why) {
            gState.lowPower, gSettings.on, gSettings.classic, gSettings.showPercent, gSettings.textSize);
 }
 
+#pragma mark - The lock screen (loginwindow)
+
+/// BatteryUIKit's parameters with "Modern Style" off while the tweak draws the classic battery; as they are otherwise.
+static id LockScreenParameters(id params) {
+    Settings settings = gSettings;
+    if (!settings.on || !settings.classic || ![params isKindOfClass:[NSDictionary class]]) return params;
+    id modern = ((NSDictionary *)params)[@"Modern Style"];
+    if (![modern respondsToSelector:@selector(boolValue)] || ![modern boolValue]) return params;
+    NSMutableDictionary *legacy = [params mutableCopy];
+    legacy[@"Modern Style"] = @NO;
+    return legacy;
+}
+
+static id CBBatteryImages(id self, SEL _cmd, id params) {
+    return DH_CALL_ORIG(sBatteryImages, id (*)(id, SEL, id), self, _cmd, LockScreenParameters(params));
+}
+
+static CGSize CBBatteryImageSize(id self, SEL _cmd, id params) {
+    return DH_CALL_ORIG(sBatteryImageSize, CGSize (*)(id, SEL, id), self, _cmd, LockScreenParameters(params));
+}
+
+/// loginwindow loads BatteryUIKit only when it first draws the battery: load it now so BUIImage can be hooked.
+static void HookLockScreen(void) {
+    dlopen("/System/Library/PrivateFrameworks/BatteryUIKit.framework/Versions/A/BatteryUIKit", RTLD_NOW);
+    Class images = NSClassFromString(@"BUIImage");
+    if (!images) { os_log(Log(), "lock screen: no BUIImage"); return; }
+    sBatteryImages = DHHookMessage(object_getClass(images), NSSelectorFromString(@"batteryImagesForParameters:"),
+                                   (IMP)CBBatteryImages, NULL);
+    sBatteryImageSize = DHHookMessage(object_getClass(images), NSSelectorFromString(@"imageSizeForParameters:"),
+                                      (IMP)CBBatteryImageSize, NULL);
+    os_log(Log(), "lock screen: hooks images %d size %d", sBatteryImages != NULL, sBatteryImageSize != NULL);
+}
+
 static void PowerChanged(void *context) {
     (void)context;
     Refresh(@"power changed");
@@ -410,8 +451,18 @@ static void PowerChanged(void *context) {
 
 DH_CTOR(TWEAK_ID_C, TWEAK_APPS) {
     DH_REQUIRE_SYSTEM("27.0");
-    gState = ReadState();
     gSettings = ReadSettings();
+    DTPrefObserve(TWEAK_ID, dispatch_get_main_queue(), ^{
+        gSettings = ReadSettings();
+        if (gMenuBar) Refresh(@"settings");
+    });
+    NSString *bundleID = NSBundle.mainBundle.bundleIdentifier;
+    BOOL test = [bundleID hasSuffix:@".testhost"];
+    if (test || [bundleID isEqualToString:@"com.apple.loginwindow"]) HookLockScreen();
+    if (!test && ![bundleID isEqualToString:@"com.apple.controlcenter"]) return;   // the rest is the menu bar's
+
+    gMenuBar = YES;
+    gState = ReadState();
     DHGroup *group = DHGroupCreate("main");
     SEL init = NSSelectorFromString(@"initWithID:behavior:isPrimary:isSpringLoaded:canDropOnBentoBox:encodedHighlight:"
                                     @"sortOrder:persistenceID:displayableID:systemIdentifier:accessibilityToken:");
@@ -425,9 +476,5 @@ DH_CTOR(TWEAK_ID_C, TWEAK_APPS) {
     [[NSNotificationCenter defaultCenter] addObserverForName:NSProcessInfoPowerStateDidChangeNotification object:nil
                                                        queue:NSOperationQueue.mainQueue
                                                   usingBlock:^(NSNotification *note) { (void)note; Refresh(@"low power"); }];
-    DTPrefObserve(TWEAK_ID, dispatch_get_main_queue(), ^{
-        gSettings = ReadSettings();
-        Refresh(@"settings");
-    });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ Refresh(@"at 2 s"); });
 }
