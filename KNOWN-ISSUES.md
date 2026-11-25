@@ -13,6 +13,13 @@ platform
 - the engine needs SIP relaxed (`--without fs --without debug`). that weakens the whole
   machine, not just injected apps; see README "what you're giving up". macOS updates may
   re-enable SIP or break the engine.
+- two bugs in stock dynjectd (dynject 39b8750), fixed on a local fork branch that isn't
+  shipped yet:
+  - every launch writes its tweak list into one shared buffer, so apps launching at the same
+    moment (a respring) can get each other's list, which can skip a per-app deny or inject a
+    garbled one. after a big respring, `dw why <tweak> <app>` shows what an app really loaded.
+  - it leaks one mach port name per app launch it handles; after enough launches injection
+    could start failing until dynjectd restarts (any `dw config apply` or tweak install does).
 - dynject never injects loginwindow (which draws the lock screen): its per-session instances
   aren't started through the xpcproxy launch dynjectd watches. `dw why` says so.
 - Examples/ClassicBattery looks off on external displays (seen, not investigated yet).
