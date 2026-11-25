@@ -4,8 +4,8 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
-unreleased
-----------
+0.1.10 (2026-11-25)
+-------------------
 
 - install approval, workbench side (docs/install-approval.md): `dw tweak install` and the tweaks
   page write a `dylib-sha256` line approving the exact build they install, in the same
@@ -21,6 +21,11 @@ unreleased
   (they read only the last 200 KB before, which a day of launches pushes past).
 - doctor's crash lines say when no tweak code was on the crashing thread, or which tweak is further
   down it, and show a frame in a stripped image as an offset instead of a far-off symbol.
+- the install review (`dw tweak install` and the sheet) says who signed the build: a team id,
+  ad-hoc or unsigned, and warns when the signer differs from the installed build's.
+- tweaks page: **approve all…** (the same as `dw tweak approve --all`, reviewed first) and an
+  approval badge in each tweak's header.
+- the tweak sdk is 0.1.10 only to match; it hasn't changed since 0.1.9.
 
 
 0.1.9 (2026-11-24)
