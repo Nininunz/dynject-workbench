@@ -4,8 +4,8 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
-unreleased
-----------
+0.1.9 (2026-11-24)
+------------------
 
 - `dw respring` and the Respring sheet leave out an app another running app started (ChatGPT
   Computer Use, which ChatGPT starts): it inherits that app's tweaks, so it showed as pending
@@ -14,7 +14,8 @@ unreleased
 - respring checks every app it reopened once more at the end: one that quit again right after
   its reopen (ChatGPT did) is opened again, and reported if it quits again too.
 - `dw respring --force`: an app still running after the timeout (Ollama ignores a polite quit)
-  is force quit and relaunched instead of skipped. its unsaved changes are lost.
+  is force quit and relaunched instead of skipped. its unsaved changes are lost. in the
+  Respring sheet: **Then force quit**, next to the quit timeout.
 - scripts/respring-e2e.sh builds again (its driver missed a progress case).
 
 
