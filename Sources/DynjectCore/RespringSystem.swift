@@ -123,6 +123,9 @@ public final class WorkspaceAppController: AppController {
         case .signal:
             // What `killall` does; launchd starts macOS's UI agents again by itself.
             return kill(app.pid, SIGTERM) == 0
+        case .forceTerminate:
+            if let r = NSRunningApplication(processIdentifier: app.pid), r.forceTerminate() { return true }
+            return kill(app.pid, SIGKILL) == 0
         case .appleEventQuit:
             // Finder ignores terminate(). Asking it to quit needs Automation permission for whatever runs this.
             let script = "tell application id \"\(app.bundleID)\" to quit"
@@ -202,7 +205,8 @@ extension RespringPlanner {
                             daemon: DaemonStatus? = nil,
                             runningApps: RunningAppSource = WorkspaceRunningApps(),
                             inspector: LoadedDylibInspecting = LsofDylibInspector(),
-                            exclusions: RespringExclusions = .forCurrentProcess()) -> RespringPlanner {
+                            exclusions: RespringExclusions = .forCurrentProcess(),
+                            ancestry: ProcessAncestry? = SystemProcessAncestry()) -> RespringPlanner {
         let log = logText.map(DynjectLogParser.parse)
         let catalog = SafeModeCatalog(manifests: manifests, dylibDirectory: dylibDirectory)
         var labels: [String: String] = [:]
@@ -224,6 +228,6 @@ extension RespringPlanner {
             configEffectiveSince: since,
             safeModeTweaks: safeModeTweaks,
             safeModeEvents: safeModeState.map(RespringSafeModeEvent.from(state:)) ?? [],
-            exclusions: exclusions)
+            exclusions: exclusions, ancestry: ancestry)
     }
 }

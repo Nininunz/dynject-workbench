@@ -13,6 +13,8 @@ public enum RespringQuitMethod: String, Sendable {
     case appleEventQuit
     /// SIGTERM, as `killall` sends: for macOS's UI agents, which launchd starts again.
     case signal
+    /// Force quit (SIGKILL): only with `Settings.forceQuit`, for an app still running after the polite quit timed out.
+    case forceTerminate
 }
 
 public struct RespringOpenOptions: Hashable, Sendable {
@@ -112,6 +114,8 @@ public struct RespringResult: Identifiable, Hashable, Sendable {
         case didNotQuit(timeout: TimeInterval)
         /// Quit, but couldn't be reopened.
         case openFailed(String)
+        /// Reopened, but it quit again by the end of the run, and again after a second reopen.
+        case exitedAfterOpen
         /// Stopped before its turn.
         case cancelled
     }
@@ -121,12 +125,18 @@ public struct RespringResult: Identifiable, Hashable, Sendable {
     public var outcome: Outcome
     public var newPID: Int32?
     public var verification: RespringVerification?
+    /// It ignored the polite quit and was force-quit after the timeout (`Settings.forceQuit`).
+    public var forced = false
+    /// The first reopened process had quit by the end of the run, so it was opened once more.
+    public var reopenedAgain = false
 
-    public init(candidate: RespringCandidate, outcome: Outcome, newPID: Int32? = nil, verification: RespringVerification? = nil) {
+    public init(candidate: RespringCandidate, outcome: Outcome, newPID: Int32? = nil, verification: RespringVerification? = nil,
+                forced: Bool = false) {
         self.candidate = candidate
         self.outcome = outcome
         self.newPID = newPID
         self.verification = verification
+        self.forced = forced
     }
 
     /// Relaunched with the expected tweaks (or handed off / dry run).
@@ -144,6 +154,12 @@ public struct RespringResult: Identifiable, Hashable, Sendable {
 
     /// "relaunched (pid 123), verified" / "skipped: still running after 15 s (unsaved changes or a dialog?)"
     public func summary(labels: [String: String] = [:]) -> String {
+        var prefix = forced ? "force-quit after the timeout; " : ""
+        if reopenedAgain { prefix += "quit again right after reopening, opened once more; " }
+        return prefix + outcomeSummary(labels: labels)
+    }
+
+    private func outcomeSummary(labels: [String: String]) -> String {
         switch outcome {
         case .wouldRelaunch: return "would relaunch"
         case .wouldHandOff: return "would quit and hand the reopen to a detached process"
@@ -152,6 +168,7 @@ public struct RespringResult: Identifiable, Hashable, Sendable {
         case .quitRefused: return "skipped: the quit request couldn't be sent"
         case let .didNotQuit(t): return "skipped: still running after \(Int(t.rounded())) s (unsaved changes or a dialog?)"
         case let .openFailed(m): return "quit, but reopening failed: \(m)"
+        case .exitedAfterOpen: return "reopened, but it quit again (twice); open it yourself to see why"
         case .cancelled: return "cancelled"
         case .relaunched:
             let pid = newPID.map { "pid \($0)" } ?? "new pid"
@@ -171,10 +188,14 @@ public struct RespringProgress: Sendable {
     public enum Phase: Sendable {
         case quitting
         case waitingToQuit(elapsed: TimeInterval)
+        /// It ignored the quit until the timeout; force-quitting it (`Settings.forceQuit`).
+        case forceQuitting
         case opening
         /// A system agent quit; launchd is to start it again.
         case waitingForLaunchd
         case verifying
+        /// At the end of the run: the reopened process has quit, so it is opened once more.
+        case reopeningAfterExit
         case finished(RespringResult)
     }
 
@@ -200,14 +221,24 @@ public final class Respringer {
         public var environment: [String: String]?
         /// More tweak dylibs to look for when verifying (so an unwanted one that came back is noticed).
         public var tweakDylibs: [String] = []
+        /// Force quit an app still running after `quitTimeout` instead of skipping it (its unsaved changes are lost).
+        public var forceQuit = false
+        /// How long a force-quit app gets to go away.
+        public var forceTimeout: TimeInterval = 5
+        /// At the end of the run, how long the last reopened app has had to settle before every reopened app is
+        /// checked once more (some quit right after starting; that one is opened again).
+        public var settleTime: TimeInterval = 2
 
         public init(quitTimeout: TimeInterval = 15, pollInterval: TimeInterval = 0.2, verifyTimeout: TimeInterval = 5,
-                    environment: [String: String]? = nil, tweakDylibs: [String] = []) {
+                    environment: [String: String]? = nil, tweakDylibs: [String] = [], forceQuit: Bool = false,
+                    settleTime: TimeInterval = 2) {
             self.quitTimeout = quitTimeout
             self.pollInterval = pollInterval
             self.verifyTimeout = verifyTimeout
             self.environment = environment
             self.tweakDylibs = tweakDylibs
+            self.forceQuit = forceQuit
+            self.settleTime = settleTime
         }
     }
 
@@ -256,7 +287,46 @@ public final class Respringer {
             results.append(result)
             if result.outcome == .handedOff { break }
         }
+        if !dryRun { recheck(&results, total: list.count, progress: progress) }
         return results
+    }
+
+    /// Reopened apps that have quit again since (ChatGPT has, right after its reopen): each is opened once more and
+    /// checked after another settle; one that quits again is reported, not retried.
+    func recheck(_ results: inout [RespringResult], total: Int, progress: ((RespringProgress) -> Void)?) {
+        func opened(_ r: RespringResult) -> Bool { r.outcome == .relaunched && !r.candidate.app.isSystemAgent && r.newPID != nil }
+        guard results.contains(where: opened) else { return }
+        clock.sleep(settings.settleTime)
+        var again: [Int] = []
+        for (i, r) in results.enumerated() where opened(r) {
+            guard let pid = r.newPID, !controller.isRunning(pid: pid) else { continue }
+            let c = r.candidate
+            if let other = controller.runningPIDs(bundleID: c.app.bundleID).first(where: { $0 != pid && $0 != c.app.pid }) {
+                // Something else (the app itself, launchd) started it again: check that one.
+                results[i].newPID = other
+                results[i].verification = verify(c, pid: other)
+                continue
+            }
+            progress?(RespringProgress(candidate: c, index: i, total: total, phase: .reopeningAfterExit))
+            let url = URL(fileURLWithPath: c.app.bundlePath, isDirectory: true)
+            results[i].reopenedAgain = true
+            do {
+                let p = try controller.open(bundleURL: url, options: RespringOpenOptions(
+                    activates: false, hides: c.app.isHidden, environment: settings.environment))
+                results[i].newPID = p
+                results[i].verification = verify(c, pid: p)
+                again.append(i)
+            } catch {
+                results[i].outcome = .openFailed(error.localizedDescription)
+                progress?(RespringProgress(candidate: c, index: i, total: total, phase: .finished(results[i])))
+            }
+        }
+        guard !again.isEmpty else { return }
+        clock.sleep(settings.settleTime)
+        for i in again {
+            if let p = results[i].newPID, !controller.isRunning(pid: p) { results[i].outcome = .exitedAfterOpen }
+            progress?(RespringProgress(candidate: results[i].candidate, index: i, total: total, phase: .finished(results[i])))
+        }
     }
 
     func relaunch(_ c: RespringCandidate, report: (RespringProgress.Phase) -> Void) -> RespringResult {
@@ -280,10 +350,17 @@ public final class Respringer {
         report(.quitting)
         guard controller.terminate(app, method: method) else { return RespringResult(candidate: c, outcome: .quitRefused) }
         let start = clock.now()
+        var forced = false
         while controller.isRunning(pid: app.pid) {
             let elapsed = clock.now().timeIntervalSince(start)
-            if elapsed >= settings.quitTimeout {
-                return RespringResult(candidate: c, outcome: .didNotQuit(timeout: settings.quitTimeout))
+            if elapsed >= settings.quitTimeout && settings.forceQuit && !forced {
+                report(.forceQuitting)
+                forced = true
+                _ = controller.terminate(app, method: .forceTerminate)
+                continue
+            }
+            if elapsed >= settings.quitTimeout + (forced ? settings.forceTimeout : 0) {
+                return RespringResult(candidate: c, outcome: .didNotQuit(timeout: settings.quitTimeout), forced: forced)
             }
             report(.waitingToQuit(elapsed: elapsed))
             clock.sleep(settings.pollInterval)
@@ -322,7 +399,8 @@ public final class Respringer {
         }
 
         report(.verifying)
-        return RespringResult(candidate: c, outcome: .relaunched, newPID: newPID, verification: verify(c, pid: newPID))
+        return RespringResult(candidate: c, outcome: .relaunched, newPID: newPID, verification: verify(c, pid: newPID),
+                              forced: forced)
     }
 
     /// Polls lsof until the new process has the expected tweaks and none it shouldn't, or `verifyTimeout` passes.
@@ -360,6 +438,8 @@ public final class SimulatedAppController: AppController {
     public var running: Set<Int32>
     public var pidsByBundleID: [String: [Int32]]
     public var refusesToQuit: Set<String> = []
+    /// bundle ID → how many of its next opens start a process that has quit again by the time anyone checks.
+    public var exitsAfterOpen: [String: Int] = [:]
     public var quitRequestFails: Set<String> = []
     public var openFails: Set<String> = []
     /// bundle ID → dylibs the reopened process reports (nil: not inspectable).
@@ -389,7 +469,7 @@ public final class SimulatedAppController: AppController {
     public func terminate(_ app: RunningApp, method: RespringQuitMethod) -> Bool {
         record(.terminate(app.pid, method))
         if quitRequestFails.contains(app.bundleID) { return false }
-        if refusesToQuit.contains(app.bundleID) { return true }
+        if refusesToQuit.contains(app.bundleID) && method != .forceTerminate { return true }
         running.remove(app.pid)
         pidsByBundleID[app.bundleID]?.removeAll { $0 == app.pid }
         if let p = onQuit?(app) {
@@ -411,9 +491,13 @@ public final class SimulatedAppController: AppController {
         if openFails.contains(id) { throw RespringControlError.openFailed("simulated failure") }
         let pid = nextPID
         nextPID += 1
+        loadedByPID[pid] = loadedAfterOpen[id] ?? []
+        if let n = exitsAfterOpen[id], n > 0 {
+            exitsAfterOpen[id] = n - 1
+            return pid
+        }
         running.insert(pid)
         pidsByBundleID[id, default: []].append(pid)
-        loadedByPID[pid] = loadedAfterOpen[id] ?? []
         return pid
     }
 

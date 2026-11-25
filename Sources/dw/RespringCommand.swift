@@ -4,13 +4,13 @@ import DynjectCore
 import Foundation
 
 let respringUsage = """
-usage: dw respring [--dry-run] [--all] [--system] [--include <bundleID>]... [--exclude <bundleID>]... [--timeout <seconds>] [--verbose]
-       dw respring --only <bundleID>... [--dry-run] [--timeout <seconds>]
+usage: dw respring [--dry-run] [--all] [--system] [--include <bundleID>]... [--exclude <bundleID>]... [--timeout <seconds>] [--force] [--verbose]
+       dw respring --only <bundleID>... [--dry-run] [--timeout <seconds>] [--force]
 
   Relaunches running apps whose injected tweaks don't match the config: a dylib that should be loaded and isn't,
   one that is loaded and no longer allowed, one replaced on disk since the app launched, or a Safe Mode change
   since launch. Apps are quit politely (an app that doesn't quit within the timeout is skipped), reopened in the
-  background, and checked with lsof.
+  background, and checked with lsof. At the end, an app that quit again right after its reopen is opened once more.
 
   --dry-run          print the plan only; nothing is quit or opened
   --all              every running app (Finder too), not just pending ones
@@ -22,10 +22,12 @@ usage: dw respring [--dry-run] [--all] [--system] [--include <bundleID>]... [--e
   --exclude ID       never relaunch this app
   --only ID          relaunch just this app (repeatable), pending or not; nothing else is considered
   --timeout S        seconds an app gets to quit (default 15)
+  --force            force quit an app still running after the timeout, then reopen it (its unsaved changes are lost)
   --verbose          also list apps that are up to date
 
   Left out unless named with --include: the app running dw (and its terminal or editor), terminals and editors,
-  Dynject Workbench (relaunched last), and Finder (also brought in by --all).
+  Dynject Workbench (relaunched last), Finder (also brought in by --all), and apps another running app started
+  (they come back with that app, and inherit its tweaks).
 """
 
 struct RespringArguments {
@@ -33,6 +35,7 @@ struct RespringArguments {
     var verbose = false
     var options = RespringOptions()
     var timeout: TimeInterval = 15
+    var force = false
 
     init(_ args: [String]) {
         var i = 0
@@ -47,6 +50,7 @@ struct RespringArguments {
             case "--all": options.all = true
             case "--system": options.system = true
             case "--verbose", "-v": verbose = true
+            case "--force": force = true
             case "--include": options.include.formUnion(value("--include").split(separator: ",").map(String.init))
             case "--exclude": options.exclude.formUnion(value("--exclude").split(separator: ",").map(String.init))
             case "--only": options.only = (options.only ?? []).union(value("--only").split(separator: ",").map(String.init))
@@ -168,7 +172,7 @@ func respringCommand(_ args: [String]) {
 
     print("")
     let engine = Respringer(controller: WorkspaceAppController(),
-                            settings: .init(quitTimeout: a.timeout, tweakDylibs: planner.tweakDylibs))
+                            settings: .init(quitTimeout: a.timeout, tweakDylibs: planner.tweakDylibs, forceQuit: a.force))
     var lastWait: [Int32: Int] = [:]
     let results = engine.run(selection.apps) { p in
         let name = p.candidate.app.name
@@ -180,7 +184,9 @@ func respringCommand(_ args: [String]) {
                 lastWait[p.candidate.app.pid] = s
                 print("    still running after \(s) s…")
             }
+        case .forceQuitting: print("    still running after \(Int(a.timeout)) s; force quitting…")
         case .opening: print("    opening in the background…")
+        case .reopeningAfterExit: print("[\(p.index + 1)/\(p.total)] \(name): quit again after its reopen; opening it once more…")
         case .waitingForLaunchd: print("    waiting for launchd to start it again…")
         case .verifying: print("    checking its tweaks…")
         case let .finished(r): print("    \(r.summary(labels: planner.tweakLabels))")
@@ -190,7 +196,8 @@ func respringCommand(_ args: [String]) {
     print("")
     print("done: \(results.count - failed.count) of \(results.count) relaunched as expected")
     if results.contains(where: { if case .didNotQuit = $0.outcome { return true } else { return false } }) {
-        print("note: an app that didn't quit in time was left as it is; if it quits later, it isn't reopened")
+        print("note: an app that didn't quit in time was left as it is; if it quits later, it isn't reopened"
+              + (a.force ? "" : ". --force quits it anyway"))
     }
     if !failed.isEmpty { exit(1) }
 }

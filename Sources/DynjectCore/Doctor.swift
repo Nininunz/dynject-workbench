@@ -736,6 +736,7 @@ public enum Doctor {
         case nil: return only ? "dw respring --only \(p.app.bundleID)" : "dw respring"
         case .protectedSystem?: return nil
         case .injectionBlocked?: return "check its hardened runtime / library validation; a relaunch won't fix it"
+        case .launchedByApp?: return "relaunch \(p.launchedBy ?? "the app that started it"); it comes back with it"
         case .hostsThisProcess?: return "quit and reopen it yourself"
         case .developerTool?: return "relaunch it yourself, or dw respring --include \(p.app.bundleID)"
         case .finder?, .workbench?: return "dw respring --include \(p.app.bundleID)"

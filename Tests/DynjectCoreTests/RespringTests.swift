@@ -271,6 +271,41 @@ final class RespringPlannerTests: XCTestCase {
         XCTAssertEqual(p.selection(RespringOptions(only: [])).apps, [])
     }
 
+    func testAnAppAnotherAppStartedIsLeftOut() {
+        // ChatGPT starts ChatGPT Computer Use itself, so it inherits ChatGPT's DYLD_INSERT_LIBRARIES: dw saw an
+        // "unwanted" tweak a relaunch of its own can't remove, and quitting ChatGPT took it down mid-run.
+        let chatgpt = app("ChatGPT", "com.openai.codex", pid: 201, dir: "/Applications")
+        let cua = app("ChatGPT Computer Use", "com.openai.sky.CUAService", pid: 202, dir: "/Users/someone/.codex/computer-use")
+        let viaHelper = app("Sidecar", "com.example.sidecar", pid: 203, dir: "/Applications")
+        let fromLaunchd = app("Plain", "com.example.plain", pid: 204, dir: "/Applications")
+        var p = planner([chatgpt, cua, viaHelper, fromLaunchd],
+                        loaded: [201: [menu], 202: [menu, old], 203: [menu, old], 204: [menu, old]])
+        // 203's parent is a helper process inside ChatGPT (not itself a running app).
+        p.ancestry = FakeAncestry(parents: [201: 1, 202: 201, 203: 300, 300: 201, 204: 1], paths: [:])
+        let plan = p.plan()
+        let c = plan.candidate(bundleID: "com.openai.sky.CUAService")!
+        XCTAssertEqual(c.exclusion, .launchedByApp)
+        XCTAssertEqual(c.launchedBy, "ChatGPT")
+        XCTAssertTrue(c.isPending, "still reported: it does have the tweak")
+        XCTAssertFalse(c.selectedByDefault)
+        XCTAssertEqual(plan.candidate(bundleID: "com.example.sidecar")?.launchedBy, "ChatGPT")
+        XCTAssertNil(plan.candidate(bundleID: "com.example.plain")?.exclusion)
+        XCTAssertNil(plan.candidate(bundleID: "com.openai.codex")?.exclusion)
+
+        let sel = plan.selection(RespringOptions())
+        XCTAssertEqual(sel.apps.map(\.app.bundleID), ["com.example.plain"])
+        let why = sel.skipped.first { $0.candidate.app.bundleID == "com.openai.sky.CUAService" }?.why
+        XCTAssertEqual(why, "started by ChatGPT: it inherits its tweaks and comes back when ChatGPT is relaunched")
+        // --all doesn't bring it in; naming it does.
+        XCTAssertFalse(plan.selection(RespringOptions(all: true)).apps.contains { $0.app.pid == 202 })
+        XCTAssertTrue(plan.selection(RespringOptions(include: ["com.openai.sky.CUAService"])).apps.contains { $0.app.pid == 202 })
+        XCTAssertEqual(Doctor.respringFix(c), "relaunch ChatGPT; it comes back with it")
+
+        // Without a process tree (tests, fixture mode) nothing is marked.
+        p.ancestry = nil
+        XCTAssertNil(p.plan().candidate(bundleID: "com.openai.sky.CUAService")?.exclusion)
+    }
+
     func testAllCoversInjectionBlockedButDefaultDoesNot() {
         let p = planner([maps], loaded: [103: []], since: at(20)).plan()
         XCTAssertEqual(p.selection(RespringOptions()).apps, [])
@@ -303,6 +338,8 @@ final class RespringerTests: XCTestCase {
             case .opening: phases.append("\(p.index):open")
             case .waitingForLaunchd: phases.append("\(p.index):launchd")
             case .verifying: phases.append("\(p.index):verify")
+            case .forceQuitting: phases.append("\(p.index):force")
+            case .reopeningAfterExit: phases.append("\(p.index):again")
             case .finished: phases.append("\(p.index):done")
             }
         }
@@ -336,6 +373,70 @@ final class RespringerTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(clock.now().timeIntervalSince(at(0)), 15)
         XCTAssertFalse(c.calls.contains { if case let .open(path, _) = $0 { return path.contains("Calculator") } else { return false } })
         XCTAssertTrue(c.isRunning(pid: 101))
+    }
+
+    func testForceQuitAfterTheTimeout() {
+        let c = SimulatedAppController(apps: [calculator])
+        c.refusesToQuit = ["com.apple.calculator"]
+        c.loadedAfterOpen = ["com.apple.calculator": [menu]]
+        let clock = RespringClock.manual(start: at(0))
+        var phases: [String] = []
+        let r = Respringer(controller: c, clock: clock, settings: .init(quitTimeout: 3, forceQuit: true))
+            .run([candidate(calculator)]) { if case .forceQuitting = $0.phase { phases.append("force") } }
+        XCTAssertEqual(r[0].outcome, .relaunched)
+        XCTAssertTrue(r[0].forced)
+        XCTAssertTrue(r[0].succeeded)
+        XCTAssertEqual(phases, ["force"])
+        XCTAssertEqual(Array(c.calls.prefix(2)), [.terminate(101, .terminate), .terminate(101, .forceTerminate)])
+        XCTAssertTrue(r[0].summary().hasPrefix("force-quit after the timeout; relaunched (pid 90000)"), r[0].summary())
+
+        // Without --force the same app is skipped, and never force-quit.
+        let c2 = SimulatedAppController(apps: [calculator])
+        c2.refusesToQuit = ["com.apple.calculator"]
+        let r2 = Respringer(controller: c2, clock: .manual(start: at(0)), settings: .init(quitTimeout: 3)).run([candidate(calculator)])
+        XCTAssertEqual(r2[0].outcome, .didNotQuit(timeout: 3))
+        XCTAssertFalse(c2.calls.contains(.terminate(101, .forceTerminate)))
+    }
+
+    func testAnAppThatQuitsRightAfterItsReopenIsOpenedOnceMore() {
+        // ChatGPT, 2026-11-24: reopened, verified with its tweaks, gone a few seconds later.
+        let c = SimulatedAppController(apps: [calculator, notes])
+        c.loadedAfterOpen = ["com.apple.calculator": [menu], "com.apple.Notes": [menu]]
+        c.exitsAfterOpen = ["com.apple.calculator": 1]
+        var phases: [String] = []
+        let r = engine(c).0.run([candidate(calculator), candidate(notes)]) { p in
+            if case .reopeningAfterExit = p.phase { phases.append("\(p.candidate.app.name):again") }
+        }
+        XCTAssertEqual(phases, ["Calculator:again"])
+        XCTAssertEqual(r[0].outcome, .relaunched)
+        XCTAssertTrue(r[0].reopenedAgain)
+        XCTAssertEqual(r[0].newPID, 90_002)
+        XCTAssertTrue(r[0].succeeded)
+        XCTAssertTrue(r[0].summary().hasPrefix("quit again right after reopening, opened once more; relaunched (pid 90002)"))
+        XCTAssertFalse(r[1].reopenedAgain)
+        XCTAssertTrue(c.isRunning(pid: 90_002))
+
+        // Quits again after the second open too: reported, not retried a third time.
+        let c2 = SimulatedAppController(apps: [calculator])
+        c2.loadedAfterOpen = ["com.apple.calculator": [menu]]
+        c2.exitsAfterOpen = ["com.apple.calculator": 2]
+        let r2 = engine(c2).0.run([candidate(calculator)])
+        XCTAssertEqual(r2[0].outcome, .exitedAfterOpen)
+        XCTAssertFalse(r2[0].succeeded)
+        XCTAssertEqual(c2.calls.filter { if case .open = $0 { return true } else { return false } }.count, 2)
+
+        // Started again by something else meanwhile: that copy is checked, nothing is opened.
+        let c3 = SimulatedAppController(apps: [calculator])
+        c3.loadedAfterOpen = ["com.apple.calculator": [menu]]
+        c3.exitsAfterOpen = ["com.apple.calculator": 1]
+        let clock = RespringClock.manual(start: at(0))
+        let e3 = Respringer(controller: c3, clock: clock, settings: .init())
+        c3.running.insert(777)
+        c3.pidsByBundleID["com.apple.calculator", default: []].append(777)
+        let r3 = e3.run([candidate(calculator)])
+        XCTAssertEqual(r3[0].outcome, .relaunched)
+        XCTAssertEqual(r3[0].newPID, 777)
+        XCTAssertFalse(r3[0].reopenedAgain)
     }
 
     func testCustomTimeout() {

@@ -410,7 +410,8 @@ final class RespringModel {
         var planner = RespringPlanner.live(configText: inputs.configText, configPath: inputs.configPath, logText: logText,
                                            manifests: inputs.manifests, dylibDirectory: inputs.dylibDirectory,
                                            safeModeState: state, daemon: inputs.daemon,
-                                           runningApps: world, inspector: world, exclusions: world.exclusions)
+                                           runningApps: world, inspector: world, exclusions: world.exclusions,
+                                           ancestry: nil)
         planner.fileExists = { _ in true }
         planner.modificationDate = world.modificationDate
         return planner
@@ -505,8 +506,9 @@ final class RespringModel {
             return checked ? "Another Workbench; relaunched after the other apps." : "Unchecked: \(RespringExclusion.workbench.note)."
         }
         guard let ex = c.exclusion else { return nil }
-        if !ex.canBeSelected { return "\(ex.note.prefix(1).uppercased())\(ex.note.dropFirst())." }
-        return checked ? "Checked even though: \(ex.note)." : "Unchecked: \(ex.note)."
+        let note = c.exclusionNote ?? ex.note
+        if !ex.canBeSelected { return "\(note.prefix(1).uppercased())\(note.dropFirst())." }
+        return checked ? "Checked even though: \(note)." : "Unchecked: \(note)."
     }
 
     // MARK: Running
@@ -561,7 +563,9 @@ final class RespringModel {
         switch p.phase {
         case .quitting: activity[pid] = "Quitting…"
         case let .waitingToQuit(elapsed): activity[pid] = "Waiting for it to quit (\(Int(elapsed)) s of \(Int(quitTimeout)))…"
+        case .forceQuitting: activity[pid] = "Force quitting…"
         case .opening: activity[pid] = "Opening in the background…"
+        case .reopeningAfterExit: activity[pid] = "It quit again right after reopening; opening it once more…"
         case .waitingForLaunchd: activity[pid] = "Waiting for launchd to start it again…"
         case .verifying: activity[pid] = "Checking its tweaks…"
         case let .finished(r):

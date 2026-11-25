@@ -33,10 +33,14 @@ By default: the pending apps, minus these (each can be named with `--include` or
 - Dynject Workbench itself;
 - Finder, which only quits through an Apple Event (needs Automation permission). `--all` includes it;
 - an app that launched after the config took effect (the later of the config's write and dynjectd's start) and still
-  lacks a tweak whose file predates its launch: something other than timing keeps it out, so a relaunch won't help.
+  lacks a tweak whose file predates its launch: something other than timing keeps it out, so a relaunch won't help;
+- an app another running app started (its process descends from that app's, directly or through a helper): ChatGPT
+  starts ChatGPT Computer Use that way. It inherits that app's environment, injected tweaks included, so it can show
+  as pending with an "unwanted" tweak that a relaunch of its own can't remove; it quits when that app quits and
+  comes back when that app is relaunched. respring says which app started it.
 
-`loginwindow` is never relaunched. `--all` takes every running regular app (minus the first three groups) and
-includes Finder. `--exclude` always wins. `--only <id>` considers just the named apps.
+`loginwindow` is never relaunched. `--all` takes every running regular app (minus the first three groups and apps
+another app started) and includes Finder. `--exclude` always wins. `--only <id>` considers just the named apps.
 
 macOS's own UI agents are left out unless asked for: `--system`, or naming one with `--only` or `--include`. They
 are the Dock, Control Center, MenuBarAgent (the menu bar), SystemUIServer and Notification Center, the processes
@@ -49,7 +53,8 @@ One app at a time, in name order, with Workbench and then the app hosting the ca
 
 1. Ask it to quit (`NSRunningApplication.terminate`; Finder: `tell application id "com.apple.finder" to quit`).
 2. Poll its pid for up to `--timeout` seconds (default 15). If it is still running (unsaved changes, a dialog), it is
-   skipped and left alone. If it quits later, it isn't reopened.
+   skipped and left alone. If it quits later, it isn't reopened. With `--force` it is force quit instead (its unsaved
+   changes are lost) and relaunched; some apps (Ollama) ignore a polite quit.
 3. If launchd already restarted it (Finder), use that process. Otherwise reopen it with
    `NSWorkspace.openApplication` without activating it (hidden if it was hidden).
 
@@ -58,6 +63,10 @@ One app at a time, in name order, with Workbench and then the app hosting the ca
    doesn't, it says so with the `launchctl kickstart` line that starts it.
 4. Poll `lsof` for up to 5 s until the new process has the expected tweaks and no unwanted ones, then report
    `verified`, or what is still missing or still loaded.
+
+After the last app, respring waits 2 s and checks every process it opened once more. One that has quit again (ChatGPT
+did, right after a verified reopen) is opened again and checked; if it quits again too, it is reported as failed.
+One that something else started again meanwhile is checked instead.
 
 The app hosting the caller (Workbench when it relaunches itself, or `dw`'s editor named with `--include`) can't
 reopen itself. A detached `/bin/sh` in its own session waits for it to exit and then runs `open -g`. It gives up

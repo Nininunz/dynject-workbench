@@ -163,6 +163,10 @@ public enum RespringExclusion: String, Hashable, Sendable {
     /// It launched after the current config took effect and still lacks a dylib, so something other than timing
     /// keeps it out (hardened runtime, library validation); a relaunch won't help.
     case injectionBlocked
+    /// Another running app started it (ChatGPT starts ChatGPT Computer Use). It inherits that app's environment,
+    /// tweaks included, quits when that app quits and comes back when it's relaunched; a relaunch of its own
+    /// can't change what it loads, and would leave a second copy outside its parent.
+    case launchedByApp
 
     public var note: String {
         switch self {
@@ -172,6 +176,7 @@ public enum RespringExclusion: String, Hashable, Sendable {
         case .developerTool: return "terminal or editor; relaunch it yourself or select it explicitly"
         case .finder: return "Finder is relaunched only with --all or when selected"
         case .injectionBlocked: return "launched after the config took effect and still lacks it; a relaunch likely won't help"
+        case .launchedByApp: return "started by another app: it inherits that app's tweaks and comes back when that app is relaunched"
         }
     }
 
@@ -192,9 +197,11 @@ public struct RespringCandidate: Identifiable, Hashable, Sendable {
     public var exclusion: RespringExclusion?
     /// Relaunching it ends the process doing the respring, so it is handed off to a detached reopener and done last.
     public var hostsCaller: Bool
+    /// The running app that started it (`launchedByApp`).
+    public var launchedBy: String?
 
     public init(app: RunningApp, service: String, expected: [String], loaded: Set<String>?, reasons: [RespringReason],
-                exclusion: RespringExclusion?, hostsCaller: Bool = false) {
+                exclusion: RespringExclusion?, hostsCaller: Bool = false, launchedBy: String? = nil) {
         self.app = app
         self.service = service
         self.expected = expected
@@ -202,6 +209,16 @@ public struct RespringCandidate: Identifiable, Hashable, Sendable {
         self.reasons = reasons
         self.exclusion = exclusion
         self.hostsCaller = hostsCaller
+        self.launchedBy = launchedBy
+    }
+
+    /// Why it isn't relaunched by default, naming the parent app for `launchedByApp`.
+    public var exclusionNote: String? {
+        guard let exclusion else { return nil }
+        if exclusion == .launchedByApp, let launchedBy {
+            return "started by \(launchedBy): it inherits its tweaks and comes back when \(launchedBy) is relaunched"
+        }
+        return exclusion.note
     }
 
     public var isPending: Bool { !reasons.isEmpty }
@@ -298,7 +315,7 @@ public struct RespringPlan: Sendable {
                 // tools still need to be named.
                 let allCovers = options.all && (ex == .finder || ex == .injectionBlocked)
                 if !allCovers {
-                    skipped.append(.init(candidate: c, why: ex.note))
+                    skipped.append(.init(candidate: c, why: c.exclusionNote ?? ex.note))
                     continue
                 }
             }
@@ -430,6 +447,8 @@ public struct RespringPlanner {
     public var safeModeTweaks: [String: String]
     public var safeModeEvents: [RespringSafeModeEvent]
     public var exclusions: RespringExclusions
+    /// The process tree, to find apps another running app started (`launchedByApp`). nil: not checked.
+    public var ancestry: ProcessAncestry?
 
     public init(config: EffectiveConfig, runningApps: RunningAppSource, inspector: LoadedDylibInspecting,
                 serviceName: @escaping (InstalledApp) -> String = { ServiceNameResolver.resolve($0, log: nil).value },
@@ -439,7 +458,7 @@ public struct RespringPlanner {
                 tweakLabels: [String: String] = [:], extraTweakDylibs: [String] = [],
                 configEffectiveSince: Date? = nil,
                 safeModeTweaks: [String: String] = [:], safeModeEvents: [RespringSafeModeEvent] = [],
-                exclusions: RespringExclusions = RespringExclusions()) {
+                exclusions: RespringExclusions = RespringExclusions(), ancestry: ProcessAncestry? = nil) {
         self.config = config
         self.runningApps = runningApps
         self.inspector = inspector
@@ -453,6 +472,7 @@ public struct RespringPlanner {
         self.safeModeTweaks = safeModeTweaks
         self.safeModeEvents = safeModeEvents
         self.exclusions = exclusions
+        self.ancestry = ancestry
     }
 
     /// When the file last changed: the later of its modification time and its inode change time. A copy that keeps
@@ -476,8 +496,29 @@ public struct RespringPlanner {
     public func plan() -> RespringPlan {
         let apps = runningApps.runningApps()
         let loadedByPID = inspector.loadedDylibs(pids: apps.map(\.pid), candidates: tweakDylibs)
-        let candidates = apps.map { candidate(for: $0, loaded: loadedByPID[$0.pid]) }.sorted(by: Respringer.byName)
+        let byPID = Dictionary(apps.map { ($0.pid, $0) }, uniquingKeysWith: { a, _ in a })
+        let candidates = apps.map { app -> RespringCandidate in
+            var c = candidate(for: app, loaded: loadedByPID[app.pid])
+            if let parent = launchingApp(of: app, among: byPID) {
+                c.launchedBy = parent.name
+                if c.exclusion == nil || c.exclusion == .injectionBlocked { c.exclusion = .launchedByApp }
+            }
+            return c
+        }.sorted(by: Respringer.byName)
         return RespringPlan(date: now(), candidates: candidates)
+    }
+
+    /// The running app among `apps` that `app`'s process descends from (directly or through its helpers), if any.
+    /// Apps LaunchServices opens are launchd's children, so most have none.
+    func launchingApp(of app: RunningApp, among apps: [Int32: RunningApp]) -> RunningApp? {
+        guard let ancestry else { return nil }
+        var seen: Set<Int32> = [app.pid]
+        var current = ancestry.parentPID(of: app.pid)
+        while let p = current, p > 1, seen.insert(p).inserted, seen.count < 16 {
+            if let parent = apps[p], parent.bundlePath != app.bundlePath { return parent }
+            current = ancestry.parentPID(of: p)
+        }
+        return nil
     }
 
     public func candidate(for app: RunningApp, loaded: Set<String>?) -> RespringCandidate {

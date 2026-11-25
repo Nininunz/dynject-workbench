@@ -162,8 +162,11 @@ func runLogged(_ e: Respringer, _ apps: [RespringCandidate], dryRun: Bool = fals
         switch p.phase {
         case .quitting: phase = "quitting"
         case .waitingToQuit: return
+        case .forceQuitting: phase = "force quitting"
         case .opening: phase = "opening"
+        case .waitingForLaunchd: phase = "waiting for launchd"
         case .verifying: phase = "verifying"
+        case .reopeningAfterExit: phase = "reopening after it quit again"
         case let .finished(r): phase = "finished: \(r.summary(labels: [dylib: label]))"
         }
         timed.phases.append((name, phase, Date()))
