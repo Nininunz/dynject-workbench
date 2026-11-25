@@ -537,9 +537,10 @@ public enum Doctor {
         }
         if !unapproved.isEmpty {
             let detail = "\(unapproved.joined(separator: ", ")): no dylib-sha256 approval"
+            let them = unapproved.count == 1 ? "it" : "them"
             switch approvalMode {
-            case .enforce?: s.problem("approval", detail + "; dynjectd skips them (enforce)", fix: "dw tweak approve --all")
-            case .audit?: s.warn("approval", detail + "; dynjectd logs them and injects them (audit)", fix: "dw tweak approve --all")
+            case .enforce?: s.problem("approval", detail + "; dynjectd skips \(them) (enforce)", fix: "dw tweak approve --all")
+            case .audit?: s.warn("approval", detail + "; dynjectd logs \(them) and injects \(them) (audit)", fix: "dw tweak approve --all")
             case nil: s.ok("approval", detail + " (the running dynjectd doesn't check approvals)")
             }
         } else if approved > 0 {

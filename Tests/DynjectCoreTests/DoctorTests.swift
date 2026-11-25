@@ -239,7 +239,7 @@ final class DoctorTests: XCTestCase {
         try daemon("enforce")
         c = try approval()
         XCTAssertEqual(c.status, .problem)
-        XCTAssertTrue(c.detail.contains("dynjectd skips them (enforce)"), c.detail)
+        XCTAssertTrue(c.detail.contains("libGood.dylib: no dylib-sha256 approval; dynjectd skips it (enforce)"), c.detail)
 
         try Data((base + "dylib-sha256:\(good):\(digest)\n").utf8).write(to: conf)
         c = try approval()
