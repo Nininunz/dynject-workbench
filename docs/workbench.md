@@ -138,7 +138,8 @@ item already has.
 
 **Tweaks → Install Tweak…** (choose a folder or manifest, pick apps, review the changes, then one prompt) and
 **Uninstall…** in a tweak's header (lists what will be removed; option to keep the file) use the same code as
-`dw tweak`. Install Tweak… also takes a `.dwtweak` package (docs/packages.md): the review starts with the package's
+`dw tweak`. Install Tweak… also takes a `.dwtweak` package (docs/packages.md), and so does double-clicking one in
+Finder or dropping one (or a tweak folder or manifest) on the Tweaks page: the review starts with the package's
 section, and a package's settings command or a signer change each need their own checkbox. A tweak installed from a
 package has a "from a package" badge. The install review shows who signed the build (a Team ID, ad-hoc or unsigned) and warns when that differs
 from the installed build's signer. **Approve All…** is `dw tweak approve --all`: it lists each installed build and

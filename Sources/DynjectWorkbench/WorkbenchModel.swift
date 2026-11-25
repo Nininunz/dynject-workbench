@@ -229,6 +229,7 @@ final class WorkbenchModel {
     // MARK: Loading
 
     func start() {
+        TweakPackage.removeStaleStaging()
         scanApps()
         refreshRuntime()
         safeMode.start()
@@ -577,6 +578,11 @@ final class WorkbenchModel {
     /// SwiftUI delivers them to ContentView's onOpenURL, also when the link launches the app. A custom GetURL
     /// Apple Event handler is avoided: installing one left the window out of the accessibility tree.
     func handle(url: URL) {
+        // A .dwtweak opened in Finder (Info.plist makes Workbench its owner) arrives here too.
+        if url.isFileURL {
+            openTweakFile(url.path)
+            return
+        }
         switch WorkbenchLink(url: url) {
         case .respring?:
             openRespring(fromLink: true)

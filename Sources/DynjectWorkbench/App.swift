@@ -44,6 +44,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
+    /// An open install review's unpacked package goes with the app.
+    @MainActor
+    func applicationWillTerminate(_ notification: Notification) {
+        model?.installReview = nil
+    }
+
     @MainActor
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let model, model.env.smokeTestReportDirectory == nil,

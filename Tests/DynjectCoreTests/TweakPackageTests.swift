@@ -186,6 +186,17 @@ final class TweakPackageTests: XCTestCase {
         XCTAssertLessThan(getxattr(opened.folder + "/build/libMyTweak.dylib", "com.apple.quarantine", nil, 0, 0, 0), 0)
     }
 
+    /// Staging folders a crash left behind go at the next launch; a fresh one (an install running now) stays.
+    func testRemoveStaleStaging() throws {
+        let fm = FileManager.default
+        try fm.createDirectory(atPath: staging + "/old", withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: staging + "/new", withIntermediateDirectories: true)
+        try fm.setAttributes([.modificationDate: Date().addingTimeInterval(-7200)], ofItemAtPath: staging + "/old")
+        TweakPackage.removeStaleStaging(root: staging)
+        XCTAssertEqual(try fm.contentsOfDirectory(atPath: staging), ["new"])
+        TweakPackage.removeStaleStaging(root: root.appendingPathComponent("nowhere").path)  // no folder: nothing to do
+    }
+
     // MARK: Installing from a package
 
     func plan(_ opened: OpenedTweakPackage, options: TweakInstallOptions? = nil, signer: CodeSigner = .adhoc,

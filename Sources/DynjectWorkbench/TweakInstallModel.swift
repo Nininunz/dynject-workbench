@@ -73,6 +73,23 @@ extension WorkbenchModel {
     /// The dylib file a manifest names (in fixture mode it lives under the isolation root).
     func tweakFilePath(_ dylib: String) -> String { tweakInstallLocations?.filePath(forDylib: dylib) ?? dylib }
 
+    /// A package opened in Finder or dropped on the Tweaks page, or a dropped tweak folder or manifest: the Tweaks page
+    /// and its install review, unless something is in the way.
+    func openTweakFile(_ path: String) {
+        section = .tweaks
+        if let blocker = installBlocker {
+            banner = Banner(kind: .warning, title: "Can't install \((path as NSString).lastPathComponent) now", detail: blocker)
+            return
+        }
+        if installReview != nil || uninstallReview != nil || approvalReview != nil || isInstallingTweak {
+            banner = Banner(kind: .warning, title: "Finish the open review first",
+                            detail: "Then open \((path as NSString).lastPathComponent) again.")
+            return
+        }
+        NSApp.activate()
+        beginInstall(path: path)
+    }
+
     func beginInstall(path: String) {
         var review = TweakInstallReview(path: path)
         do {

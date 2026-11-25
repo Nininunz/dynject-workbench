@@ -6,6 +6,7 @@ import SwiftUI
 struct TweaksView: View {
     @Bindable var model: WorkbenchModel
     @State private var showAppleMenuOptions = false
+    @State private var dropTargeted = false
 
     var body: some View {
         HSplitView {
@@ -52,6 +53,20 @@ struct TweaksView: View {
                 }
             }
             .frame(minWidth: 460, maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .overlay {
+            if dropTargeted {
+                RoundedRectangle(cornerRadius: 8).strokeBorder(Color.accentColor, lineWidth: 3).padding(4).allowsHitTesting(false)
+            }
+        }
+        // A .dwtweak, a built tweak folder or a manifest dropped anywhere on the page: the install review.
+        .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
+            guard let provider = providers.first else { return false }
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                guard let url, url.isFileURL else { return }
+                Task { @MainActor in model.openTweakFile(url.path) }
+            }
+            return true
         }
         .axContainer("screen-tweaks")
         .sheet(item: Binding(get: { model.installReview }, set: { model.installReview = $0 })) { r in

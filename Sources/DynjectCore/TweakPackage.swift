@@ -57,6 +57,18 @@ public enum TweakPackage {
         return (caches as NSString).appendingPathComponent("Dynject Workbench/Packages")
     }
 
+    /// Deletes staging folders a crash or a force quit left behind: ones older than `age`. A newer one may be an
+    /// install that's running right now (`dw tweak install` in a terminal).
+    public static func removeStaleStaging(root: String = defaultStagingRoot, olderThan age: TimeInterval = 3600, now: Date = Date()) {
+        let fm = FileManager.default
+        for name in (try? fm.contentsOfDirectory(atPath: root)) ?? [] {
+            let p = (root as NSString).appendingPathComponent(name)
+            guard let modified = (try? fm.attributesOfItem(atPath: p))?[.modificationDate] as? Date,
+                  now.timeIntervalSince(modified) > age else { continue }
+            try? fm.removeItem(atPath: p)
+        }
+    }
+
     // MARK: The zip's directory
 
     public struct Entry: Equatable, Sendable {

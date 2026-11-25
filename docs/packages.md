@@ -3,8 +3,8 @@
 Status, 2026-11-25: milestones 1 to 3 are done. `dw tweak pack`, and `dw tweak install <file.dwtweak>` with the
 checks, the review section, the two refusals and the origin file; Workbench's Install Tweak… takes a package. In the
 VM, a package marked as downloaded installed and loaded (no quarantine on the installed dylib, in audit and enforce
-mode), its origin showed in `dw tweak list`, and an update signed by someone else was refused. Not built yet:
-double-click and drag-and-drop, a repository format, update checks. It builds on install approval
+mode), its origin showed in `dw tweak list`, and an update signed by someone else was refused. Double-click and
+drag-and-drop are built too (Workbench owns the `.dwtweak` type). Not built yet: a repository format, update checks. It builds on install approval
 (docs/install-approval.md).
 
 ## Why
