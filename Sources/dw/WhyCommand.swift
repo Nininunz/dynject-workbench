@@ -7,7 +7,7 @@ let whyUsage = """
 usage: dw why <tweak> <app> [--minutes N] [--no-log] [--json]
 
   every check between the app launching and the tweak running, in the order they happen, and the first
-  one that stops it: dynjectd, dynjectd.conf's gates and dylib rule, dyld's architecture and signature
+  one that stops it: dynjectd, dynjectd.conf's gates, dylib rule and approval, dyld's architecture and signature
   checks, the tweak's own target apps (DH_CTOR), safe mode, its macos minimum, then the running app and
   what the tweak logged about it. read-only: no password, no writes, no app launched or quit.
   ✓ lets it through, ✗ stops it, ! may stop it, ? couldn't check, - context.

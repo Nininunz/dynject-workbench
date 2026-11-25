@@ -181,6 +181,37 @@ final class TweakWhyTests: XCTestCase {
         XCTAssertEqual((json["steps"] as? [[String: Any]])?.first?.keys.sorted(), ["check", "detail", "fix", "section", "status"])
     }
 
+    /// The approval step follows what the running dynjectd does: nothing (stock), audit (warns), enforce (stops it).
+    func testApprovalStep() {
+        let hex = String(repeating: "ab", count: 32), other = String(repeating: "cd", count: 32)
+        func run(_ mode: DaemonApprovalMode?, approved: String?, file: String? = hex) -> WhyReport {
+            var i = inputs(config: "dylib:\(Self.dylib):allow\n" + (approved.map { "dylib-sha256:\(Self.dylib):\($0)\n" } ?? ""))
+            i.approvalMode = mode
+            i.dylibSHA256 = file
+            return Why.explain(i)
+        }
+        var r = run(nil, approved: nil)
+        XCTAssertEqual(step(r, "approval")?.status, .info)
+        XCTAssertEqual(step(r, "approval")?.detail, "the running dynjectd doesn't check approvals")
+        XCTAssertTrue(r.loads)
+        r = run(.enforce, approved: hex)
+        XCTAssertEqual(step(r, "approval")?.status, .pass)
+        XCTAssertTrue(r.loads)
+        let order = r.steps.map(\.check)
+        XCTAssertEqual(order.firstIndex(of: "approval"), order.firstIndex(of: "dylib rule").map { $0 + 1 }, "\(order)")
+        r = run(.audit, approved: nil)
+        XCTAssertEqual(step(r, "approval")?.status, .warning)
+        XCTAssertEqual(step(r, "approval")?.detail, "libFoo.dylib has no dylib-sha256 approval, so dynjectd injects it anyway and logs it (audit)")
+        r = run(.enforce, approved: nil)
+        XCTAssertEqual(step(r, "approval")?.status, .fail)
+        XCTAssertEqual(step(r, "approval")?.fix, "dw tweak approve \(Self.dylib)")
+        XCTAssertFalse(r.loads)
+        r = run(.enforce, approved: other)
+        XCTAssertEqual(step(r, "approval")?.status, .fail)
+        XCTAssertTrue(step(r, "approval")?.detail.hasPrefix("the file isn't the approved build (approved cdcdcdcdcdcdcdcd…, file abababababababab…)") == true)
+        XCTAssertEqual(step(run(.audit, approved: hex, file: nil), "approval")?.status, .unknown)
+    }
+
     func testLoginwindowIsNeverReached() {
         var i = inputs()
         i.app = InstalledApp(displayName: "loginwindow", bundleID: "com.apple.loginwindow", executableName: "loginwindow",

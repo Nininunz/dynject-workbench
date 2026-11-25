@@ -51,6 +51,22 @@ public enum DaemonApprovalMode: String, Sendable {
         }
         return mode
     }
+
+    /// The same, from the log file: it reads back from the end only as far as the daemon's latest start, which can
+    /// be megabytes back (dynjectd logs a line per launch it skips), up to `limit` bytes.
+    public static func latest(inLogAt path: String, limit: UInt64 = 64 << 20) -> DaemonApprovalMode? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        guard let end = try? handle.seekToEnd() else { return nil }
+        var size: UInt64 = 256 << 10
+        while true {
+            let start = end > size ? end - size : 0
+            guard (try? handle.seek(toOffset: start)) != nil, let data = try? handle.readToEnd() else { return nil }
+            let text = String(decoding: data, as: UTF8.self)
+            if start == 0 || size >= limit || text.contains("dynjectd: starting") { return latest(in: text) }
+            size *= 4
+        }
+    }
 }
 
 /// `dw tweak approve`: approval lines for dylibs that are already installed, written in one privileged step.

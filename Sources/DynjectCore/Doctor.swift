@@ -501,7 +501,7 @@ public enum Doctor {
 
         let fm = FileManager.default
         // What the running dynjectd does with approvals (docs/install-approval.md): nil for the stock one.
-        let approvalMode = DynjectLogParser.readTail(path: c.logPath, maxBytes: 200_000).flatMap(DaemonApprovalMode.latest(in:))
+        let approvalMode = DaemonApprovalMode.latest(inLogAt: c.logPath)
         var unapproved: [String] = []
         var approved = 0
         for path in config.dylibPaths {

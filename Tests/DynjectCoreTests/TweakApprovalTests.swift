@@ -94,6 +94,22 @@ final class TweakApprovalTests: XCTestCase {
         XCTAssertNil(DaemonApprovalMode.latest(in: ""))
     }
 
+    /// The startup line can be megabytes back: one line per skipped launch since. The file reader finds it.
+    func testDaemonModeFromALongLog() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let path = root.appendingPathComponent("dynjectd.log").path
+        var text = "[dynjectd 09:00:00] dynjectd: starting\n[dynjectd 09:00:00] dynjectd: approval: audit; 0 of 1 dylib(s) have a dylib-sha256 line\n"
+            + "[dynjectd 10:00:00] dynjectd: starting\n[dynjectd 10:00:00] dynjectd: approval: enforce; 1 of 1 dylib(s) have a dylib-sha256 line\n"
+        let skip = "[dynjectd 10:00:01] dynjectd: com.apple.mdworker.shared.0D000000-0200-0000-0000-000000000000 SKIP (system_daemon)\n"
+        text += String(repeating: skip, count: 3 << 20 / skip.utf8.count)
+        try text.write(toFile: path, atomically: true, encoding: .utf8)
+        XCTAssertEqual(DaemonApprovalMode.latest(inLogAt: path), .enforce)
+        XCTAssertNil(DaemonApprovalMode.latest(in: String(text.suffix(200_000))), "the last 200 KB alone doesn't say")
+        XCTAssertNil(DaemonApprovalMode.latest(inLogAt: path, limit: 1 << 20), "past the limit: unknown")
+        XCTAssertNil(DaemonApprovalMode.latest(inLogAt: root.appendingPathComponent("none.log").path))
+    }
+
     func testApprovePlanHashesInstalledFilesAndWritesOnce() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

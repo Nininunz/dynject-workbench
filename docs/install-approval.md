@@ -4,7 +4,9 @@ Status, 2026-11-25: the first milestone is built and passed in the VM. Engine: t
 (dylib-sha256, `dylib-approval:audit|enforce`, order-independent, cached digests). Workbench: installs write
 approvals, uninstalls remove them, `dw tweak approve`, and the `dw doctor` check. In the VM, audit mode changed
 nothing, `dw tweak approve --all` wrote matching lines, and enforce skipped a replaced file and an unapproved one
-while approved ones loaded. Not built yet: the richer approval prompt, `dw why`, packages, the host rollout.
+while approved ones loaded. On this Mac since 2026-11-25, in audit mode, with all six tweaks approved; `dw why` has the
+approval step. Not built yet: the richer approval prompt (signer), an approve button in Workbench, packages, and
+switching this Mac to enforce.
 
 ## Why
 

@@ -284,7 +284,7 @@ func tweakApprove(_ names: [String], _ a: TweakArguments) {
             }
         }
         let n = plan.entries.filter(\.changes).count
-        let mode = DaemonApprovalMode.latest(in: DynjectLogParser.readTail(path: ctx.logPath) ?? "")
+        let mode = DaemonApprovalMode.latest(inLogAt: ctx.logPath)
         print("Approved \(n) dylib(s). " + (mode.map { "dynjectd checks approvals (\($0.rawValue))." }
             ?? "The running dynjectd doesn't check approvals; an approval-aware one will."))
     } catch {

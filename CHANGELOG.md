@@ -15,6 +15,12 @@ unreleased
 - a rebuilt tweak's reinstall now restarts dynjectd (its approval line changes).
 - `dw doctor` checks each dylib against its approval, as a warning or a problem depending on
   what the running dynjectd does with approvals. the config validator knows the new keys.
+- `dw why` has an approval step: approved, no approval, or the file isn't the approved build, and
+  whether the running dynjectd skips it (enforce), only logs it (audit) or doesn't check.
+- doctor and `dw why` find dynjectd's approval mode however far back in its log the daemon started
+  (they read only the last 200 KB before, which a day of launches pushes past).
+- doctor's crash lines say when no tweak code was on the crashing thread, or which tweak is further
+  down it, and show a frame in a stripped image as an offset instead of a far-off symbol.
 
 
 0.1.9 (2026-11-24)

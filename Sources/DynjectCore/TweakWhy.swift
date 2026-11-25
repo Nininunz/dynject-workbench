@@ -271,12 +271,17 @@ public struct WhyInputs: Sendable {
     /// The tweak's log lines about this app, oldest first; nil when not searched.
     public var log: [WhyLogLine]?
     public var logMinutes: Int
+    /// What the running dynjectd does with dylib-sha256 approvals, from its log; nil: it doesn't check them (stock).
+    public var approvalMode: DaemonApprovalMode?
+    /// The dylib file's SHA-256; nil when it can't be read.
+    public var dylibSHA256: String?
 
     public init(tweakName: String, tweakID: String?, manifest: TweakManifest?, dylibPath: String, dylibFileExists: Bool,
                 dylibSlices: [MachOInfo.Slice]?, ctorMarkers: [CtorMarker], safeModeSupport: SafeModeSupport?,
                 compatibilityIssues: [CompatibilityIssue], app: InstalledApp, appArchs: [String]?, appleSilicon: Bool,
                 service: ServiceName, config: EffectiveConfig, daemon: DaemonStatus, safeModeEntries: [String: [String]],
-                safeModeDisabled: [SafeModeDisabledEntry] = [], running: WhyRunning, log: [WhyLogLine]?, logMinutes: Int = 60) {
+                safeModeDisabled: [SafeModeDisabledEntry] = [], running: WhyRunning, log: [WhyLogLine]?, logMinutes: Int = 60,
+                approvalMode: DaemonApprovalMode? = nil, dylibSHA256: String? = nil) {
         self.tweakName = tweakName
         self.tweakID = tweakID
         self.manifest = manifest
@@ -297,6 +302,8 @@ public struct WhyInputs: Sendable {
         self.running = running
         self.log = log
         self.logMinutes = logMinutes
+        self.approvalMode = approvalMode
+        self.dylibSHA256 = dylibSHA256
     }
 }
 
@@ -406,6 +413,31 @@ public enum Why {
             + "for them, so no tweak gets in",
     ]
 
+    /// dylib-sha256 (docs/install-approval.md): what the running dynjectd does with this file's approval.
+    static func approvalStep(_ i: WhyInputs, dylibName: String, add: (WhyStatus, String, String?) -> Void) {
+        let approved = i.config.approvals[i.dylibPath]
+        let approveFix = "dw tweak approve \(i.dylibPath)"
+        guard let mode = i.approvalMode else {
+            add(.info, "the running dynjectd doesn't check approvals" + (approved == nil ? "" : " (the config has one for it)"), nil)
+            return
+        }
+        let effect = mode == .enforce ? "dynjectd skips it (enforce)" : "dynjectd injects it anyway and logs it (audit)"
+        let status: WhyStatus = mode == .enforce ? .fail : .warning
+        guard let file = i.dylibSHA256 else {
+            add(.unknown, "couldn't read \(dylibName) to compare it with its approval", nil)
+            return
+        }
+        switch approved {
+        case nil:
+            add(status, "\(dylibName) has no dylib-sha256 approval, so \(effect)", approveFix)
+        case file?:
+            add(.pass, "approved: the file is the approved build (sha256 \(file.prefix(16))…); dynjectd checks approvals (\(mode.rawValue))", nil)
+        case let other?:
+            add(status, "the file isn't the approved build (approved \(other.prefix(16))…, file \(file.prefix(16))…), so \(effect)",
+                "if you rebuilt or reinstalled it yourself: \(approveFix); otherwise find out what replaced it")
+        }
+    }
+
     public static func explain(_ i: WhyInputs) -> WhyReport {
         var steps: [WhyStep] = []
         func add(_ section: String, _ check: String, _ status: WhyStatus, _ detail: String, fix: String? = nil) {
@@ -480,6 +512,7 @@ public enum Why {
                 add(conf, "dylib rule", .fail, "\(dylibName): \(d.reasonText), so it isn't injected here", fix: enableFix)
             }
         }
+        if declared != nil, i.dylibFileExists { approvalStep(i, dylibName: dylibName) { add(conf, "approval", $0, $1, fix: $2) } }
 
         // dyld, at launch
         let dyld = "dyld (at launch)"
@@ -738,6 +771,7 @@ public extension WhyInputs {
             compatibilityIssues: issues, app: app, appArchs: MachOInfo.architectures(ofFileAt: app.executablePath),
             appleSilicon: appleSilicon, service: service, config: config, daemon: daemon,
             safeModeEntries: safeMode.keys.entries(), safeModeDisabled: state.disabled, running: running,
-            log: log, logMinutes: logMinutes))
+            log: log, logMinutes: logMinutes, approvalMode: DaemonApprovalMode.latest(inLogAt: "/opt/dynject/log/dynjectd.log"),
+            dylibSHA256: data.map(DylibDigest.sha256Hex)))
     }
 }
