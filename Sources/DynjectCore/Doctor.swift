@@ -804,8 +804,20 @@ public enum Doctor {
             let bystanders = records.map(\.tweakID).filter { !culprits.contains($0) }
             var what = culprits.isEmpty ? "crashed with \(names(bystanders)) loaded"
                                         : "crashed in \(names(culprits))" + (bystanders.isEmpty ? "" : " (also loaded: \(names(bystanders)))")
-            what += ": \(first.frameSummary)"
             let reportExists = FileManager.default.fileExists(atPath: first.reportPath)
+            var summary = first.frameSummary
+            // Not in a tweak's top frames: read the report again to say whether tweak code was on the crashing thread
+            // at all (the watcher records only the top frames), and describe the frame with today's rules.
+            if culprits.isEmpty, reportExists, let report = try? CrashReportParser.parse(fileAt: first.reportPath), report.hasBody {
+                let a = CrashAttributor.attribute(report, catalog: catalog)
+                let deeper = a.loaded.filter(\.onCrashingThread).map(\.tweak.tweakID)
+                if !a.loaded.isEmpty {
+                    what += deeper.isEmpty ? (bystanders.count == 1 ? ", not on the crashing thread" : ", none of them on the crashing thread")
+                                           : "; \(names(deeper)) further down the crashing thread"
+                    summary = a.frameSummary
+                }
+            }
+            what += ": \(summary)"
             s.warn("crash", "\(clock(first.date)) \(first.appName ?? first.bundleID ?? "?") \(what)",
                    fix: reportExists ? "read the report: \(first.reportPath)" : "its report has been deleted; dw safemode status lists the record")
         }

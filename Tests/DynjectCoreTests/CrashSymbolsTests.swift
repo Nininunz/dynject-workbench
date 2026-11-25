@@ -51,6 +51,20 @@ final class CrashSymbolsTests: XCTestCase {
 
     // MARK: parsing
 
+    /// A tweak deeper than the top frames is on the crashing thread without being at fault; a "symbol" far from its
+    /// frame (a stripped image naming its nearest export) is shown as an offset.
+    func testCrashingThreadAndStrippedSymbols() {
+        let deep = report([(0, 0x174d4f8, "node::inspector::protocol::BinaryValue::AppendSerialized", 24_434_680)]
+                          + Array(repeating: (0, 0x100, "main", 8), count: 7) + [(1, 0x3f00, "hook", 16)])
+        let a = CrashAttributor.attribute(deep, catalog: catalog)
+        XCTAssertEqual(a.loaded.map(\.inTweak), [false])
+        XCTAssertEqual(a.loaded.map(\.onCrashingThread), [true])
+        XCTAssertEqual(a.frameSummary, "EXC_BAD_ACCESS (SIGSEGV) in Host + 0x174d4f8 (stripped; the nearest exported symbol is 23861 KB away)")
+        let none = CrashAttributor.attribute(report([(0, 0x100, "main", 8)]), catalog: catalog)
+        XCTAssertEqual(none.loaded.map(\.onCrashingThread), [false])
+        XCTAssertEqual(none.frameSummary, "EXC_BAD_ACCESS (SIGSEGV) in Host: main")
+    }
+
     func testParsesUUIDsLinesAndLaunch() throws {
         let text = """
         {"bug_type":"309"}

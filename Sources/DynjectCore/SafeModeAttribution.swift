@@ -174,6 +174,8 @@ public struct CrashAttribution: Sendable, Equatable {
         public var inTweak: Bool
         /// The first such frame, e.g. "libX.dylib: -[Foo bar] (Foo.m:42), its hook of -[NSView layout]".
         public var frame: String?
+        /// A frame of this tweak is anywhere on the faulting thread or in the exception backtrace, however deep.
+        public var onCrashingThread: Bool = false
     }
 
     public var loaded: [LoadedTweak]
@@ -222,8 +224,10 @@ public enum CrashAttributor {
         let candidates = thrown + faulting
         let tweakFrame = candidates.first { $0.imageIndex.map(tweakImages.contains) ?? false }
         let hooks = tweakFrame != nil ? symbolicator?.hookMap(report) ?? [] : []
+        let everyFrame = report.lastExceptionBacktrace + report.faultingFrames
         for idx in loaded.indices {
             let i = loaded[idx].imageIndex
+            loaded[idx].onCrashingThread = everyFrame.contains { $0.imageIndex == i }
             if let f = candidates.first(where: { $0.imageIndex == i }) {
                 loaded[idx].inTweak = true
                 loaded[idx].frame = describe(f, report: report) + hookNote(f, report: report, hooks: hooks)
@@ -245,10 +249,17 @@ public enum CrashAttributor {
         return Array(rest.prefix(max(depth, 0)))
     }
 
+    /// Past this distance from the symbol a report names, the symbol is a guess: the image is stripped and the report
+    /// names the nearest exported symbol (in ChatGPT's Electron framework, 23 MB away).
+    public static let strippedSymbolDistance: UInt64 = 64 * 1024
+
     public static func describe(_ f: CrashReport.Frame, report: CrashReport) -> String {
         let image = report.image(at: f.imageIndex)?.fileName ?? "???"
         let offset = f.imageOffset.map { String(format: "0x%llx", $0) }
         let line = f.sourceLine.map { " (\((f.sourceFile.map { ($0 as NSString).lastPathComponent }) ?? "?"):\($0))" } ?? ""
+        if f.sourceLine == nil, let d = f.symbolLocation, d > strippedSymbolDistance, let o = offset {
+            return "\(image) + \(o) (stripped; the nearest exported symbol is \(d / 1024) KB away)"
+        }
         switch (f.symbol, offset) {
         case let (s?, _): return "\(image): \(s)\(line)"
         case let (nil, o?): return "\(image) + \(o)\(line)"

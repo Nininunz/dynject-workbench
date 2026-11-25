@@ -314,6 +314,40 @@ final class DoctorTests: XCTestCase {
         XCTAssertTrue(lines[1].fix?.contains("deleted") == true, text)
     }
 
+    /// A crash outside every tweak's top frames: doctor reads the report again and says whether tweak code was on
+    /// the crashing thread at all.
+    func testCrashOutsideTweaksSaysWhetherTheyWereOnTheThread() throws {
+        let s = try healthy()
+        func ips(_ frames: [[String: Any]]) -> Data {
+            let header: [String: Any] = ["bug_type": "309", "app_name": "App", "incident_id": UUID().uuidString]
+            let body: [String: Any] = [
+                "procName": "App", "procPath": "/Applications/App.app/Contents/MacOS/App", "pid": 7,
+                "exception": ["type": "EXC_BREAKPOINT", "signal": "SIGTRAP"], "faultingThread": 0,
+                "threads": [["triggered": true, "frames": frames]],
+                "usedImages": [["name": "App", "path": "/Applications/App.app/Contents/MacOS/App"],
+                               ["name": "libGood.dylib", "path": "/opt/dynject/*/libGood.dylib"]],
+            ]
+            return Data((String(decoding: try! JSONSerialization.data(withJSONObject: header), as: UTF8.self) + "\n"
+                         + String(decoding: try! JSONSerialization.data(withJSONObject: body), as: UTF8.self)).utf8)
+        }
+        let top: [String: Any] = ["imageIndex": 0, "imageOffset": 0x174d4f8, "symbol": "node::inspector::Boom", "symbolLocation": 24_434_680]
+        let filler = Array(repeating: ["imageIndex": 0, "imageOffset": 0x100, "symbol": "main", "symbolLocation": 8] as [String: Any], count: 7)
+        try file("Reports/Off.ips", ips([top] + filler))
+        try file("Reports/Deep.ips", ips([top] + filler + [["imageIndex": 1, "imageOffset": 0x3f00]]))
+        func crash(_ name: String, ago: TimeInterval) -> SafeModeCrash {
+            SafeModeCrash(tweakID: "com.example.good", bundleID: "com.example.app", appName: name, date: now.addingTimeInterval(-ago),
+                          reportPath: root.appendingPathComponent("Reports/\(name).ips").path, inTweak: false,
+                          frameSummary: "EXC_BREAKPOINT (SIGTRAP) in App: node::inspector::Boom", incidentID: name, culpritIDs: [])
+        }
+        try SafeModeStateStore(directory: root.appendingPathComponent("SafeMode")).update { state in
+            state.recentCrashes = [crash("Off", ago: 60), crash("Deep", ago: 120)]
+        }
+        let lines = Doctor.run(s.context).checks.filter { $0.check == "crash" }.map(\.detail)
+        XCTAssertEqual(lines.count, 2, "\(lines)")
+        XCTAssertTrue(lines.contains { $0.contains("Off crashed with com.example.good loaded, not on the crashing thread: EXC_BREAKPOINT (SIGTRAP) in App + 0x174d4f8 (stripped;") }, "\(lines)")
+        XCTAssertTrue(lines.contains { $0.contains("Deep crashed with com.example.good loaded; com.example.good further down the crashing thread: ") }, "\(lines)")
+    }
+
     /// minimumSystemVersion and depends are problems; an untested macOS, a non-semantic version and an old SDK
     /// build are warnings. A pre-panic-switch DynjectHook build gets the Safe Mode warning, not a second SDK one.
     func testCompatibilityFindings() throws {
