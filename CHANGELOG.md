@@ -4,8 +4,8 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
-unreleased
-----------
+0.1.8 (2026-11-24)
+------------------
 
 - `dw hooks` lists function hooks (`DHHookFunction`): address, symbol, active, whether it went on
   top of another, group; and warns when two tweaks hook the same function. needs tweaks built

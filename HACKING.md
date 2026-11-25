@@ -62,7 +62,7 @@ building and tests
 ------------------
 
     swift build
-    ./scripts/test-all.sh               # everything below that leaves your screen alone, one summary (~2.5 min)
+    ./scripts/test-all.sh               # everything below that leaves your screen alone, one summary (~6 min)
     ./scripts/test-all.sh --quick       # unit tests and builds only
     ./scripts/test-all.sh --all         # plus the e2e scripts and the ui smoke test (they open test apps)
     swift test                          # 445 tests, ~20 s
@@ -308,7 +308,7 @@ process
 status
 ------
 
-version 0.1.7.
+version 0.1.8.
 
     config parser, evaluator, minimal editor   unit-tested against fixtures incl. a byte copy of a live config
     app discovery, configured vs loaded        "loaded" confirmed with lsof on running apps
