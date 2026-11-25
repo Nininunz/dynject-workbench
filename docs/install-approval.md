@@ -1,9 +1,10 @@
 # Install approval (design, not built)
 
-Status, 2026-11-24: the first milestone is built. Engine: the fork's `approval-audit` branch (dylib-sha256,
-`dylib-approval:audit|enforce`, order-independent, cached digests), not installed anywhere yet. Workbench: installs
-write approvals, uninstalls remove them, `dw tweak approve`, and the `dw doctor` check. Not built yet: the richer
-approval prompt, `dw why`, packages, the VM and host rollout.
+Status, 2026-11-25: the first milestone is built and passed in the VM. Engine: the fork's `approval-audit` branch
+(dylib-sha256, `dylib-approval:audit|enforce`, order-independent, cached digests). Workbench: installs write
+approvals, uninstalls remove them, `dw tweak approve`, and the `dw doctor` check. In the VM, audit mode changed
+nothing, `dw tweak approve --all` wrote matching lines, and enforce skipped a replaced file and an unapproved one
+while approved ones loaded. Not built yet: the richer approval prompt, `dw why`, packages, the host rollout.
 
 ## Why
 
