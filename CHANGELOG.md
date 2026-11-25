@@ -4,12 +4,14 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
-unreleased
-----------
+0.1.12 (2026-11-25)
+-------------------
 
 - respring tries a failed reopen once more after 1.5 s. notes once refused to reopen ("a
   miscellaneous error occurred") right after quitting, and opened fine a moment later. the
   result says when the second try was the one that worked.
+- the tweak sdk keeps its own version: it moves only when the sdk changes. it stays 0.1.11 here,
+  so tweaks built with 0.1.11 aren't told to rebuild.
 
 
 0.1.11 (2026-11-25)
