@@ -574,7 +574,7 @@ public enum Doctor {
         if list.isEmpty { s.ok("installed", "no tweak manifests in \(c.locations.manifestSearchDirectories.joined(separator: " or "))") }
         let locations = c.locations
         let env = TweakCompatibility.Environment(
-            systemVersion: c.systemVersion, sdkVersion: c.version,
+            systemVersion: c.systemVersion, sdkVersion: WorkbenchInfo.sdkVersion,
             components: BuiltInComponent.installedStatus(launchAgentsDirectory: c.safeModeAgent.launchAgentsDirectory),
             dylib: { DylibBuildInfo.read(dylibAt: locations.filePath(forDylib: $0.dylib)) })
         let installed = list.map(\.manifest)

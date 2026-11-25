@@ -91,9 +91,11 @@ install watcher copies it from there), copies the sdk to `Contents/Resources/Twe
 entitlements. not sandboxed: it has to read /opt/dynject, run ps/lsof/launchctl and
 hand protected writes to osascript.
 
-the version is `WorkbenchInfo.version` in DynjectCore, `CFBundleShortVersionString`
-in Resources/Info.plist and `DH_SDK_VERSION` in TweakSDK/include/DynjectHook.h (the sdk
-marker tweaks carry); tests fail if they disagree.
+the version is `WorkbenchInfo.version` in DynjectCore and `CFBundleShortVersionString`
+in Resources/Info.plist; tests fail if they disagree. the sdk has its own version,
+`WorkbenchInfo.sdkVersion` and `DH_SDK_VERSION` in TweakSDK/include/DynjectHook.h (the sdk
+marker tweaks carry), which moves only when TweakSDK/ changes: a test fingerprints the sdk's
+files and fails until both are bumped and `WorkbenchInfo.sdkFingerprint` is updated.
 
 testing notes:
 
@@ -296,8 +298,10 @@ process
 - branches: work on a branch, merge to `main` when it builds and tests pass. `main`
   stays buildable. no force-pushes to `main`.
 - versions: `0.x` while alpha; bump the minor for anything a tester would notice.
-  `WorkbenchInfo.version`, `Resources/Info.plist` and `DH_SDK_VERSION` must match (tests
-  check).
+  `WorkbenchInfo.version` and `Resources/Info.plist` must match (tests check). bump the sdk
+  (`WorkbenchInfo.sdkVersion`, `DH_SDK_VERSION`, `sdkFingerprint`) only when TweakSDK/
+  changes, to the workbench version it ships in; doctor tells tweaks built with an older one
+  to rebuild.
   tag releases `vX.Y.Z` on `main`.
 - CHANGELOG.md: a few lines per version, newest first, written for testers, not for
   the commit log. add to the `unreleased` section as you go.

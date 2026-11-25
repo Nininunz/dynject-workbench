@@ -442,7 +442,7 @@ public enum TweakCompatibility {
         /// The build info of a manifest's dylib; nil when it is missing or unreadable (no SDK issue then).
         public var dylib: @Sendable (TweakManifest) -> DylibBuildInfo?
 
-        public init(systemVersion: SystemVersion = .current, sdkVersion: String = WorkbenchInfo.version,
+        public init(systemVersion: SystemVersion = .current, sdkVersion: String = WorkbenchInfo.sdkVersion,
                     components: [BuiltInComponent: Bool] = [:],
                     dylib: @escaping @Sendable (TweakManifest) -> DylibBuildInfo? = { _ in nil }) {
             self.systemVersion = systemVersion

@@ -315,7 +315,7 @@ struct TweakCompatibilityInfo: View {
                     if let sdk = build.sdkVersion {
                         Text("Built with DynjectHook \(sdk)")
                     } else {
-                        Text(build.usesDynjectHook ? "Built with DynjectHook before \(WorkbenchInfo.version)" : "Not built with DynjectHook")
+                        Text(build.usesDynjectHook ? "Built with DynjectHook before \(WorkbenchInfo.sdkVersion)" : "Not built with DynjectHook")
                     }
                 }
                 if let os = Self.systemText(manifest) { Text("macOS \(os)") }

@@ -70,7 +70,7 @@ final class DoctorTests: XCTestCase {
         var dylib = FakeMachO.universal
         dylib.append(SafeModeSupportChecker.marker)
         dylib.append(SafeModeSupportChecker.panicMarker)
-        dylib.append(Data("\u{0}\(SDKVersionChecker.markerPrefix)\(WorkbenchInfo.version)\u{0}".utf8))
+        dylib.append(Data("\u{0}\(SDKVersionChecker.markerPrefix)\(WorkbenchInfo.sdkVersion)\u{0}".utf8))
         try file("lib/tweaks/libGood.dylib", dylib)
         try FileManager.default.createDirectory(at: root.appendingPathComponent("Tweaks"), withIntermediateDirectories: true)
         try writeManifest("com.example.good", dylib: "libGood.dylib")

@@ -155,7 +155,7 @@ public struct SystemVersionRange: Hashable, Sendable, CustomStringConvertible {
 // MARK: - The SDK a dylib was built with
 
 /// Which DynjectHook (SDK) a tweak's dylib was built with: DynjectHook.m embeds "dynject.sdk:<DH_SDK_VERSION>" as a
-/// C string of its own (DHSDKVersionMarker), and DH_SDK_VERSION is `WorkbenchInfo.version` (a test checks). Builds
+/// C string of its own (DHSDKVersionMarker), and DH_SDK_VERSION is `WorkbenchInfo.sdkVersion` (a test checks). Builds
 /// from before the marker, and tweaks not built on DynjectHook, have none.
 public final class SDKVersionChecker: @unchecked Sendable {
     public static let markerPrefix = "dynject.sdk:"

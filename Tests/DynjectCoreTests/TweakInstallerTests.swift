@@ -583,7 +583,7 @@ final class TweakInstallerTests: XCTestCase {
         XCTAssertEqual(check.warnings, [])
         XCTAssertEqual(Set(check.archs), ["x86_64", "arm64", "arm64e"])
         XCTAssertEqual(SafeModeSupportChecker.dataSupport(built), .perTweakAndPanic)
-        XCTAssertEqual(SDKVersionChecker.version(in: built), WorkbenchInfo.version, "the SDK marker survives a release build")
+        XCTAssertEqual(SDKVersionChecker.version(in: built), WorkbenchInfo.sdkVersion, "the SDK marker survives a release build")
     }
 
     func testSDKIsFoundInTheAppBundleOrAboveABuildFolder() throws {

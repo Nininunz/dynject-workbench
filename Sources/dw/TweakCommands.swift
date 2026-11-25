@@ -336,7 +336,7 @@ func tweakList(_ a: TweakArguments) {
         print("  Safe Mode  \(support)")
         if t.fileExists {
             let sdk = SDKVersionChecker.shared.version(dylibAt: t.dylibFilePath).map { "DynjectHook \($0)" }
-            print("  SDK        \(sdk ?? (t.safeMode?.honoursKey == true ? "DynjectHook older than \(WorkbenchInfo.version) (rebuild)" : "none"))")
+            print("  SDK        \(sdk ?? (t.safeMode?.honoursKey == true ? "DynjectHook older than \(WorkbenchInfo.sdkVersion) (rebuild)" : "none"))")
         }
         if let os = systemRangeText(t.manifest) { print("  macOS      \(os)") }
         let all = t.manifest.allDependencies

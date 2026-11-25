@@ -71,14 +71,40 @@ final class SystemVersionTests: XCTestCase {
 }
 
 final class SDKVersionTests: XCTestCase {
-    /// DH_SDK_VERSION in DynjectHook.h is WorkbenchInfo.version, and DynjectHook.m embeds it behind "dynject.sdk:".
+    /// DH_SDK_VERSION in DynjectHook.h is WorkbenchInfo.sdkVersion, and DynjectHook.m embeds it behind "dynject.sdk:".
     func testSDKVersionHasOneSourceOfTruth() throws {
         let header = try String(contentsOf: repoRoot.appendingPathComponent("TweakSDK/include/DynjectHook.h"), encoding: .utf8)
         let source = try String(contentsOf: repoRoot.appendingPathComponent("TweakSDK/DynjectHook.m"), encoding: .utf8)
-        XCTAssertTrue(header.contains("#define DH_SDK_VERSION \"\(WorkbenchInfo.version)\"\n"),
-                      "DH_SDK_VERSION in DynjectHook.h must be WorkbenchInfo.version (\(WorkbenchInfo.version))")
+        XCTAssertTrue(header.contains("#define DH_SDK_VERSION \"\(WorkbenchInfo.sdkVersion)\"\n"),
+                      "DH_SDK_VERSION in DynjectHook.h must be WorkbenchInfo.sdkVersion (\(WorkbenchInfo.sdkVersion))")
         XCTAssertTrue(source.contains("\"\(SDKVersionChecker.markerPrefix)\" DH_SDK_VERSION;"), "the marker in DynjectHook.m")
-        XCTAssertNotNil(SemanticVersion(WorkbenchInfo.version))
+        XCTAssertNotNil(SemanticVersion(WorkbenchInfo.sdkVersion))
+        XCTAssertFalse(SemanticVersion(WorkbenchInfo.version)! < SemanticVersion(WorkbenchInfo.sdkVersion)!,
+                       "the SDK can't be newer than the Workbench that ships it")
+    }
+
+    /// The SDK version moves only when TweakSDK/ does, and must move when it does: a change to the SDK's files without
+    /// a new DH_SDK_VERSION would leave tweaks built with the old SDK unwarned.
+    func testSDKChangesBumpItsVersion() throws {
+        let sdk = repoRoot.appendingPathComponent("TweakSDK")
+        let files = try XCTUnwrap(FileManager.default.subpathsOfDirectory(atPath: sdk.path)).filter {
+            var dir: ObjCBool = false
+            return FileManager.default.fileExists(atPath: sdk.appendingPathComponent($0).path, isDirectory: &dir) && !dir.boolValue
+                && !$0.hasPrefix(".") && !$0.contains("/.")
+        }.sorted()
+        var all = Data()
+        for f in files {
+            let text = try String(contentsOf: sdk.appendingPathComponent(f), encoding: .utf8)
+            let kept = text.split(separator: "\n", omittingEmptySubsequences: false).filter { !$0.hasPrefix("#define DH_SDK_VERSION ") }
+            all.append(Data("\(f)\n".utf8))
+            all.append(Data(kept.joined(separator: "\n").utf8))
+            all.append(0)
+        }
+        let fingerprint = DylibDigest.sha256Hex(all)
+        XCTAssertEqual(fingerprint, WorkbenchInfo.sdkFingerprint, """
+            TweakSDK/ changed. Bump WorkbenchInfo.sdkVersion and DH_SDK_VERSION (TweakSDK/include/DynjectHook.h) together, \
+            then set WorkbenchInfo.sdkFingerprint to \(fingerprint). (Files: \(files.joined(separator: ", ")))
+            """)
     }
 
     func testMarkerInData() throws {
