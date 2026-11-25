@@ -129,6 +129,9 @@ public struct RespringResult: Identifiable, Hashable, Sendable {
     public var forced = false
     /// The first reopened process had quit by the end of the run, so it was opened once more.
     public var reopenedAgain = false
+    /// The first reopen failed (LaunchServices can refuse while the old process is still going away), and a second
+    /// one, after `Settings.openRetryDelay`, worked.
+    public var openRetried = false
 
     public init(candidate: RespringCandidate, outcome: Outcome, newPID: Int32? = nil, verification: RespringVerification? = nil,
                 forced: Bool = false) {
@@ -156,6 +159,7 @@ public struct RespringResult: Identifiable, Hashable, Sendable {
     public func summary(labels: [String: String] = [:]) -> String {
         var prefix = forced ? "force-quit after the timeout; " : ""
         if reopenedAgain { prefix += "quit again right after reopening, opened once more; " }
+        if openRetried { prefix += "the first reopen failed, the second worked; " }
         return prefix + outcomeSummary(labels: labels)
     }
 
@@ -225,6 +229,8 @@ public final class Respringer {
         public var forceQuit = false
         /// How long a force-quit app gets to go away.
         public var forceTimeout: TimeInterval = 5
+        /// How long to wait before trying a failed reopen once more.
+        public var openRetryDelay: TimeInterval = 1.5
         /// At the end of the run, how long the last reopened app has had to settle before every reopened app is
         /// checked once more (some quit right after starting; that one is opened again).
         public var settleTime: TimeInterval = 2
@@ -390,11 +396,28 @@ public final class Respringer {
             newPID = adopted
         } else {
             report(.opening)
+            let options = RespringOpenOptions(activates: false, hides: app.isHidden, environment: settings.environment)
             do {
-                newPID = try controller.open(bundleURL: url, options: RespringOpenOptions(
-                    activates: false, hides: app.isHidden, environment: settings.environment))
+                newPID = try controller.open(bundleURL: url, options: options)
             } catch {
-                return RespringResult(candidate: c, outcome: .openFailed(error.localizedDescription))
+                // Notes did this once ("a miscellaneous error occurred") right after quitting; a moment later it
+                // opened fine. Try once more, unless something else started it in the meantime.
+                clock.sleep(settings.openRetryDelay)
+                if let adopted = restarted() {
+                    newPID = adopted
+                } else {
+                    do {
+                        newPID = try controller.open(bundleURL: url, options: options)
+                    } catch let second {
+                        return RespringResult(candidate: c, outcome: .openFailed(second.localizedDescription + " (tried twice)"),
+                                              forced: forced)
+                    }
+                }
+                report(.verifying)
+                var r = RespringResult(candidate: c, outcome: .relaunched, newPID: newPID, verification: verify(c, pid: newPID),
+                                       forced: forced)
+                r.openRetried = true
+                return r
             }
         }
 
@@ -442,6 +465,8 @@ public final class SimulatedAppController: AppController {
     public var exitsAfterOpen: [String: Int] = [:]
     public var quitRequestFails: Set<String> = []
     public var openFails: Set<String> = []
+    /// Bundle IDs whose next open fails, once each.
+    public var openFailsOnce: Set<String> = []
     /// bundle ID → dylibs the reopened process reports (nil: not inspectable).
     public var loadedAfterOpen: [String: Set<String>?] = [:]
     /// Called when an app quits; lets a test restart it "by launchd" (Finder).
@@ -489,6 +514,7 @@ public final class SimulatedAppController: AppController {
         record(.open(path, options))
         let id = bundleIDByPath[path] ?? path
         if openFails.contains(id) { throw RespringControlError.openFailed("simulated failure") }
+        if openFailsOnce.remove(id) != nil { throw RespringControlError.openFailed("simulated failure") }
         let pid = nextPID
         nextPID += 1
         loadedByPID[pid] = loadedAfterOpen[id] ?? []

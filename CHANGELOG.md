@@ -4,6 +4,14 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
+unreleased
+----------
+
+- respring tries a failed reopen once more after 1.5 s. notes once refused to reopen ("a
+  miscellaneous error occurred") right after quitting, and opened fine a moment later. the
+  result says when the second try was the one that worked.
+
+
 0.1.11 (2026-11-25)
 -------------------
 

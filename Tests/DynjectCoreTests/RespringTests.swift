@@ -514,8 +514,19 @@ final class RespringerTests: XCTestCase {
         let r = engine(c).0.run([candidate(calculator), candidate(notes), candidate(textEdit)])
         XCTAssertEqual(r[0].outcome, .notRunning)
         XCTAssertEqual(r[1].outcome, .quitRefused)
-        XCTAssertEqual(r[2].outcome, .openFailed("simulated failure"))
+        XCTAssertEqual(r[2].outcome, .openFailed("simulated failure (tried twice)"))
+        XCTAssertEqual(c.calls.filter { if case .open = $0 { return true } else { return false } }.count, 2, "one retry, not more")
         XCTAssertFalse(r.contains(where: \.succeeded))
+
+        // A reopen that fails once (LaunchServices while the old process goes away) works on the second try.
+        let once = SimulatedAppController(apps: [textEdit])
+        once.openFailsOnce = ["com.apple.TextEdit"]
+        once.loadedAfterOpen = ["com.apple.TextEdit": [menu]]
+        let r1 = engine(once).0.run([candidate(textEdit)])
+        XCTAssertEqual(r1[0].outcome, .relaunched)
+        XCTAssertTrue(r1[0].openRetried)
+        XCTAssertTrue(r1[0].succeeded)
+        XCTAssertTrue(r1[0].summary().hasPrefix("the first reopen failed, the second worked; relaunched"), r1[0].summary())
 
         let c2 = SimulatedAppController(apps: [calculator, notes])
         var n = 0
