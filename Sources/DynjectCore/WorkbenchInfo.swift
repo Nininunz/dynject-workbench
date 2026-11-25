@@ -3,7 +3,7 @@ import Foundation
 
 public enum WorkbenchInfo {
     /// Keep in step with CFBundleShortVersionString in Resources/Info.plist (a test checks).
-    public static let version = "0.1.12"
+    public static let version = "0.1.13"
 
     /// DynjectHook's version, DH_SDK_VERSION in TweakSDK/include/DynjectHook.h (a test checks). It moves only when
     /// TweakSDK/ changes, so a tweak built with it isn't told to rebuild after a Workbench release that left the SDK

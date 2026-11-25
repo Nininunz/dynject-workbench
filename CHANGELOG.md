@@ -4,8 +4,8 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
-unreleased
-----------
+0.1.13 (2026-11-25)
+-------------------
 
 - double-clicking a `.dwtweak` in finder opens workbench's install review for it: workbench is
   the package type's owner. the type isn't marked as a zip, so safari doesn't unzip a downloaded

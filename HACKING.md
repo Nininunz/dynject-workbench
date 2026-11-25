@@ -312,7 +312,7 @@ process
 status
 ------
 
-version 0.1.12.
+version 0.1.13.
 
     config parser, evaluator, minimal editor   unit-tested against fixtures incl. a byte copy of a live config
     app discovery, configured vs loaded        "loaded" confirmed with lsof on running apps
