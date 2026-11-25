@@ -145,7 +145,13 @@ struct RespringSheet: View {
                 Stepper(value: Binding(get: { r.quitTimeout }, set: { r.quitTimeout = $0 }), in: 5...120, step: 5) {
                     Text("Quit timeout \(Int(r.quitTimeout)) s").monospacedDigit()
                 }
-                .help("How long each app gets to quit before it is skipped")
+                .help(r.forceQuit ? "How long each app gets to quit before it is force quit"
+                                  : "How long each app gets to quit before it is skipped")
+                Toggle("Then force quit", isOn: Binding(get: { r.forceQuit }, set: { r.forceQuit = $0 }))
+                    .toggleStyle(.checkbox)
+                    .help("An app still running after the timeout is force quit and relaunched instead of skipped. "
+                          + "Its unsaved changes are lost.")
+                    .accessibilityIdentifier("respring-force-quit")
                 Button("Close") { r.close() }
                     .keyboardShortcut(.cancelAction)
                     .accessibilityIdentifier("respring-close")

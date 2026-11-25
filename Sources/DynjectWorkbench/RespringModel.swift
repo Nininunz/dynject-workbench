@@ -288,6 +288,8 @@ final class RespringModel {
     /// The user changed a checkbox since the sheet opened (a refresh then keeps their choices).
     private(set) var selectionTouched = false
     var quitTimeout: Double = 15
+    /// Force quit an app still running after the timeout, then relaunch it (`dw respring --force`).
+    var forceQuit = false
     /// Times the sheet was asked for through a dynject-workbench:// link.
     private(set) var linkRequests = 0
 
@@ -542,7 +544,7 @@ final class RespringModel {
             clock = .system
         }
         let engine = Respringer(controller: controller, clock: clock,
-                                settings: .init(quitTimeout: quitTimeout, tweakDylibs: tweakDylibs))
+                                settings: .init(quitTimeout: quitTimeout, tweakDylibs: tweakDylibs, forceQuit: forceQuit))
         Task.detached(priority: .userInitiated) {
             let results = engine.run(apps, progress: { p in
                 DispatchQueue.main.async { MainActor.assumeIsolated { self.progress(p) } }

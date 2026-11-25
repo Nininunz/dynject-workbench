@@ -90,7 +90,8 @@ The sidebar footer shows **Respring: N apps pending** (every pending app, exclud
 sheet, as does the toolbar's **Respring…**. The sheet lists the pending apps with their reasons, each with a
 checkbox. Apps left out by default start unchecked, with a note saying why; loginwindow can't be checked. **Show all
 running apps** lists the up-to-date ones too (to relaunch them anyway, like `--all`). **Respring Selected** runs the
-engine off the main thread with the chosen quit timeout and shows each app's progress and result. **Stop After This
+engine off the main thread with the chosen quit timeout (and, with **Then force quit** checked, force quits an app
+still running after it) and shows each app's progress and result. **Stop After This
 App** lets the current app finish and cancels the rest. If Workbench itself is checked, it goes last and a detached
 helper reopens it.
 

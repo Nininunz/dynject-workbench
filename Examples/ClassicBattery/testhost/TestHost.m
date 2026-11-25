@@ -219,6 +219,14 @@ int main(int argc, char **argv) {
               && [buiImage respondsToSelector:NSSelectorFromString(@"imageSizeForParameters:")],
               @"BatteryUIKit: BUIImage +batteryImagesForParameters: +imageSizeForParameters:");
         id luiPower = [luiBattery new];
+        // A fixed state (full, on battery): the checks below read pixels, and the live battery's level and charging
+        // bolt change Apple's style from run to run (at 34% and charging, its fill ends in a gap like the outline's).
+        if ([luiPower respondsToSelector:NSSelectorFromString(@"info")] && [luiPower respondsToSelector:NSSelectorFromString(@"setInfo:")]) {
+            NSMutableDictionary *fixed = [(((NSDictionary *(*)(id, SEL))objc_msgSend)(luiPower, NSSelectorFromString(@"info")) ?: @{}) mutableCopy];
+            fixed[@"Current Capacity"] = @100; fixed[@"Max Capacity"] = @100;
+            fixed[@"Is Charging"] = @NO; fixed[@"Is Charged"] = @NO; fixed[@"Power Source State"] = @"Battery Power";
+            ((void (*)(id, SEL, id))objc_msgSend)(luiPower, NSSelectorFromString(@"setInfo:"), fixed);
+        }
         BOOL present = luiPower && ((BOOL (*)(id, SEL))objc_msgSend)(luiPower, NSSelectorFromString(@"isPresent"));
         if (!luiController || ![luiController instancesRespondToSelector:NSSelectorFromString(@"_imageForBattery:")]) {
             Check(NO, @"LoginUIKit: LUIBatteryStatusController -_imageForBattery:");
