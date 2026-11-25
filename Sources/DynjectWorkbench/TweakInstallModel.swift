@@ -26,6 +26,18 @@ struct TweakUninstallReview: Identifiable {
     var error: String?
 }
 
+/// Approve All… on the Tweaks page: `dw tweak approve --all`.
+struct TweakApprovalReview: Identifiable {
+    let id = UUID()
+    var plan: TweakApprovalPlan?
+    var error: String?
+}
+
+/// A tweak's dylib against its dylib-sha256 line (docs/install-approval.md).
+enum TweakApprovalState: Equatable {
+    case approved, notApproved, changed, unreadable
+}
+
 /// Install Tweak… and Uninstall… on the Tweaks page: the same DynjectCore TweakInstaller as `dw tweak`.
 extension WorkbenchModel {
     var canInstallTweaks: Bool { tweakInstallLocations != nil }
@@ -156,6 +168,63 @@ extension WorkbenchModel {
                     self.banner = Banner(kind: r.problems.isEmpty ? .success : .warning, title: "Uninstalled \(plan.name)", detail: detail)
                 case let .failure(error):
                     self.uninstallReview?.error = error as? WriteError == .cancelled ? "Cancelled. Nothing was changed." : error.localizedDescription
+                }
+            }
+        }
+    }
+
+    /// nil when the config doesn't declare the tweak's dylib.
+    func approvalState(_ m: TweakManifest) -> TweakApprovalState? {
+        guard workingConfig.dylibPaths.contains(m.dylib) else { return nil }
+        let file = tweakFilePath(m.dylib)
+        var st = stat()
+        guard stat(file, &st) == 0 else { return .unreadable }
+        let key = "\(st.st_size)-\(st.st_mtimespec.tv_sec).\(st.st_mtimespec.tv_nsec)-\(st.st_ino)"
+        let hex: String?
+        if let cached = approvalDigests[file], cached.key == key { hex = cached.hex } else {
+            hex = DylibDigest.sha256Hex(ofFileAt: file)
+            approvalDigests[file] = (key, hex)
+        }
+        guard let hex else { return .unreadable }
+        switch diskConfig.approvals[m.dylib] {
+        case nil: return .notApproved
+        case hex?: return .approved
+        default: return .changed
+        }
+    }
+
+    func beginApproveAll() {
+        var review = TweakApprovalReview()
+        if let loc = tweakInstallLocations {
+            do { review.plan = try TweakApprovalPlan.plan(dylibs: nil, locations: loc) } catch { review.error = error.localizedDescription }
+        } else {
+            review.error = installBlocker
+        }
+        approvalReview = review
+    }
+
+    func confirmApproveAll() {
+        guard let plan = approvalReview?.plan, !plan.changesNothing, !isInstallingTweak else { return }
+        if let blocker = installBlocker { approvalReview?.error = blocker; return }
+        isInstallingTweak = true
+        let writer = tweakInstallWriter, restarter = self.restarter
+        Task.detached(priority: .userInitiated) {
+            let result = Result { try plan.execute(writer: writer, restarter: restarter) }
+            await MainActor.run {
+                self.isInstallingTweak = false
+                switch result {
+                case let .success(outcome):
+                    self.approvalReview = nil
+                    self.afterTweakChange(select: self.selectedTweakID)
+                    var detail = plan.summaryLines.joined(separator: "\n")
+                    if let restart = outcome?.restart {
+                        detail += restart.simulated ? "\nRestart simulated (fixture mode)." : "\ndynjectd now: \(restart.after.map(String.init).joined(separator: " "))"
+                    }
+                    detail += self.daemonApprovalMode.map { "\ndynjectd checks approvals (\($0.rawValue))." }
+                        ?? "\nThe running dynjectd doesn't check approvals; an approval-aware one will."
+                    self.banner = Banner(kind: .success, title: "Approved \(plan.entries.filter(\.changes).count) tweak build(s)", detail: detail)
+                case let .failure(error):
+                    self.approvalReview?.error = error as? WriteError == .cancelled ? "Cancelled. Nothing was changed." : error.localizedDescription
                 }
             }
         }

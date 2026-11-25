@@ -338,6 +338,9 @@ public struct TweakInstallPlan: Sendable {
     public var approvalSHA256 = ""
     /// The approval the config had before (nil: none).
     public var approvalPrevious: String?
+    /// Who signed the dylib being installed, and the installed one it replaces (nil when nothing is replaced).
+    public var signer: CodeSigner?
+    public var installedSigner: CodeSigner?
 
     public var restartsDaemon: Bool { configNew != nil }
     public var needsPrivilegedStep: Bool { dylibAction != .unchanged || configNew != nil }
@@ -355,6 +358,10 @@ public struct TweakInstallPlan: Sendable {
         case .create: out.append("Copy \(source.dylibPath) to \(dylibInstallPath)\(elsewhere) (\(size), \(architectures.joined(separator: " ")))")
         case .replace: out.append("Replace \(dylibInstallPath)\(elsewhere) with \(source.dylibPath) (\(size), \(architectures.joined(separator: " "))); the old file is backed up")
         case .unchanged: out.append("\(dylibInstallPath) is already this build")
+        }
+        if let signer, dylibAction != .unchanged {
+            let same = installedSigner.map(signer.sameSigner(as:)) == true ? ", like the installed build" : ""
+            out.append("Signature: \(signer.summary)\(same)")
         }
         if configNew != nil {
             out.append("Edit \(locations.configPath):")
@@ -408,8 +415,10 @@ public struct TweakInstallResult: Sendable {
 public enum TweakInstaller {
     /// Plans an install. `bundleIDs` are the apps to enable the tweak for; `targets` are every installed app with
     /// its service name (used to keep the config edit specific to those apps).
+    /// `signer` reads a file's code signature (codesign; tests pass their own).
     public static func plan(source: TweakSource, enableFor bundleIDs: [String], targets: [InjectionTarget],
-                            locations: TweakLocations, options: TweakInstallOptions = .init()) throws -> TweakInstallPlan {
+                            locations: TweakLocations, options: TweakInstallOptions = .init(),
+                            signer: (String) -> CodeSigner = CodeSigner.of(fileAt:)) throws -> TweakInstallPlan {
         let fm = FileManager.default
         let manifest = source.manifest
         let installPath = manifest.dylib
@@ -515,6 +524,21 @@ public enum TweakInstaller {
         plan.compatibility = compatibility
         plan.approvalSHA256 = approval
         plan.approvalPrevious = EffectiveConfig(document: original).approvals[installPath]
+        // The signature (docs/install-approval.md, "Approval prompt"): a different signer than the installed build's
+        // is worth a look; an ad-hoc one says nothing about who built it.
+        if dylibAction != .unchanged {
+            let new = signer(source.dylibPath)
+            plan.signer = new
+            if current != nil {
+                let old = signer(filePath)
+                plan.installedSigner = old
+                if !new.sameSigner(as: old) {
+                    plan.warnings.append("The signer changed: the installed build is \(old.summary), this one is \(new.summary). Install it only if you know why.")
+                }
+            } else if new == .adhoc {
+                plan.notes.append("It's ad-hoc signed, so its signature doesn't say who built it: install it if you built it or trust where it came from.")
+            }
+        }
         if let app = source.extensionsAppPath, let destination = locations.installedExtensionsApp(for: manifest) {
             plan.extensionsAppDestination = destination
             plan.extensionNames = TweakExtensions.extensions(in: app).map { ($0 as NSString).lastPathComponent }

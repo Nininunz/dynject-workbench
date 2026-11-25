@@ -28,6 +28,10 @@ struct TweaksView: View {
                         .help(model.canInstallTweaks ? "Install a built tweak folder: dylib, config and restart in one step"
                                                      : (model.installBlocker ?? ""))
                         .accessibilityIdentifier("tweak-install")
+                    Button("Approve All…") { model.beginApproveAll() }
+                        .disabled(!model.canInstallTweaks)
+                        .help("Approve the installed build of every tweak (dylib-sha256 lines), reviewed first")
+                        .accessibilityIdentifier("tweak-approve-all")
                     Button("Reload") { model.loadTweaks() }
                     Button("Open Tweaks Folder") { openFolder() }
                     Button { showAppleMenuOptions.toggle() } label: { Image(systemName: "apple.logo") }
@@ -55,6 +59,9 @@ struct TweaksView: View {
         }
         .sheet(item: Binding(get: { model.uninstallReview }, set: { model.uninstallReview = $0 })) { r in
             UninstallTweakSheet(model: model, review: r)
+        }
+        .sheet(item: Binding(get: { model.approvalReview }, set: { model.approvalReview = $0 })) { r in
+            ApproveTweaksSheet(model: model, review: r)
         }
     }
 
@@ -168,6 +175,26 @@ struct TweakDetail: View {
         }
     }
 
+    @ViewBuilder func approvalChip(_ state: TweakApprovalState) -> some View {
+        let mode = model.daemonApprovalMode
+        let bad: Color = mode == .enforce ? .red : mode == .audit ? .orange : .gray
+        let effect = mode == .enforce ? "dynjectd skips it (enforce)." : mode == .audit ? "dynjectd loads it and logs it (audit)."
+            : "The running dynjectd doesn't check approvals."
+        switch state {
+        case .approved:
+            Chip(text: "approved build", color: .green, systemImage: "checkmark.seal")
+                .help("The installed file is the build its dylib-sha256 line approves" + (mode.map { "; dynjectd checks it (\($0.rawValue))." } ?? "."))
+        case .notApproved:
+            Chip(text: "not approved", color: bad, systemImage: "seal")
+                .help("No dylib-sha256 line for it. \(effect) Approve All… adds one.")
+        case .changed:
+            Chip(text: "changed since approved", color: bad, systemImage: "exclamationmark.triangle")
+                .help("The file isn't the build its dylib-sha256 line approves. \(effect) If you rebuilt or reinstalled it yourself, Approve All…; otherwise find out what replaced it.")
+        case .unreadable:
+            Chip(text: "can't check approval", color: .gray)
+        }
+    }
+
     var header: some View {
         let configured = model.workingConfig.dylibPaths.contains(m.dylib)
         let exists = FileManager.default.fileExists(atPath: model.tweakFilePath(m.dylib))
@@ -201,6 +228,7 @@ struct TweakDetail: View {
                 } else {
                     Chip(text: "not in Dynject config", color: .orange)
                 }
+                if exists, let state = model.approvalState(m) { approvalChip(state) }
                 Chip(text: m.takesEffect == .live ? "applies live" : "needs app relaunch",
                      color: m.takesEffect == .live ? .green : .orange)
             }

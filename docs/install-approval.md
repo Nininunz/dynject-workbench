@@ -5,8 +5,8 @@ Status, 2026-11-25: the first milestone is built and passed in the VM. Engine: t
 approvals, uninstalls remove them, `dw tweak approve`, and the `dw doctor` check. In the VM, audit mode changed
 nothing, `dw tweak approve --all` wrote matching lines, and enforce skipped a replaced file and an unapproved one
 while approved ones loaded. On this Mac since 2026-11-25, in audit mode, with all six tweaks approved; `dw why` has the
-approval step. Not built yet: the richer approval prompt (signer), an approve button in Workbench, packages, and
-switching this Mac to enforce.
+approval step, the install review names the signer and warns when it changes, and the Tweaks page has Approve All…
+and an approval badge (0.1.10). Not built yet: packages, and switching this Mac to enforce.
 
 ## Why
 

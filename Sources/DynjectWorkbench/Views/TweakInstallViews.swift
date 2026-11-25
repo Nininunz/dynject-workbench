@@ -318,3 +318,48 @@ struct TweakCompatibilityInfo: View {
         }
     }
 }
+
+/// Approve All…: the approval lines `dw tweak approve --all` would write, before asking.
+struct ApproveTweaksSheet: View {
+    var model: WorkbenchModel
+    var review: TweakApprovalReview
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Approve installed tweak builds?").font(.title2.weight(.semibold))
+            Text("Records each installed dylib's SHA-256 as its dylib-sha256 line, so an approval-aware dynjectd can tell "
+                 + "when a file is replaced. Approve only builds you made or trust.")
+                .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if let plan = review.plan {
+                GroupBox("Tweaks") {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(Array(plan.summaryLines.enumerated()), id: \.offset) { _, line in
+                            Text(line).font(.system(.callout, design: .monospaced))
+                        }
+                    }
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Text(plan.changesNothing ? "Every installed build is already approved."
+                     : model.env.fixtureMode ? "Fixture mode: the config is under the isolation root; the restart is simulated."
+                     : "macOS asks for your password once for the config and the dynjectd restart.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if let error = review.error {
+                Label(error, systemImage: "xmark.octagon.fill").foregroundStyle(.red).textSelection(.enabled)
+            }
+            HStack {
+                Spacer()
+                if model.isInstallingTweak { ProgressView().controlSize(.small) }
+                Button("Cancel") { model.approvalReview = nil }.keyboardShortcut(.cancelAction)
+                Button("Approve") { model.confirmApproveAll() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(review.plan?.changesNothing != false || model.isInstallingTweak || model.installBlocker != nil)
+                    .accessibilityIdentifier("approve-confirm")
+            }
+        }
+        .padding(20)
+        .frame(width: 560)
+        .accessibilityIdentifier("approve-sheet")
+    }
+}

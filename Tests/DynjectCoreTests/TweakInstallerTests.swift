@@ -234,6 +234,46 @@ final class TweakInstallerTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: result.outcome!.backups[dylib]!), FakeMachO.universal)
     }
 
+    /// The plan names the signer; a different one than the installed build's is a warning, and a first ad-hoc install
+    /// a note.
+    func testSignerInThePlan() throws {
+        let built = src.appendingPathComponent("build/libMyTweak.dylib").path
+        func plan(new: CodeSigner, installed: CodeSigner = .adhoc) throws -> TweakInstallPlan {
+            try TweakInstaller.plan(source: try TweakSource.locate(src.path, dylib: nil), enableFor: [], targets: Apps.targets(),
+                                    locations: loc, signer: { $0.hasSuffix("/MyTweak/build/libMyTweak.dylib") ? new : installed })
+        }
+        var p = try plan(new: .adhoc)
+        XCTAssertTrue(p.summary.contains("Signature: ad-hoc signed (no developer identity)"), "\(p.summary)")
+        XCTAssertTrue(p.notes.contains { $0.hasPrefix("It's ad-hoc signed") }, "\(p.notes)")
+        _ = try TweakInstaller.execute(p, writer: writer(), restarter: SimulatedRestarter())
+        try FakeMachO.make([FakeMachO.x86_64, FakeMachO.arm64, FakeMachO.arm64e], tag: "v2").write(to: URL(fileURLWithPath: built))
+
+        p = try plan(new: .adhoc)
+        XCTAssertTrue(p.summary.contains("Signature: ad-hoc signed (no developer identity), like the installed build"), "\(p.summary)")
+        XCTAssertFalse(p.warnings.contains { $0.contains("signer") }, "\(p.warnings)")
+        XCTAssertFalse(p.notes.contains { $0.hasPrefix("It's ad-hoc signed") }, "a replacement by the same signer needs no note")
+
+        p = try plan(new: .team("ABCDE12345", authority: "Developer ID Application: Someone (ABCDE12345)"))
+        XCTAssertTrue(p.summary.contains("Signature: signed by Developer ID Application: Someone (ABCDE12345) (Team ID ABCDE12345)"), "\(p.summary)")
+        XCTAssertTrue(p.warnings.contains("The signer changed: the installed build is ad-hoc signed (no developer identity), this one is signed by Developer ID Application: Someone (ABCDE12345) (Team ID ABCDE12345). Install it only if you know why."), "\(p.warnings)")
+        XCTAssertTrue(CodeSigner.team("A", authority: nil).sameSigner(as: .team("A", authority: "x")))
+        XCTAssertFalse(CodeSigner.team("A", authority: nil).sameSigner(as: .team("B", authority: nil)))
+        XCTAssertFalse(CodeSigner.unknown("x").sameSigner(as: .unknown("x")))
+    }
+
+    func testParsesCodesignOutput() {
+        XCTAssertEqual(CodeSigner.parse("Executable=/x\nIdentifier=libX\nSignature=adhoc\nTeamIdentifier=not set\n", status: 0), .adhoc)
+        XCTAssertEqual(CodeSigner.parse("Authority=Developer ID Application: OpenAI OpCo, LLC (2DC432GLL2)\nAuthority=Developer ID Certification Authority\nTeamIdentifier=2DC432GLL2\n", status: 0),
+                       .team("2DC432GLL2", authority: "Developer ID Application: OpenAI OpCo, LLC (2DC432GLL2)"))
+        XCTAssertEqual(CodeSigner.parse("/tmp/x: code object is not signed at all\n", status: 1), .unsigned)
+        XCTAssertEqual(CodeSigner.parse("/tmp/x: No such file or directory\n", status: 1), .unknown("/tmp/x: No such file or directory"))
+        // The real thing, on a file this test makes: unsigned.
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("unsigned-\(UUID().uuidString)")
+        try? Data("x".utf8).write(to: tmp)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        XCTAssertEqual(CodeSigner.of(fileAt: tmp.path), .unsigned)
+    }
+
     func testProtectedInstallAndUninstallTakeOneHelperInvocationEach() throws {
         // A read-only config (like the live root-owned one) sends every change through the helper script, which
         // runs here as the current user and can still replace it.

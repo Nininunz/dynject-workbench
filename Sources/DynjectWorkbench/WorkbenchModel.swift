@@ -148,7 +148,12 @@ final class WorkbenchModel {
     let tweakInstallWriter: ProtectedFileWriter
     var installReview: TweakInstallReview?
     var uninstallReview: TweakUninstallReview?
+    var approvalReview: TweakApprovalReview?
     var isInstallingTweak = false
+    /// What the running dynjectd does with dylib-sha256 approvals (nil: it doesn't check them), read with the tweaks.
+    var daemonApprovalMode: DaemonApprovalMode?
+    /// Installed dylibs' SHA-256, keyed by path, reused while the file's (size, mtime, inode) stays the same.
+    @ObservationIgnored var approvalDigests: [String: (key: String, hex: String?)] = [:]
 
     // MARK: Apple menu (MenuLoader)
     let menuPublisher: MenuLoaderPublisher
@@ -593,6 +598,7 @@ final class WorkbenchModel {
         if selectedTweakID == nil || !manifests.contains(where: { $0.id == selectedTweakID }) {
             selectedTweakID = manifests.first?.id
         }
+        daemonApprovalMode = DaemonApprovalMode.latest(inLogAt: env.logPath)
         publishAppleMenu()
         safeMode.manifests = manifests
         respring.scheduleRefresh()
