@@ -4,8 +4,8 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
-unreleased
-----------
+0.1.11 (2026-11-25)
+-------------------
 
 - tweak packages (docs/packages.md): `dw tweak pack <folder>` makes a `.dwtweak`, and
   `dw tweak install <file>.dwtweak` installs one. the zip is checked before anything is
@@ -14,6 +14,8 @@ unreleased
   change are refused unless allowed. `dw tweak list` says which package a tweak came from.
 - tweaks page: **install tweak…** takes a `.dwtweak` too, with a checkbox for each refusal it
   can override, and a "from a package" badge in the tweak's header.
+- the install review names the package for its dylib instead of the folder it was unpacked into.
+- the tweak sdk is 0.1.11 only to match; it hasn't changed since 0.1.9.
 
 
 0.1.10 (2026-11-25)
