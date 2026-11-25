@@ -204,6 +204,8 @@ final class TweakPackageTests: XCTestCase {
         XCTAssertEqual(p.summary.first, "Package local.mytweak-0.1.0.dwtweak (sha256 \(opened.info.sha256.prefix(16))…)")
         XCTAssertTrue(p.summary.contains { $0.hasPrefix("  Claims (unverified): name MyTweak, id local.mytweak, version 0.1.0") }, "\(p.summary)")
         XCTAssertTrue(p.summary.contains("  Includes README.md"), "\(p.summary)")
+        XCTAssertTrue(p.summary.contains { $0.hasPrefix("Copy local.mytweak-0.1.0.dwtweak's libMyTweak.dylib to /opt/dynject/lib/tweaks/libMyTweak.dylib") }, "\(p.summary)")
+        XCTAssertFalse(p.summary.contains { $0.contains("/Staging/") }, "the staging path isn't shown: \(p.summary)")
         XCTAssertTrue(p.warnings.contains { $0.hasPrefix("It's ad-hoc signed: nothing says who built it") }, "\(p.warnings)")
         XCTAssertFalse(p.isRefused)
 

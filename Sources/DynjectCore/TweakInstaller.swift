@@ -357,9 +357,11 @@ public struct TweakInstallPlan: Sendable {
         var out: [String] = packageLines + [compatibility.change.summary]
         let size = ByteCountFormatter.string(fromByteCount: Int64(dylibData.count), countStyle: .file)
         let elsewhere = dylibFilePath == dylibInstallPath ? "" : " [file: \(dylibFilePath)]"
+        // A package's files are in a staging folder that's gone after the install: name the package instead.
+        let from = package.map { "\(($0.fileName))'s \((source.dylibPath as NSString).lastPathComponent)" } ?? source.dylibPath
         switch dylibAction {
-        case .create: out.append("Copy \(source.dylibPath) to \(dylibInstallPath)\(elsewhere) (\(size), \(architectures.joined(separator: " ")))")
-        case .replace: out.append("Replace \(dylibInstallPath)\(elsewhere) with \(source.dylibPath) (\(size), \(architectures.joined(separator: " "))); the old file is backed up")
+        case .create: out.append("Copy \(from) to \(dylibInstallPath)\(elsewhere) (\(size), \(architectures.joined(separator: " ")))")
+        case .replace: out.append("Replace \(dylibInstallPath)\(elsewhere) with \(from) (\(size), \(architectures.joined(separator: " "))); the old file is backed up")
         case .unchanged: out.append("\(dylibInstallPath) is already this build")
         }
         if let signer, dylibAction != .unchanged {
