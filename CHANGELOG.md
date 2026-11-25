@@ -12,7 +12,8 @@ unreleased
   unpacked; the review shows the package's sha256, where it was downloaded from, what the
   manifest claims and what else the tweak can do. a package's `applyCommand` and a signer
   change are refused unless allowed. `dw tweak list` says which package a tweak came from.
-  workbench's install sheet doesn't take packages yet.
+- tweaks page: **install tweak…** takes a `.dwtweak` too, with a checkbox for each refusal it
+  can override, and a "from a package" badge in the tweak's header.
 
 
 0.1.10 (2026-11-25)

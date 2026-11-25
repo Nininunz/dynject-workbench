@@ -70,7 +70,7 @@ struct TweaksView: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
-        panel.message = "Choose a built tweak folder, or its *\(TweakManifest.fileSuffix) manifest"
+        panel.message = "Choose a built tweak folder, its *\(TweakManifest.fileSuffix) manifest, or a .\(TweakPackage.fileExtension) package"
         panel.prompt = "Review"
         if panel.runModal() == .OK, let url = panel.url { model.beginInstall(path: url.path) }
     }
@@ -229,6 +229,9 @@ struct TweakDetail: View {
                     Chip(text: "not in Dynject config", color: .orange)
                 }
                 if exists, let state = model.approvalState(m) { approvalChip(state) }
+                if let origin = model.tweakOrigin(m) {
+                    Chip(text: "from a package", color: .purple, systemImage: "shippingbox.fill").help(origin.summary)
+                }
                 Chip(text: m.takesEffect == .live ? "applies live" : "needs app relaunch",
                      color: m.takesEffect == .live ? .green : .orange)
             }

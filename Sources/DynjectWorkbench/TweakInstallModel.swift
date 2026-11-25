@@ -11,6 +11,11 @@ struct TweakInstallReview: Identifiable {
     var allowDowngrade = false
     /// Install below the minimum macOS or with unmet depends (an explicit checkbox in the sheet).
     var force = false
+    /// A .dwtweak, unpacked into its staging folder (docs/packages.md); removed when the sheet closes.
+    var package: OpenedTweakPackage?
+    /// A package's applyCommand, and a signer other than the installed build's (explicit checkboxes).
+    var allowApplyCommand = false
+    var allowSignerChange = false
     var plan: TweakInstallPlan?
     var error: String?
 }
@@ -70,7 +75,12 @@ extension WorkbenchModel {
 
     func beginInstall(path: String) {
         var review = TweakInstallReview(path: path)
-        do { review.source = try TweakSource.locate(path) } catch { review.error = error.localizedDescription }
+        do {
+            if TweakPackage.isPackage(path) { review.package = try TweakPackage.open(path) }
+            review.source = try TweakSource.locate(review.package?.folder ?? path)
+        } catch {
+            review.error = error.localizedDescription
+        }
         installReview = review
         replanInstall()
     }
@@ -78,7 +88,9 @@ extension WorkbenchModel {
     func replanInstall() {
         guard var review = installReview, let source = review.source, let loc = tweakInstallLocations else { return }
         do {
-            let options = TweakInstallOptions(allowDowngrade: review.allowDowngrade, force: review.force, components: componentStatus)
+            let options = TweakInstallOptions(allowDowngrade: review.allowDowngrade, force: review.force, components: componentStatus,
+                                              package: review.package?.info, allowApplyCommand: review.allowApplyCommand,
+                                              allowSignerChange: review.allowSignerChange)
             review.plan = try TweakInstaller.plan(source: source, enableFor: review.bundleIDs, targets: injectionTargets, locations: loc,
                                                   options: options)
             review.error = nil
@@ -171,6 +183,12 @@ extension WorkbenchModel {
                 }
             }
         }
+    }
+
+    /// The package a tweak came from (its origin file), or nil for a local build.
+    func tweakOrigin(_ m: TweakManifest) -> TweakOrigin? {
+        guard let dir = tweakInstallLocations?.manifestsDirectory else { return nil }
+        return TweakOrigin.load(TweakOrigin.path(for: m.id, in: dir))
     }
 
     /// nil when the config doesn't declare the tweak's dylib.

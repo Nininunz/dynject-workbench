@@ -17,7 +17,8 @@ struct InstallTweakSheet: View {
                     if let v = m.version { Text("v\(v)").foregroundStyle(.secondary) }
                 }
             }
-            Text(review.source?.manifestPath ?? review.path).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            Text(review.package != nil ? review.path : review.source?.manifestPath ?? review.path)
+                .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
 
             if review.source != nil {
                 GroupBox("Enable for") {
@@ -218,7 +219,22 @@ struct InstallCompatibilityBox: View {
                     }))
                     .accessibilityIdentifier("install-allow-downgrade")
                 }
-                if all.contains(where: { $0.kind != .downgrade }) {
+                if all.contains(where: { $0.kind == .applyCommand }) {
+                    Toggle("Allow the package's settings command (it runs as you, outside the apps you pick)",
+                           isOn: Binding(get: { review.allowApplyCommand }, set: { on in
+                               model.installReview?.allowApplyCommand = on
+                               model.replanInstall()
+                           }))
+                    .accessibilityIdentifier("install-allow-apply-command")
+                }
+                if all.contains(where: { $0.kind == .signerChange }) {
+                    Toggle("Install it although someone else signed it", isOn: Binding(get: { review.allowSignerChange }, set: { on in
+                        model.installReview?.allowSignerChange = on
+                        model.replanInstall()
+                    }))
+                    .accessibilityIdentifier("install-allow-signer-change")
+                }
+                if all.contains(where: { $0.kind == .systemTooOld || $0.kind == .unmetDependency }) {
                     Toggle("Install anyway (\(forceReasons)); it may not load or work", isOn: Binding(get: { review.force }, set: { on in
                         model.installReview?.force = on
                         model.replanInstall()

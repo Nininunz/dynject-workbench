@@ -146,7 +146,12 @@ final class WorkbenchModel {
     /// nil: installing is unavailable in this launch (see AppEnvironment.tweakInstallLocations).
     let tweakInstallLocations: TweakLocations?
     let tweakInstallWriter: ProtectedFileWriter
-    var installReview: TweakInstallReview?
+    var installReview: TweakInstallReview? {
+        // A package's unpacked copy lives as long as its review: cancelled, installed or replaced, it goes.
+        didSet {
+            if let old = oldValue?.package, old.stagingDirectory != installReview?.package?.stagingDirectory { old.remove() }
+        }
+    }
     var uninstallReview: TweakUninstallReview?
     var approvalReview: TweakApprovalReview?
     var isInstallingTweak = false
