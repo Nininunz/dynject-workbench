@@ -4,6 +4,19 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
+unreleased
+----------
+
+- install approval, workbench side (docs/install-approval.md): `dw tweak install` and the tweaks
+  page write a `dylib-sha256` line approving the exact build they install, in the same
+  privileged step; uninstall removes it. `dw tweak approve <tweak>... | --all` approves dylibs
+  installed before. the stock dynjectd ignores these lines; an approval-aware one (fork branch
+  approval-audit) logs or skips a dylib without a matching one.
+- a rebuilt tweak's reinstall now restarts dynjectd (its approval line changes).
+- `dw doctor` checks each dylib against its approval, as a warning or a problem depending on
+  what the running dynjectd does with approvals. the config validator knows the new keys.
+
+
 0.1.9 (2026-11-24)
 ------------------
 

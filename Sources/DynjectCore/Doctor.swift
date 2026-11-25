@@ -500,6 +500,10 @@ public enum Doctor {
         if diagnostics.isEmpty { s.ok("config validator", "no validator findings") }
 
         let fm = FileManager.default
+        // What the running dynjectd does with approvals (docs/install-approval.md): nil for the stock one.
+        let approvalMode = DynjectLogParser.readTail(path: c.logPath, maxBytes: 200_000).flatMap(DaemonApprovalMode.latest(in:))
+        var unapproved: [String] = []
+        var approved = 0
         for path in config.dylibPaths {
             let file = c.locations.filePath(forDylib: path)
             guard let data = try? Data(contentsOf: URL(fileURLWithPath: file), options: .mappedIfSafe) else {
@@ -518,6 +522,28 @@ public enum Doctor {
             if check.errors.isEmpty && check.warnings.isEmpty && signature == nil {
                 s.ok("dylib", "\(name(path)): \(check.archs.joined(separator: ", ")), signature valid")
             }
+            let digest = DylibDigest.sha256Hex(data)
+            switch config.approvals[path] {
+            case digest?:
+                approved += 1
+            case nil:
+                unapproved.append(name(path))
+            case let old?:
+                let detail = "\(name(path)): the file isn't the approved build (approved \(old.prefix(16))…, file \(digest.prefix(16))…)"
+                    + (approvalMode == .enforce ? "; dynjectd skips it" : "")
+                let fix = "if you rebuilt or reinstalled it yourself: dw tweak approve \(path); otherwise find out what replaced it"
+                if approvalMode == .enforce { s.problem("approval", detail, fix: fix) } else { s.warn("approval", detail, fix: fix) }
+            }
+        }
+        if !unapproved.isEmpty {
+            let detail = "\(unapproved.joined(separator: ", ")): no dylib-sha256 approval"
+            switch approvalMode {
+            case .enforce?: s.problem("approval", detail + "; dynjectd skips them (enforce)", fix: "dw tweak approve --all")
+            case .audit?: s.warn("approval", detail + "; dynjectd logs them and injects them (audit)", fix: "dw tweak approve --all")
+            case nil: s.ok("approval", detail + " (the running dynjectd doesn't check approvals)")
+            }
+        } else if approved > 0 {
+            s.ok("approval", "\(approved) dylib(s) approved" + (approvalMode.map { "; dynjectd checks them (\($0.rawValue))" } ?? ""))
         }
         let named = Set(manifests.map(\.dylib))
         for path in config.dylibPaths where !named.contains(path) {

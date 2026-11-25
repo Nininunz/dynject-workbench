@@ -334,6 +334,10 @@ public struct TweakInstallPlan: Sendable {
     public var extensionsAction: TweakFileAction = .unchanged
     /// The extensions in the app to install (their file names).
     public var extensionNames: [String] = []
+    /// The SHA-256 of the dylib being installed, written as its `dylib-sha256` approval.
+    public var approvalSHA256 = ""
+    /// The approval the config had before (nil: none).
+    public var approvalPrevious: String?
 
     public var restartsDaemon: Bool { configNew != nil }
     public var needsPrivilegedStep: Bool { dylibAction != .unchanged || configNew != nil }
@@ -360,6 +364,14 @@ public struct TweakInstallPlan: Sendable {
             }
         } else {
             out.append("\(locations.configPath) already has what's needed; dynjectd is not restarted")
+        }
+        if !approvalSHA256.isEmpty {
+            let short = approvalSHA256.prefix(16)
+            switch approvalPrevious {
+            case approvalSHA256?: break
+            case nil: out.append("Approve this build: sha256 \(short)… (dylib-sha256; checked by an approval-aware dynjectd)")
+            case let old?: out.append("Approve this build: sha256 \(short)…, replacing the approval for \(old.prefix(16))…")
+            }
         }
         if !alreadyEnabledFor.isEmpty { out.append("Already enabled for: \(alreadyEnabledFor.map(\.displayName).joined(separator: ", "))") }
         if restartsDaemon { out.append("Restart dynjectd") }
@@ -460,6 +472,10 @@ public enum TweakInstaller {
         for t in accepted {
             notes.append("Also reaches \(t.app.displayName) (\(t.app.bundleID)), accepted with --also.")
         }
+        // Approve the bytes being installed, in the same config write (docs/install-approval.md). The stock dynjectd
+        // ignores the line; an approval-aware one checks it.
+        let approval = DylibDigest.sha256Hex(dylibData)
+        doc = ConfigEditor.setApproval(installPath, sha256: approval, in: doc)
         try refuseNewErrors(from: original, to: doc)
         let configNew = doc.text == original.text ? nil : doc.text
 
@@ -497,6 +513,8 @@ public enum TweakInstaller {
             manifestDestination: destination, manifestCurrent: manifestCurrent, manifestAction: manifestAction,
             manifestsReplaced: replaced, warnings: warnings, notes: notes)
         plan.compatibility = compatibility
+        plan.approvalSHA256 = approval
+        plan.approvalPrevious = EffectiveConfig(document: original).approvals[installPath]
         if let app = source.extensionsAppPath, let destination = locations.installedExtensionsApp(for: manifest) {
             plan.extensionsAppDestination = destination
             plan.extensionNames = TweakExtensions.extensions(in: app).map { ($0 as NSString).lastPathComponent }
@@ -654,13 +672,18 @@ public struct TweakUninstallResult: Sendable {
 }
 
 public extension ConfigEditor {
-    /// Removes every `dylib:` and `dylib-override:` line for `path`. Returns the new document and the removed lines.
+    /// Removes every `dylib:`, `dylib-override:` and `dylib-sha256:` line for `path` (and a
+    /// `dylib-unsafe-executable:` exception for it). Returns the new document and the removed lines.
     static func removeDylib(_ path: String, from original: ConfigDocument) -> (ConfigDocument, [String]) {
         var doc = original
         var removed: [String] = []
         for i in doc.lines.indices.reversed() {
             switch doc.kind(at: i) {
-            case let .dylib(p, _) where p == path, let .override(p, _, _) where p == path:
+            case let .dylib(p, _) where p == path, let .override(p, _, _) where p == path,
+                 let .approval(p, _) where p == path:
+                removed.insert(doc.lines[i].text, at: 0)
+                doc.removeLine(at: i)
+            case let .unknownKey(key, value) where key == "dylib-unsafe-executable" && value.hasPrefix(path + ":"):
                 removed.insert(doc.lines[i].text, at: 0)
                 doc.removeLine(at: i)
             default: break

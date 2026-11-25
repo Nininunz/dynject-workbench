@@ -101,7 +101,12 @@ final class TweakInstallerTests: XCTestCase {
         XCTAssertEqual(result.outcome?.restart?.simulated, true)
         XCTAssertEqual(FileManager.default.contents(atPath: loc.dylibFileDirectory + "/libMyTweak.dylib"), FakeMachO.universal)
         let added = changedLines(Fixtures.text("live.conf"), config).added
-        XCTAssertEqual(added, ["dylib:\(installPath):deny", "dylib-override:\(installPath):allow:com.apple.TextEdit", "allow:TextEdit"])
+        let approval = "dylib-sha256:\(installPath):\(DylibDigest.sha256Hex(FakeMachO.universal))"
+        XCTAssertEqual(added, ["dylib:\(installPath):deny", approval, "dylib-override:\(installPath):allow:com.apple.TextEdit", "allow:TextEdit"])
+        XCTAssertEqual(plan.approvalSHA256, DylibDigest.sha256Hex(FakeMachO.universal))
+        XCTAssertNil(plan.approvalPrevious)
+        XCTAssertTrue(plan.summary.contains { $0.hasPrefix("Approve this build: sha256 ") }, "\(plan.summary)")
+        XCTAssertEqual(EffectiveConfig(document: ConfigDocument(text: config)).approvals[installPath], plan.approvalSHA256)
         XCTAssertTrue(ConfigValidator.diagnose(ConfigDocument(text: config)).filter { $0.severity == .error }.isEmpty)
         XCTAssertTrue(result.manifestWritten)
         XCTAssertEqual(FileManager.default.contents(atPath: loc.manifestsDirectory + "/MyTweak.workbench.plist"), Data(template.manifest.utf8))
@@ -199,20 +204,31 @@ final class TweakInstallerTests: XCTestCase {
         XCTAssertEqual(FileManager.default.contents(atPath: loc.manifestsDirectory + "/MyTweak.workbench.plist"), Data(template.manifest.utf8))
     }
 
-    func testReinstallAfterRebuildReplacesOnlyTheDylibWithoutRestart() throws {
+    func testReinstallAfterRebuildReplacesTheDylibAndItsApproval() throws {
         _ = try TweakInstaller.execute(try planInstall(), writer: writer(), restarter: SimulatedRestarter())
         let configBefore = config
         let rebuilt = FakeMachO.make([FakeMachO.x86_64, FakeMachO.arm64, FakeMachO.arm64e], tag: "v2")
         try rebuilt.write(to: src.appendingPathComponent("build/libMyTweak.dylib"))
 
+        // New bytes, new approval: the config changes on that one line, so dynjectd restarts to read it.
         let plan = try planInstall([])
         XCTAssertEqual(plan.dylibAction, .replace)
-        XCTAssertNil(plan.configNew)
+        XCTAssertEqual(plan.approvalPrevious, DylibDigest.sha256Hex(FakeMachO.universal))
+        XCTAssertEqual(plan.approvalSHA256, DylibDigest.sha256Hex(rebuilt))
+        let lines = changedLines(configBefore, plan.configNew!)
+        XCTAssertEqual(lines.removed, ["dylib-sha256:\(installPath):\(DylibDigest.sha256Hex(FakeMachO.universal))"])
+        XCTAssertEqual(lines.added, ["dylib-sha256:\(installPath):\(DylibDigest.sha256Hex(rebuilt))"])
+        XCTAssertTrue(plan.summary.contains { $0.contains("replacing the approval for") }, "\(plan.summary)")
         XCTAssertEqual(plan.manifestAction, .unchanged)
         let sim = SimulatedRestarter()
         let result = try TweakInstaller.execute(plan, writer: writer(), restarter: sim)
-        XCTAssertEqual(sim.count, 0)
-        XCTAssertEqual(config, configBefore)
+        XCTAssertEqual(sim.count, 1)
+        XCTAssertEqual(EffectiveConfig(document: ConfigDocument(text: config)).approvals[installPath], DylibDigest.sha256Hex(rebuilt))
+
+        // The same build again: nothing to do, no restart.
+        let again = try planInstall([])
+        XCTAssertNil(again.configNew)
+        XCTAssertEqual(again.dylibAction, .unchanged)
         let dylib = loc.dylibFileDirectory + "/libMyTweak.dylib"
         XCTAssertEqual(FileManager.default.contents(atPath: dylib), rebuilt)
         XCTAssertEqual(try Data(contentsOf: result.outcome!.backups[dylib]!), FakeMachO.universal)
@@ -387,7 +403,9 @@ final class TweakInstallerTests: XCTestCase {
         try safeMode.disable(tweakID: "local.other", bundleID: "com.apple.Notes")
 
         let plan = try TweakInstaller.planUninstall("local.mytweak", keepFile: false, locations: loc, safeMode: safeMode)
-        XCTAssertEqual(plan.removedConfigLines, ["dylib:\(installPath):deny", "dylib-override:\(installPath):allow:com.apple.TextEdit"])
+        XCTAssertEqual(plan.removedConfigLines, ["dylib:\(installPath):deny",
+                                                 "dylib-sha256:\(installPath):\(DylibDigest.sha256Hex(FakeMachO.universal))",
+                                                 "dylib-override:\(installPath):allow:com.apple.TextEdit"])
         XCTAssertNotNil(plan.dylibToRemove)
         XCTAssertEqual(plan.manifestFiles, [loc.manifestsDirectory + "/MyTweak.workbench.plist"])
         XCTAssertEqual(plan.safeModeEntries, ["com.apple.TextEdit"])

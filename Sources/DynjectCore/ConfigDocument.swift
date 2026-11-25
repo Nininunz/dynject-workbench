@@ -34,6 +34,13 @@ public enum LineKind: Equatable, Sendable {
     case deny(String)
     case uiApps(String)
     case skipHelpers(String)
+    /// `dylib-sha256:path:hex`: approves the exact bytes of a dylib (an approval-aware dynjectd; the stock one
+    /// ignores the key). `sha256` is lower-case.
+    case approval(path: String, sha256: String)
+    /// `dylib-sha256` without a path and 64 hex digits; dynjectd ignores it.
+    case malformedApproval
+    /// `dylib-approval:audit|enforce`. Anything but "enforce" is audit.
+    case approvalMode(String)
     case unknownKey(key: String, value: String)
     /// Non-comment line without a colon; dynjectd skips it.
     case noColon
@@ -42,7 +49,7 @@ public enum LineKind: Equatable, Sendable {
 
     public var isDirective: Bool {
         switch self {
-        case .blank, .comment, .noColon, .malformedOverride, .unknownKey: return false
+        case .blank, .comment, .noColon, .malformedOverride, .malformedApproval, .unknownKey: return false
         default: return true
         }
     }
@@ -96,6 +103,13 @@ public enum ConfigParser {
         case "deny": return .deny(String(value))
         case "ui_apps": return .uiApps(String(value))
         case "skip_helpers": return .skipHelpers(String(value))
+        case "dylib-sha256":
+            // The digest has no colon, so the last one splits it from the path (as dynjectd does).
+            guard let c = value.lastIndex(of: ":"), c != value.startIndex else { return .malformedApproval }
+            let hex = value[value.index(after: c)...]
+            guard hex.count == 64, hex.allSatisfy(\.isHexDigit) else { return .malformedApproval }
+            return .approval(path: String(value[..<c]), sha256: hex.lowercased())
+        case "dylib-approval": return .approvalMode(String(value))
         default: return .unknownKey(key: key, value: String(value))
         }
     }

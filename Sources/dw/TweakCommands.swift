@@ -1,4 +1,4 @@
-// `dw tweak install|uninstall|list` and `dw new`: one-step install of a built tweak folder, and a starter template.
+// `dw tweak install|uninstall|approve|list` and `dw new`: one-step install of a built tweak folder, and a starter template.
 // The planning and writing is DynjectCore's TweakInstaller, which Workbench's Tweaks page uses too.
 import DynjectCore
 import Foundation
@@ -8,6 +8,7 @@ usage:
   dw tweak install <folder|manifest.workbench.plist>... [--for <bundleID>]... [--dylib <built.dylib>]
                    [--also <bundleID>]... [--allow-downgrade] [--force] [--dry-run]
   dw tweak uninstall <tweakID|manifest.workbench.plist> [--keep-file] [--keep-rules] [--force] [--dry-run]
+  dw tweak approve <tweakID|manifest|dylib path>... | --all [--dry-run]
   dw tweak list
   dw new <Name> [--id <reverse.dns.id>] [--app <bundleID>] [--dir <path>] [--sdk <dir>]
 
@@ -19,11 +20,16 @@ usage:
              a macOS below the manifest's minimumSystemVersion or unmet depends (--force); warns outside
              testedSystemVersions. Refuses a config edit that would also reach apps it doesn't name (rules match
              service names by substring); --also <bundleID> accepts one such app.
-  uninstall  removes the tweak's dylib: and dylib-override: lines, deletes the dylib (not with --keep-file),
+  uninstall  removes the tweak's dylib:, dylib-override: and dylib-sha256: lines, deletes the dylib (not with --keep-file),
              restarts dynjectd (one prompt), then deletes its manifest and Safe Mode entries. Its settings stay.
              An allow:<executable> rule that only let this tweak's apps through goes too (--keep-rules keeps it);
              one other tweaks still reach an app through stays, and the plan says which.
              Refuses while other installed tweaks depend on it (--force).
+  approve    records the installed dylibs' SHA-256 in dynjectd.conf (dylib-sha256 lines) and restarts dynjectd:
+             one prompt. --all: every dylib the config declares. install already does this for what it installs;
+             approve is for dylibs installed before, or changed since. A stock dynjectd ignores the lines; an
+             approval-aware one logs (audit) or skips (enforce) a dylib without a matching one
+             (docs/install-approval.md).
   list       installed manifests: version, dylib, whether the file exists, config policy, Safe Mode support,
              SDK build, macOS range, depends.
   new        a ready-to-build tweak folder (default ./<Name>) with the SDK vendored in.
@@ -40,7 +46,7 @@ struct TweakArguments {
     var flags: Set<String> = []
 
     static let valued: Set<String> = ["--for", "--dylib", "--root", "--id", "--app", "--dir", "--sdk", "--also"]
-    static let boolean: Set<String> = ["--dry-run", "--keep-file", "--keep-rules", "--allow-downgrade", "--force"]
+    static let boolean: Set<String> = ["--dry-run", "--keep-file", "--keep-rules", "--allow-downgrade", "--force", "--all"]
 
     init(_ args: [String]) {
         var i = 0
@@ -134,6 +140,7 @@ func tweakCommand(_ args: [String]) {
             tweakInstall(path, a)
         }
     case ("uninstall", 2): tweakUninstall(p[1], a)
+    case ("approve", _): tweakApprove(Array(p.dropFirst()), a)
     case ("list", 1): tweakList(a)
     default:
         print(tweakUsage)
@@ -237,6 +244,49 @@ func tweakUninstall(_ tweak: String, _ a: TweakArguments) {
         printLines(result.problems, prefix: "warning: ")
         if ctx.locations.isLive { republishAppleMenu(ctx.locations) }
         print("Uninstalled \(plan.name). Apps that loaded it keep it until they quit: `dw respring` relaunches them. Its settings (dynject.tweak.\(plan.tweakID)) are kept.")
+    } catch {
+        fail(error.localizedDescription)
+    }
+}
+
+func tweakApprove(_ names: [String], _ a: TweakArguments) {
+    let all = a.flags.contains("--all")
+    if all == !names.isEmpty { fail("name the tweaks to approve, or --all\n\n\(tweakUsage)", 2) }
+    let ctx = TweakContext(a, what: "approve tweak builds")
+    do {
+        var dylibs: [String]?
+        if !all {
+            let (list, _, _) = TweakInstaller.list(locations: ctx.locations)
+            dylibs = try names.map { n in
+                if n.hasPrefix("/") { return n }
+                if let t = list.first(where: { $0.manifest.id == n || $0.manifest.sourcePath == n
+                                               || ($0.manifest.sourcePath as NSString).lastPathComponent == n }) {
+                    return t.manifest.dylib
+                }
+                throw TweakInstallError.refused("No installed tweak \(n) (see dw tweak list), and it isn't a dylib path.")
+            }
+        }
+        let plan = try TweakApprovalPlan.plan(dylibs: dylibs, locations: ctx.locations)
+        printLines(plan.summaryLines)
+        guard !plan.changesNothing else { print("Nothing to change."); return }
+        print("Edit \(ctx.locations.configPath):")
+        for op in plan.configLines {
+            if case let .added(l) = op { print("  + \(l)") }
+            if case let .removed(l) = op { print("  - \(l)") }
+        }
+        print("Restart dynjectd")
+        if a.dryRun { print("Dry run: nothing was changed."); return }
+        if !ctx.simulated, let notice = PromptedExecutor.notice() { print(notice) }
+        if let o = try plan.execute(writer: ctx.writer, restarter: ctx.restarter) {
+            for (path, url) in o.backups.sorted(by: { $0.key < $1.key }) { print("backed up \(path) to \(url.path)") }
+            if let r = o.restart {
+                print(r.simulated ? "dynjectd restart simulated (--root)" : "dynjectd restarted: now \(r.after.map(String.init).joined(separator: " "))")
+            }
+        }
+        let n = plan.entries.filter(\.changes).count
+        let mode = DaemonApprovalMode.latest(in: DynjectLogParser.readTail(path: ctx.logPath) ?? "")
+        print("Approved \(n) dylib(s). " + (mode.map { "dynjectd checks approvals (\($0.rawValue))." }
+            ?? "The running dynjectd doesn't check approvals; an approval-aware one will."))
     } catch {
         fail(error.localizedDescription)
     }

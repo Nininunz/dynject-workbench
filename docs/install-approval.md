@@ -1,7 +1,9 @@
 # Install approval (design, not built)
 
-Status: proposal, 2026-11-24. Nothing here is implemented in Workbench yet. The engine side exists as parked work on
-the fork's `safety-audit` branch (`tweak_trust.c`, commit aec768c), which isn't installed anywhere.
+Status, 2026-11-24: the first milestone is built. Engine: the fork's `approval-audit` branch (dylib-sha256,
+`dylib-approval:audit|enforce`, order-independent, cached digests), not installed anywhere yet. Workbench: installs
+write approvals, uninstalls remove them, `dw tweak approve`, and the `dw doctor` check. Not built yet: the richer
+approval prompt, `dw why`, packages, the VM and host rollout.
 
 ## Why
 

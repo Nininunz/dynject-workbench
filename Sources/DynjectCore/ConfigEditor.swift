@@ -224,7 +224,9 @@ public enum ConfigEditor {
             throw InjectionEditError.blocked("dynjectd supports at most \(DynjectLimits.maxDylibs) dylibs.")
         }
         var doc = original
-        let lastDylibLine = kinds.lastIndex { if case .dylib = $0 { return true }; if case .override = $0 { return true }; return false }
+        let lastDylibLine = kinds.lastIndex {
+            switch $0 { case .dylib, .override, .approval: return true; default: return false }
+        }
         let firstRule = kinds.firstIndex { switch $0 { case .allow, .deny, .uiApps, .skipHelpers: return true; default: return false } }
         let at = lastDylibLine.map { $0 + 1 } ?? firstRule ?? doc.lines.count
         doc.insertLine("dylib:\(path):deny", at: at)

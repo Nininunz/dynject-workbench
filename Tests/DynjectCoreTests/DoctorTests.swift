@@ -214,6 +214,47 @@ final class DoctorTests: XCTestCase {
         XCTAssertEqual(Doctor.run(s.context).checks.first { $0.check == "log errors" }?.status, .ok)
     }
 
+    func testApprovalCheckFollowsTheRunningDaemon() throws {
+        let s = try healthy()
+        let good = "/opt/dynject/lib/tweaks/libGood.dylib"
+        let digest = try XCTUnwrap(DylibDigest.sha256Hex(ofFileAt: root.appendingPathComponent("lib/tweaks/libGood.dylib").path))
+        let conf = root.appendingPathComponent("engine/etc/dynjectd.conf"), log = root.appendingPathComponent("engine/log/dynjectd.log")
+        let base = "dylib:\(good):deny\ndylib-override:\(good):allow:com.apple.TextEdit\nallow:TextEdit\n"
+        func approval() throws -> DoctorCheck {
+            try XCTUnwrap(Doctor.run(s.context).checks.first { $0.section == "config" && $0.check == "approval" })
+        }
+        func daemon(_ mode: String?) throws {
+            let line = mode.map { "[dynjectd 01:00:00] dynjectd: approval: \($0); 0 of 1 dylib(s) have a dylib-sha256 line\n" } ?? ""
+            try Data("[dynjectd 01:00:00] dynjectd: starting\n\(line)".utf8).write(to: log)
+        }
+
+        // Stock dynjectd (no approval line in its log): reported, not a warning.
+        var c = try approval()
+        XCTAssertEqual(c.status, .ok)
+        XCTAssertTrue(c.detail.contains("libGood.dylib: no dylib-sha256 approval (the running dynjectd doesn't check"), c.detail)
+        try daemon("audit")
+        c = try approval()
+        XCTAssertEqual(c.status, .warning)
+        XCTAssertEqual(c.fix, "dw tweak approve --all")
+        try daemon("enforce")
+        c = try approval()
+        XCTAssertEqual(c.status, .problem)
+        XCTAssertTrue(c.detail.contains("dynjectd skips them (enforce)"), c.detail)
+
+        try Data((base + "dylib-sha256:\(good):\(digest)\n").utf8).write(to: conf)
+        c = try approval()
+        XCTAssertEqual(c.status, .ok)
+        XCTAssertEqual(c.detail, "1 dylib(s) approved; dynjectd checks them (enforce)")
+
+        // The file changed after it was approved.
+        try Data((base + "dylib-sha256:\(good):\(String(repeating: "0", count: 64))\n").utf8).write(to: conf)
+        c = try approval()
+        XCTAssertEqual(c.status, .problem)
+        XCTAssertTrue(c.detail.contains("the file isn't the approved build"), c.detail)
+        try daemon("audit")
+        XCTAssertEqual(try approval().status, .warning)
+    }
+
     func testConfigTweakAndMenuFindings() throws {
         var s = try healthy()
         // A second declared dylib that doesn't exist and has no manifest, a validator error, a manifest for an

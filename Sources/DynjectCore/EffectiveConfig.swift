@@ -26,6 +26,10 @@ public struct EffectiveConfig: Equatable, Sendable {
     public var denyRules: [Rule] = []
     public var uiApps = true
     public var skipHelpers = true
+    /// dylib path → approved SHA-256 (lower-case hex), from `dylib-sha256` lines in any order; a later line wins.
+    public var approvals: [String: String] = [:]
+    /// `dylib-approval:enforce`. Otherwise audit, which is also what a config without the line means.
+    public var approvalEnforced = false
 
     public init() {}
 
@@ -51,6 +55,10 @@ public struct EffectiveConfig: Equatable, Sendable {
                 uiApps = LineKind.flagEnabled(value)
             case let .skipHelpers(value):
                 skipHelpers = LineKind.flagEnabled(value)
+            case let .approval(path, sha256):
+                approvals[path] = sha256
+            case let .approvalMode(value):
+                approvalEnforced = value == "enforce"
             default:
                 continue
             }
@@ -181,6 +189,16 @@ public enum ConfigValidator {
                 denyCount += 1
                 if denyCount > DynjectLimits.maxRules { out.append(.init(.error, line: i, "Too many deny rules; ignored.")) }
                 if value.isEmpty { out.append(.init(.warning, line: i, "Empty deny rule blocks every process.")) }
+            case .malformedApproval:
+                out.append(.init(.warning, line: i, "dylib-sha256 needs path:<64 hex digits>; dynjectd ignores this line."))
+            case let .approval(path, _):
+                if allDylibLines[path] == nil {
+                    out.append(.init(.warning, line: i, "No dylib line declares \(path); this approval does nothing."))
+                }
+            case let .approvalMode(value):
+                if value != "audit", value != "enforce" {
+                    out.append(.init(.warning, line: i, "dylib-approval is \"audit\" or \"enforce\"; dynjectd reads \"\(value)\" as audit."))
+                }
             case let .uiApps(value), let .skipHelpers(value):
                 if !["yes", "no", "1", "0"].contains(value) {
                     out.append(.init(.info, line: i, "Value \"\(value)\" is read as enabled (only \"no\" or \"0\" disable it)."))
