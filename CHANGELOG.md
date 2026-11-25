@@ -4,6 +4,17 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
+unreleased
+----------
+
+- tweak packages (docs/packages.md): `dw tweak pack <folder>` makes a `.dwtweak`, and
+  `dw tweak install <file>.dwtweak` installs one. the zip is checked before anything is
+  unpacked; the review shows the package's sha256, where it was downloaded from, what the
+  manifest claims and what else the tweak can do. a package's `applyCommand` and a signer
+  change are refused unless allowed. `dw tweak list` says which package a tweak came from.
+  workbench's install sheet doesn't take packages yet.
+
+
 0.1.10 (2026-11-25)
 -------------------
 

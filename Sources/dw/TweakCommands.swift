@@ -5,8 +5,10 @@ import Foundation
 
 let tweakUsage = """
 usage:
-  dw tweak install <folder|manifest.workbench.plist>... [--for <bundleID>]... [--dylib <built.dylib>]
-                   [--also <bundleID>]... [--allow-downgrade] [--force] [--dry-run]
+  dw tweak install <folder|manifest.workbench.plist|package.dwtweak>... [--for <bundleID>]... [--dylib <built.dylib>]
+                   [--also <bundleID>]... [--allow-downgrade] [--force] [--allow-apply-command]
+                   [--allow-signer-change] [--dry-run]
+  dw tweak pack <folder> [--out <dir>]
   dw tweak uninstall <tweakID|manifest.workbench.plist> [--keep-file] [--keep-rules] [--force] [--dry-run]
   dw tweak approve <tweakID|manifest|dylib path>... | --all [--dry-run]
   dw tweak list
@@ -30,6 +32,13 @@ usage:
              approve is for dylibs installed before, or changed since. A stock dynjectd ignores the lines; an
              approval-aware one logs (audit) or skips (enforce) a dylib without a matching one
              (docs/install-approval.md).
+  pack       a .dwtweak package from a built tweak folder (docs/packages.md): the manifest, build/<dylib>, the
+             extensionsApp and README/LICENSE files, as <id>-<version>.dwtweak in --out (default: the current
+             folder). Needs a version and a signed dylib with an arm64e slice. Prints its SHA-256.
+             install takes the file: it checks the zip before unpacking it, and its review adds the package's
+             source, its unverified claims and what else it can do. A package's applyCommand
+             (--allow-apply-command) and a signer different from the installed build's (--allow-signer-change)
+             are refused.
   list       installed manifests: version, dylib, whether the file exists, config policy, Safe Mode support,
              SDK build, macOS range, depends.
   new        a ready-to-build tweak folder (default ./<Name>) with the SDK vendored in.
@@ -45,8 +54,9 @@ struct TweakArguments {
     var values: [String: [String]] = [:]
     var flags: Set<String> = []
 
-    static let valued: Set<String> = ["--for", "--dylib", "--root", "--id", "--app", "--dir", "--sdk", "--also"]
-    static let boolean: Set<String> = ["--dry-run", "--keep-file", "--keep-rules", "--allow-downgrade", "--force", "--all"]
+    static let valued: Set<String> = ["--for", "--dylib", "--root", "--id", "--app", "--dir", "--sdk", "--also", "--out"]
+    static let boolean: Set<String> = ["--dry-run", "--keep-file", "--keep-rules", "--allow-downgrade", "--force", "--all",
+                                       "--allow-apply-command", "--allow-signer-change"]
 
     init(_ args: [String]) {
         var i = 0
@@ -139,6 +149,7 @@ func tweakCommand(_ args: [String]) {
             if i > 0 { print("") }
             tweakInstall(path, a)
         }
+    case ("pack", 2): tweakPack(p[1], a)
     case ("uninstall", 2): tweakUninstall(p[1], a)
     case ("approve", _): tweakApprove(Array(p.dropFirst()), a)
     case ("list", 1): tweakList(a)
@@ -155,8 +166,19 @@ func printLines(_ lines: [String], prefix: String = "  ") {
 func tweakInstall(_ path: String, _ a: TweakArguments) {
     let bundleIDs = (a.values["--for"] ?? []).flatMap { $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) } }
         .filter { !$0.isEmpty }
+    var package: OpenedTweakPackage?
+    defer { package?.remove() }
+    // fail() exits, which skips the defer: remove the unpacked package first.
+    func fail(_ message: String) -> Never {
+        package?.remove()
+        dw.fail(message)
+    }
     do {
-        let source = try TweakSource.locate(path, dylib: a.value("--dylib"))
+        if TweakPackage.isPackage(path) {
+            if a.value("--dylib") != nil { fail("--dylib doesn't apply to a package: it carries its own build") }
+            package = try TweakPackage.open(path)
+        }
+        let source = try TweakSource.locate(package?.folder ?? path, dylib: a.value("--dylib"))
         let ctx = TweakContext(a, what: "install \(source.manifest.name)")
         var targets: [InjectionTarget] = []
         if !bundleIDs.isEmpty {
@@ -168,10 +190,12 @@ func tweakInstall(_ path: String, _ a: TweakArguments) {
         let also = Set((a.values["--also"] ?? []).flatMap { $0.split(separator: ",").map(String.init) })
         let options = TweakInstallOptions(allowDowngrade: a.flags.contains("--allow-downgrade"), force: a.flags.contains("--force"),
                                           components: BuiltInComponent.installedStatus(launchAgentsDirectory: ctx.launchAgentsDirectory),
-                                          alsoAffecting: also)
+                                          alsoAffecting: also, package: package?.info,
+                                          allowApplyCommand: a.flags.contains("--allow-apply-command"),
+                                          allowSignerChange: a.flags.contains("--allow-signer-change"))
         let plan = try TweakInstaller.plan(source: source, enableFor: bundleIDs, targets: targets, locations: ctx.locations,
                                            options: options)
-        print("\(plan.manifest.name) (\(plan.manifest.id)\(plan.manifest.version.map { " v\($0)" } ?? "")) from \(source.manifestPath)")
+        print("\(plan.manifest.name) (\(plan.manifest.id)\(plan.manifest.version.map { " v\($0)" } ?? "")) from \(package?.info.path ?? source.manifestPath)")
         printLines(plan.summary)
         printLines(plan.warnings, prefix: "  warning: ")
         printLines(plan.notes, prefix: "  note: ")
@@ -320,6 +344,9 @@ func tweakList(_ a: TweakArguments) {
             print("  depends    " + all.map { d in "\(deps.problem(d) == nil ? "✓" : "✗") \(d)\(d.implicit ? " (bridge capabilities)" : "")" }.joined(separator: ", "))
         }
         print("  manifest   \(t.manifest.sourcePath)")
+        if let o = TweakOrigin.load(TweakOrigin.path(for: t.manifest.id, in: ctx.locations.manifestsDirectory)) {
+            print("  origin     \(o.summary)")
+        }
     }
     if !unmanifested.isEmpty {
         print("In the config without a manifest:")
@@ -383,5 +410,15 @@ func republishAppleMenu(_ locations: TweakLocations) {
         }
     } catch {
         print("warning: apple menu not republished: \(error.localizedDescription); press Reload in Workbench")
+    }
+}
+
+func tweakPack(_ folder: String, _ a: TweakArguments) {
+    do {
+        let out = a.value("--out") ?? FileManager.default.currentDirectoryPath
+        let (path, sha) = try TweakPackage.pack(folder: folder, outputDirectory: out)
+        print("Packed \(path)\n  sha256 \(sha)")
+    } catch {
+        fail(error.localizedDescription)
     }
 }

@@ -384,9 +384,12 @@ replaces every entry. full rules: docs/safe-mode.md.
 installing, uninstalling, listing
 ---------------------------------
 
-    dw tweak install <folder|manifest> [--for <bundleID>]... [--dylib <path>]
-                     [--allow-downgrade] [--force] [--dry-run]
+    dw tweak install <folder|manifest|package.dwtweak> [--for <bundleID>]... [--dylib <path>]
+                     [--allow-downgrade] [--force] [--allow-apply-command]
+                     [--allow-signer-change] [--dry-run]
     dw tweak uninstall <tweakID|manifest> [--keep-file] [--keep-rules] [--force] [--dry-run]
+    dw tweak approve <tweak>... | --all [--dry-run]
+    dw tweak pack <folder> [--out <dir>]
     dw tweak list
 
 install validates the manifest (errors refuse) and the dylib (a mach-o dylib with an
@@ -415,8 +418,18 @@ dylibs configured"); turn that tweak off per app instead.
 uninstall also refuses while another installed tweak `depends` on it (`--force`).
 
 list shows each installed manifest's version, dylib, whether the file exists, its config
-policy, its safe mode support, the DynjectHook it was built with, its macos range and
-its dependencies (✓/✗).
+policy, its safe mode support, the DynjectHook it was built with, its macos range,
+its dependencies (✓/✗), and the package it came from, if it came from one.
+
+sharing a tweak: `dw tweak pack <folder>` writes `<id>-<version>.dwtweak`, a zip of the
+manifest, `build/<dylib>`, the `extensionsApp` and README/LICENSE files. it needs a
+`version` and a signed dylib with an arm64e slice, and prints the package's sha256.
+`dw tweak install <file>.dwtweak` checks the zip before unpacking it (one folder, no
+links, no `..`, at most 500 entries and 200 MB) and installs it like a folder. its
+review adds the package's sha256, where it was downloaded from, what the manifest
+claims (unverified) and what else the tweak can do. for a package, an `applyCommand`
+(`--allow-apply-command`) and a signer other than the installed build's
+(`--allow-signer-change`) are refused. see docs/packages.md.
 
 more apps later: workbench's apps & injection page, or
 `dw enable /opt/dynject/lib/tweaks/libX.dylib <bundleID>` (and `dw disable`).

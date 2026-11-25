@@ -237,9 +237,19 @@ public struct TweakInstallOptions: Sendable, Equatable {
     /// by substring, so enabling a tweak for com.apple.controlcenter also reaches
     /// com.apple.controlcenter.PreloginSystemBannerRenderer; a tweak whose DH_CTOR names only the first stays out of it.
     public var alsoAffecting: Set<String>
+    /// Installing from a package (docs/packages.md): its file, and the stricter rules that come with it.
+    public var package: TweakPackageInfo?
+    /// A package's `applyCommand` (`--allow-apply-command`).
+    public var allowApplyCommand: Bool
+    /// A package signed by someone other than the installed build's signer (`--allow-signer-change`).
+    public var allowSignerChange: Bool
 
     public init(allowDowngrade: Bool = false, force: Bool = false, systemVersion: SystemVersion = .current,
-                components: [BuiltInComponent: Bool] = [:], alsoAffecting: Set<String> = []) {
+                components: [BuiltInComponent: Bool] = [:], alsoAffecting: Set<String> = [], package: TweakPackageInfo? = nil,
+                allowApplyCommand: Bool = false, allowSignerChange: Bool = false) {
+        self.package = package
+        self.allowApplyCommand = allowApplyCommand
+        self.allowSignerChange = allowSignerChange
         self.allowDowngrade = allowDowngrade
         self.force = force
         self.systemVersion = systemVersion
@@ -290,14 +300,31 @@ public enum TweakVersionChange: Equatable, Sendable {
 
 /// Something that stops an install unless overridden.
 public struct TweakInstallRefusal: Equatable, Sendable, Identifiable {
-    public enum Kind: String, Sendable { case downgrade, systemTooOld, unmetDependency }
+    public enum Kind: String, Sendable { case downgrade, systemTooOld, unmetDependency, applyCommand, signerChange }
     public var id: String { kind.rawValue + ":" + message }
     public var kind: Kind
     public var message: String
     public var fix: String?
 
     /// The dw option that overrides it.
-    public var override: String { kind == .downgrade ? "--allow-downgrade" : "--force" }
+    public var override: String {
+        switch kind {
+        case .downgrade: return "--allow-downgrade"
+        case .applyCommand: return "--allow-apply-command"
+        case .signerChange: return "--allow-signer-change"
+        case .systemTooOld, .unmetDependency: return "--force"
+        }
+    }
+
+    /// Whether `options` override it.
+    public func isOverridden(by options: TweakInstallOptions) -> Bool {
+        switch kind {
+        case .downgrade: return options.allowDowngrade
+        case .applyCommand: return options.allowApplyCommand
+        case .signerChange: return options.allowSignerChange
+        case .systemTooOld, .unmetDependency: return options.force
+        }
+    }
 }
 
 /// The version, macOS and dependency checks of one install plan.
@@ -339,9 +366,13 @@ public struct TweakInstallCheck: Sendable, Equatable {
         for u in deps.unmet(for: manifest) {
             all.append(.init(kind: .unmetDependency, message: "\(manifest.name) \(u.message).", fix: u.fix))
         }
+        if options.package != nil, let cmd = manifest.applyCommand, !cmd.isEmpty {
+            all.append(.init(kind: .applyCommand,
+                             message: "The package's manifest runs \(cmd.joined(separator: " ")) as you, from Workbench, each time you change a setting.",
+                             fix: "install it only if you trust that program"))
+        }
         for r in all {
-            let overridden = r.kind == .downgrade ? options.allowDowngrade : options.force
-            if overridden { check.overridden.append(r) } else { check.refusals.append(r) }
+            if r.isOverridden(by: options) { check.overridden.append(r) } else { check.refusals.append(r) }
         }
         check.warnings += check.overridden.map { "Installing anyway (\($0.override)): \($0.message)" }
         return check

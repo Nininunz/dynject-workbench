@@ -1,7 +1,8 @@
-# Tweak packages (design, not built)
+# Tweak packages
 
-Status, 2026-11-25: proposal. Nothing here is built yet. It builds on install approval (docs/install-approval.md),
-which is done.
+Status, 2026-11-25: milestone 1 is built: `dw tweak pack`, and `dw tweak install <file.dwtweak>` with the checks,
+the review section, the two refusals and the origin file. Not built yet: Workbench's Install Tweak… taking a package,
+and the VM test. It builds on install approval (docs/install-approval.md).
 
 ## Why
 
@@ -44,13 +45,16 @@ quarantine, and prints its SHA-256.
 
 ## Opening a package
 
-1. **List before extracting.** Read the zip's entries (`zipinfo`), and refuse the package on any of these:
-   - an absolute path, `..`, or a name that isn't valid UTF-8;
-   - more than one top-level folder;
+1. **List before extracting.** Workbench reads the zip's own directory, and refuses the package on any of these:
+   - an absolute path, `..`, a backslash, a control character, or a name that isn't valid UTF-8;
+   - a local header that names a different file than the directory (how a zip shows one name and extracts
+     another);
+   - more than one top-level folder (Finder's `__MACOSX` aside, which is dropped);
    - a symbolic link or a device file;
+   - zip64, encryption, or compression other than deflate;
    - more than 500 entries, or more than 200 MB uncompressed.
-2. **Extract** with `ditto -x -k --norsrc --noqtn` into a new 0700 folder under
-   `~/Library/Caches/Dynject Workbench/Packages/<package sha256>/`.
+2. **Extract** a private copy of the checked bytes with `ditto -x -k --norsrc --noextattr --noqtn --noacl` into a
+   new 0700 folder under `~/Library/Caches/Dynject Workbench/Packages/`.
 3. **Walk what came out** with `lstat`: regular files and folders only, all inside the staging folder. Anything else
    refuses the package.
 4. **Locate and plan** it as a folder: the dylib checks, version, `depends`, signer, the approval line. The plan

@@ -341,6 +341,9 @@ public struct TweakInstallPlan: Sendable {
     /// Who signed the dylib being installed, and the installed one it replaces (nil when nothing is replaced).
     public var signer: CodeSigner?
     public var installedSigner: CodeSigner?
+    /// Installing from a package: its file, and the review's package section (docs/packages.md).
+    public var package: TweakPackageInfo?
+    public var packageLines: [String] = []
 
     public var restartsDaemon: Bool { configNew != nil }
     public var needsPrivilegedStep: Bool { dylibAction != .unchanged || configNew != nil }
@@ -351,7 +354,7 @@ public struct TweakInstallPlan: Sendable {
 
     /// What will happen, one line each, for `dw` and Workbench's review sheet.
     public var summary: [String] {
-        var out: [String] = [compatibility.change.summary]
+        var out: [String] = packageLines + [compatibility.change.summary]
         let size = ByteCountFormatter.string(fromByteCount: Int64(dylibData.count), countStyle: .file)
         let elsewhere = dylibFilePath == dylibInstallPath ? "" : " [file: \(dylibFilePath)]"
         switch dylibAction {
@@ -533,10 +536,36 @@ public enum TweakInstaller {
                 let old = signer(filePath)
                 plan.installedSigner = old
                 if !new.sameSigner(as: old) {
-                    plan.warnings.append("The signer changed: the installed build is \(old.summary), this one is \(new.summary). Install it only if you know why.")
+                    let message = "The signer changed: the installed build is \(old.summary), this one is \(new.summary)."
+                    if options.package != nil {
+                        // A package from someone else: refused unless allowed (docs/packages.md).
+                        let r = TweakInstallRefusal(kind: .signerChange, message: message,
+                                                    fix: "install it only if you know why the signer changed")
+                        if r.isOverridden(by: options) {
+                            plan.compatibility.overridden.append(r)
+                            plan.warnings.append("Installing anyway (\(r.override)): \(message)")
+                        } else {
+                            plan.compatibility.refusals.append(r)
+                        }
+                    } else {
+                        plan.warnings.append(message + " Install it only if you know why.")
+                    }
                 }
-            } else if new == .adhoc {
+            } else if new == .adhoc, options.package == nil {
                 plan.notes.append("It's ad-hoc signed, so its signature doesn't say who built it: install it if you built it or trust where it came from.")
+            }
+        }
+        if let package = options.package {
+            plan.package = package
+            plan.packageLines = packageReview(package, manifest: manifest, dylibData: dylibData, enabling: enabled + already,
+                                              newlyDeclared: declares)
+            if plan.signer == .adhoc || (plan.signer == nil && signer(source.dylibPath) == .adhoc) {
+                plan.warnings.append("It's ad-hoc signed: nothing says who built it, or that a later update comes from the same person.")
+            }
+            for item in manifest.appleMenu {
+                guard case let .url(u) = item.action, let scheme = URL(string: u)?.scheme?.lowercased(),
+                      !["http", "https", "mailto"].contains(scheme) else { continue }
+                plan.warnings.append("Its Apple-menu item \"\(item.title)\" opens \(u), a \(scheme): link handled by another app.")
             }
         }
         if let app = source.extensionsAppPath, let destination = locations.installedExtensionsApp(for: manifest) {
@@ -547,6 +576,41 @@ public enum TweakInstaller {
             if plan.extensionNames.isEmpty { plan.warnings.append("\(app) has no app extensions (Contents/Extensions/*.appex).") }
         }
         return plan
+    }
+
+    /// The review's package section: the file, what it claims, what's checked, and what else it can do.
+    static func packageReview(_ p: TweakPackageInfo, manifest m: TweakManifest, dylibData: Data,
+                              enabling: [InstalledApp], newlyDeclared: Bool) -> [String] {
+        var out = ["Package \(p.fileName) (sha256 \(p.sha256.prefix(16))…)"]
+        if let url = p.whereFrom.first { out.append("  downloaded from \(url)" + (p.downloadedBy.map { " with \($0)" } ?? "")) }
+        else if let by = p.downloadedBy { out.append("  downloaded with \(by)") }
+        var claims = ["name \(m.name)", "id \(m.id)"]
+        if let v = m.version { claims.append("version \(v)") }
+        if let a = m.author { claims.append("author \(a)") }
+        out.append("  Claims (unverified): " + claims.joined(separator: ", "))
+        let markers = CtorMarker.markers(in: dylibData)
+        let targets: String
+        switch markers.first?.bundleIDs {
+        case nil: targets = markers.isEmpty ? "doesn't say (no DH_CTOR marker)" : "doesn't say (not literal bundle IDs)"
+        case let ids? where ids.isEmpty: targets = "every app it's injected into"
+        case let ids?: targets = ids.joined(separator: ", ")
+        }
+        let enablingText = !enabling.isEmpty ? "you're enabling it for \(enabling.map(\.bundleID).joined(separator: ", "))"
+            : newlyDeclared ? "you're enabling it for no apps yet (deny by default)" : "the config's rules for it stay as they are"
+        out.append("  Its dylib targets: \(targets); \(enablingText)")
+        var can: [String] = []
+        if let cmd = m.applyCommand, !cmd.isEmpty { can.append("runs \(cmd.joined(separator: " ")) when a setting changes") }
+        let actions = m.appleMenu.compactMap { item -> String? in
+            if case .notify = item.action { return nil }
+            return "\"\(item.title)\" → \(item.action.rawValue)"
+        }
+        if !actions.isEmpty { can.append("Apple-menu items: " + actions.joined(separator: "; ")) }
+        if let app = m.extensionsApp { can.append("registers the app extensions in \(app)") }
+        if !m.bridge.isEmpty { can.append("bridge: " + m.bridge.map(\.rawValue).joined(separator: ", ")) }
+        if !m.depends.isEmpty { can.append("depends on " + m.depends.map(\.description).joined(separator: ", ")) }
+        out.append("  Also: " + (can.isEmpty ? "nothing beyond loading into the apps you pick" : can.joined(separator: "; ")))
+        if !p.documents.isEmpty { out.append("  Includes \(p.documents.joined(separator: ", "))") }
+        return out
     }
 
     /// Runs a plan: dylib and config in one `apply` (one administrator prompt at most, restart folded in), then the
@@ -587,6 +651,18 @@ public enum TweakInstaller {
             written = try writeManifest(plan, backups: writer.backups)
         } catch {
             problems.append("The manifest wasn't copied to \(plan.manifestDestination): \(error.localizedDescription)")
+        }
+        // Where it came from: an origin file for a package; none for a local build (docs/packages.md).
+        let origin = TweakOrigin.path(for: plan.manifest.id, in: plan.locations.manifestsDirectory)
+        if let p = plan.package {
+            do {
+                try TweakOrigin(packageFile: p.fileName, packageSHA256: p.sha256, whereFrom: p.whereFrom,
+                                signer: plan.signer?.summary ?? "signature unknown", installed: Date()).write(to: origin)
+            } catch {
+                problems.append("Couldn't record where it came from (\(origin)): \(error.localizedDescription)")
+            }
+        } else {
+            try? FileManager.default.removeItem(atPath: origin)
         }
         let symbols = TweakSymbolStore(directory: URL(fileURLWithPath: plan.locations.symbolsDirectory, isDirectory: true))
             .keep(dylibAt: plan.source.dylibPath)
@@ -877,6 +953,7 @@ public extension TweakInstaller {
                 problems.append("Couldn't delete \(file): \(error.localizedDescription)")
             }
         }
+        try? fm.removeItem(atPath: TweakOrigin.path(for: plan.tweakID, in: plan.locations.manifestsDirectory))
         if let safeMode {
             let listed = safeMode.keys.entries()[plan.tweakID] != nil
             let recorded = safeMode.stateStore.load().disabled.contains { $0.tweakID == plan.tweakID }
