@@ -4,8 +4,8 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
-unreleased
-----------
+0.1.16 (2026-11-26)
+-------------------
 
 - safari: with the revised engine, workbench expects tweaks in apps that run from a cryptex
   (safari's real location) the way that engine injects them. before, `dw respring` and doctor
