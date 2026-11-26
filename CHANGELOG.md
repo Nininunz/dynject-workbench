@@ -4,8 +4,8 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
-unreleased
-----------
+0.1.14 (2026-11-25)
+-------------------
 
 - workbench now models two engines and picks the one that is installed. it tells them apart by the
   loader's last start line in dynjectd.log (the revised loader says "amfid hook removed").
