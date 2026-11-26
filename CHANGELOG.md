@@ -4,6 +4,24 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
+unreleased
+----------
+
+- workbench now models two engines and picks the one that is installed. it tells them apart by the
+  loader's last start line in dynjectd.log (the revised loader says "amfid hook removed").
+  `dw doctor` says so when it is the revised one. with the stock engine nothing changes.
+- for the revised engine (the hardening and launch/config pull requests against dynject):
+  - `dw why`, the apps list and the install plan know that a dylib needs the service name and the
+    app's own bundle identifier to allow it, and say which of the two refused.
+  - a system-daemon name counts only as a whole word of the service name, so an app such as
+    thunderbird is no longer shown as skipped for containing "bird".
+  - `ui_apps` and `skip_helpers` take yes/no/true/false/on/off/1/0; the validator warns about any
+    other value instead of calling it "enabled".
+  - an override above its `dylib:` line is no longer flagged: that engine reads it.
+  - `dw doctor` shows the config problems dynjectd itself reported when it last started.
+- the daemon's approval mode is read only from lines dynjectd wrote about itself. a launchd label
+  that contained "dynjectd: approval: enforce" could make workbench show enforce.
+
 0.1.13 (2026-11-25)
 -------------------
 

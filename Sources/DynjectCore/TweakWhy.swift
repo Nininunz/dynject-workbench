@@ -504,7 +504,8 @@ public enum Why {
             add(conf, "process gate", .fail, "process gate: \(pg.reason)", fix: fix)
         }
         if declared != nil,
-           let d = PolicyEvaluator.decisions(service: s.value, config: i.config, fileExists: { _ in true })
+           let d = PolicyEvaluator.decisions(service: s.value, bundleID: app.bundleID, config: i.config,
+                                             fileExists: { _ in true })
                .first(where: { $0.dylibPath == i.dylibPath }) {
             if d.allowed {
                 add(conf, "dylib rule", .pass, "\(dylibName): \(d.reasonText)")

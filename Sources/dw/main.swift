@@ -162,6 +162,8 @@ func applyConfig(_ newPath: String, confirmed: Bool) {
     }
 }
 
+EngineRules.follow(logAt: logPath)
+
 let a = Array(CommandLine.arguments.dropFirst())
 switch (a.first, a.count) {
 case ("--version", _), ("version", _): print(WorkbenchInfo.versionText)

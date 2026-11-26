@@ -347,6 +347,21 @@ public enum CodeSignatureCheck {
 
 public enum Doctor {
     /// Seen in `fix` lines.
+    /// The "config: …" lines dynjectd logged at its latest start in `text` (the revised engine reports lines it
+    /// ignored). Only the daemon's own lines count, not text it logs from outside.
+    static func configComplaints(inLog text: String) -> [String] {
+        var found: [String] = []
+        for line in text.split(whereSeparator: \.isNewline) {
+            guard line.hasPrefix("[dynjectd "), let close = line.firstIndex(of: "]") else { continue }
+            let rest = line[line.index(after: close)...]
+            guard rest.hasPrefix(" dynjectd: ") else { continue }
+            let message = rest.dropFirst(" dynjectd: ".count)
+            if message == "starting" { found = [] }
+            else if message.hasPrefix("config: ") { found.append(String(message.dropFirst("config: ".count))) }
+        }
+        return found
+    }
+
     static let restartHint = "restart dynject: workbench -> daemon -> restart dynject (stops every dynjectd, starts one)"
     static let amfidHint = "workbench -> daemon -> restart dynject (starts the idle amfid first); by hand: "
         + "sudo launchctl kickstart system/com.apple.MobileFileIntegrity, then sudo launchctl kickstart system/\(DaemonInspector.label)"
@@ -415,6 +430,18 @@ public enum Doctor {
         let lastStartFailedOnAmfid = logText.map { text in
             text.split(whereSeparator: \.isNewline).last { $0.contains("dynject_loader:") }?.contains("amfid not found") ?? false
         } ?? false
+        if EngineRules.detect(logAt: c.logPath) == .revised {
+            s.ok("engine rules", "revised engine (from the loader's last start): daemon names match as whole words, "
+                 + "and a dylib needs the service name and the app's own identifier to allow it")
+        }
+        // What the daemon said about the config when it last started ("config: line 13: ...").
+        let configComplaints = Self.configComplaints(inLog: logText ?? "")
+        if !configComplaints.isEmpty {
+            s.warn("config as dynjectd read it",
+                   "dynjectd reported \(configComplaints.count) config problem(s) at its last start: "
+                   + configComplaints.prefix(3).joined(separator: "; "),
+                   fix: "fix those lines in Workbench → Raw Config, then restart dynjectd")
+        }
         switch daemon.processes.count {
         case 0:
             s.problem("dynjectd running", "dynjectd isn't running: nothing is injected"

@@ -132,7 +132,7 @@ public enum ConfigEditor {
             // contains the executable's name; system daemons and deny rules still refuse.
             let effectiveNow = EffectiveConfig(document: doc)
             if !service.passed, target.service.contains(app.executableName),
-               PolicyEvaluator.systemDaemonPatterns.allSatisfy({ !target.service.contains($0) }),
+               PolicyEvaluator.systemDaemonPattern(in: target.service) == nil,
                effectiveNow.denyRules.allSatisfy({ !target.service.contains($0.value) }) {
                 let rule = "allow:\(app.executableName)"
                 let insertAt = (effectiveNow.allowRules.last?.line).map { $0 + 1 } ?? doc.lines.count

@@ -33,18 +33,26 @@ public struct EffectiveConfig: Equatable, Sendable {
 
     public init() {}
 
-    public init(document: ConfigDocument) {
+    public init(document: ConfigDocument, rules: EngineRules = .active) {
+        // The revised engine matches overrides to dylibs after it has read the whole file.
+        var pending: [(path: String, override: Override)] = []
+        func attach(_ path: String, _ override: Override) {
+            // To the first declared dylib with this exact path.
+            guard let d = dylibs.firstIndex(where: { $0.path == path }) else { return }
+            guard dylibs[d].overrides.count < DynjectLimits.maxOverridesPerDylib else { return }
+            dylibs[d].overrides.append(override)
+        }
+        defer { for p in pending { attach(p.path, p.override) } }
+
         for (index, kind) in document.kinds.enumerated() {
             switch kind {
             case let .dylib(path, token):
                 guard dylibs.count < DynjectLimits.maxDylibs else { continue }
                 dylibs.append(Dylib(path: path, defaultAllow: LineKind.policyAllows(token), line: index, overrides: []))
             case let .override(path, token, pattern):
-                // Attaches to the first already-declared dylib with this exact path.
-                guard let d = dylibs.firstIndex(where: { $0.path == path }) else { continue }
-                guard dylibs[d].overrides.count < DynjectLimits.maxOverridesPerDylib else { continue }
-                dylibs[d].overrides.append(Override(pattern: Self.truncatedPattern(pattern),
-                                                    allow: token == "allow", line: index))
+                let override = Override(pattern: Self.truncatedPattern(pattern), allow: token == "allow", line: index)
+                // Stock: only a dylib declared above the override gets it.
+                if rules == .stock { attach(path, override) } else { pending.append((path, override)) }
             case let .allow(value):
                 guard allowRules.count < DynjectLimits.maxRules else { continue }
                 allowRules.append(Rule(value: value, line: index))
@@ -52,9 +60,9 @@ public struct EffectiveConfig: Equatable, Sendable {
                 guard denyRules.count < DynjectLimits.maxRules else { continue }
                 denyRules.append(Rule(value: value, line: index))
             case let .uiApps(value):
-                uiApps = LineKind.flagEnabled(value)
+                uiApps = LineKind.flagValue(value, current: uiApps, rules: rules)
             case let .skipHelpers(value):
-                skipHelpers = LineKind.flagEnabled(value)
+                skipHelpers = LineKind.flagValue(value, current: skipHelpers, rules: rules)
             case let .approval(path, sha256):
                 approvals[path] = sha256
             case let .approvalMode(value):
@@ -103,7 +111,7 @@ public struct ConfigDiagnostic: Equatable, Sendable, Identifiable {
 }
 
 public enum ConfigValidator {
-    public static func diagnose(_ document: ConfigDocument,
+    public static func diagnose(_ document: ConfigDocument, rules: EngineRules = .active,
                                 fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) })
         -> [ConfigDiagnostic]
     {
@@ -159,13 +167,11 @@ public enum ConfigValidator {
                     out.append(.init(.error, line: i, "Path exceeds PATH_MAX and would be truncated."))
                 }
             case let .override(path, token, pattern):
-                if declared[path] == nil {
-                    if let later = allDylibLines[path] {
-                        out.append(.init(.error, line: i,
-                            "Override appears before its dylib line (\(later + 1)); dynjectd ignores it. Move it below that line."))
-                    } else {
-                        out.append(.init(.error, line: i, "No dylib line declares \(path); dynjectd ignores this override."))
-                    }
+                if declared[path] == nil, rules == .stock, let later = allDylibLines[path] {
+                    out.append(.init(.error, line: i,
+                        "Override appears before its dylib line (\(later + 1)); dynjectd ignores it. Move it below that line."))
+                } else if allDylibLines[path] == nil {
+                    out.append(.init(.error, line: i, "No dylib line declares \(path); dynjectd ignores this override."))
                 } else {
                     overrideCounts[path, default: 0] += 1
                     if overrideCounts[path]! > DynjectLimits.maxOverridesPerDylib {
@@ -200,8 +206,16 @@ public enum ConfigValidator {
                     out.append(.init(.warning, line: i, "dylib-approval is \"audit\" or \"enforce\"; dynjectd reads \"\(value)\" as audit."))
                 }
             case let .uiApps(value), let .skipHelpers(value):
-                if !["yes", "no", "1", "0"].contains(value) {
-                    out.append(.init(.info, line: i, "Value \"\(value)\" is read as enabled (only \"no\" or \"0\" disable it)."))
+                switch rules {
+                case .stock:
+                    if !["yes", "no", "1", "0"].contains(value) {
+                        out.append(.init(.info, line: i, "Value \"\(value)\" is read as enabled (only \"no\" or \"0\" disable it)."))
+                    }
+                case .revised:
+                    if LineKind.flagWord(value) == nil {
+                        out.append(.init(.warning, line: i,
+                            "Value \"\(value)\" is neither yes nor no; dynjectd keeps the setting as it was (use yes/no, true/false, on/off or 1/0)."))
+                    }
                 }
             }
         }
@@ -212,7 +226,7 @@ public enum ConfigValidator {
         }
 
         // Overrides that can never match because an earlier override's pattern is a substring.
-        let effective = EffectiveConfig(document: document)
+        let effective = EffectiveConfig(document: document, rules: rules)
         for dylib in effective.dylibs {
             for (j, o) in dylib.overrides.enumerated() {
                 if let earlier = dylib.overrides[..<j].first(where: { o.pattern.contains($0.pattern) }) {

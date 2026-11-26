@@ -53,6 +53,9 @@ public struct DylibDecision: Equatable, Sendable {
     public enum Reason: Equatable, Sendable {
         case defaultPolicy(line: Int)
         case override(line: Int, pattern: String)
+        /// The launchd label allows the dylib, but the app's own bundle identifier doesn't (revised engine): it gets
+        /// the dylib's default (`pattern` nil) or a deny override, on `line`.
+        indirect case appIdentifier(bundleID: String, line: Int, pattern: String?, label: Reason)
     }
 
     public var dylibPath: String
@@ -66,6 +69,9 @@ public struct DylibDecision: Equatable, Sendable {
             return "default \(allowed ? "allow" : "deny") (line \(line + 1))"
         case let .override(line, pattern):
             return "override \(allowed ? "allow" : "deny") \"\(pattern)\" (line \(line + 1))"
+        case let .appIdentifier(bundleID, line, pattern, _):
+            let own = pattern.map { "override deny \"\($0)\"" } ?? "default deny"
+            return "the service name allows it, but the app's own identifier (\(bundleID.isEmpty ? "none readable" : bundleID)) gets \(own) (line \(line + 1)); dynjectd needs both"
         }
     }
 }
@@ -112,9 +118,35 @@ public enum PolicyEvaluator {
     /// From `path_is_ui_app`.
     public static let uiPathPrefixes = ["/Applications/", "/System/Applications/", "/System/Library/CoreServices/"]
 
+    /// The system-daemon pattern a service name matches, if any. Stock: anywhere in the name. Revised: as a whole
+    /// word, which starts the name or follows a ".", and isn't followed by a lowercase letter (a pattern that ends
+    /// in "." needs nothing after it).
+    public static func systemDaemonPattern(in service: String, rules: EngineRules = .active) -> String? {
+        switch rules {
+        case .stock:
+            return systemDaemonPatterns.first { service.contains($0) }
+        case .revised:
+            let name = Array(service.utf8)
+            return systemDaemonPatterns.first { pattern in
+                let p = Array(pattern.utf8)
+                guard !p.isEmpty, name.count >= p.count else { return false }
+                for at in 0...(name.count - p.count) {
+                    if at > 0, name[at - 1] != UInt8(ascii: ".") { continue }
+                    guard name[at..<(at + p.count)].elementsEqual(p) else { continue }
+                    if p.last == UInt8(ascii: ".") || at + p.count == name.count { return true }
+                    let next = name[at + p.count]
+                    if next < UInt8(ascii: "a") || next > UInt8(ascii: "z") { return true }
+                }
+                return false
+            }
+        }
+    }
+
     /// Stage 1: `handle_auth_exec` filters on the XPC service name.
-    public static func serviceGate(_ service: String, config: EffectiveConfig) -> GateOutcome {
-        if let p = systemDaemonPatterns.first(where: { service.contains($0) }) {
+    public static func serviceGate(_ service: String, config: EffectiveConfig, rules: EngineRules = .active)
+        -> GateOutcome
+    {
+        if let p = systemDaemonPattern(in: service, rules: rules) {
             return .fail("XPC service matches system-daemon pattern \"\(p)\"")
         }
         if let r = config.allowRules.first(where: { service.contains($0.value) }) {
@@ -156,15 +188,29 @@ public enum PolicyEvaluator {
         return false
     }
 
-    /// Stage 3: `build_dyld_for_bundle`.
-    public static func decisions(service: String, config: EffectiveConfig,
-                                 fileExists: (String) -> Bool) -> [DylibDecision] {
-        config.dylibs.map { dylib in
+    /// Stage 3: `build_dyld_for_bundle`. The first override whose pattern is in the service name decides, else the
+    /// dylib's default. The revised engine asks the same of "application.<bundleID>." (without regard to case) for
+    /// an app in a bundle, and injects only if both allow; pass the app's `bundleID` for that ("" when it has none
+    /// that can be read). nil means a program outside a bundle: the service name alone decides.
+    public static func decisions(service: String, bundleID: String? = nil, config: EffectiveConfig,
+                                 rules: EngineRules = .active, fileExists: (String) -> Bool) -> [DylibDecision] {
+        let verified = rules == .revised ? bundleID.map { "application.\($0)." } : nil
+        return config.dylibs.map { dylib in
             var allowed = dylib.defaultAllow
             var reason = DylibDecision.Reason.defaultPolicy(line: dylib.line)
             if let o = dylib.overrides.first(where: { service.contains($0.pattern) }) {
                 allowed = o.allow
                 reason = .override(line: o.line, pattern: o.pattern)
+            }
+            if allowed, let verified, let bundleID {
+                let own = dylib.overrides.first {
+                    $0.pattern.isEmpty || verified.range(of: $0.pattern, options: .caseInsensitive) != nil
+                }
+                if !(own?.allow ?? dylib.defaultAllow) {
+                    allowed = false
+                    reason = .appIdentifier(bundleID: bundleID, line: own?.line ?? dylib.line, pattern: own?.pattern,
+                                            label: reason)
+                }
             }
             return DylibDecision(dylibPath: dylib.path, allowed: allowed, reason: reason,
                                  fileMissing: !fileExists(dylib.path))
@@ -172,14 +218,16 @@ public enum PolicyEvaluator {
     }
 
     public static func evaluate(app: InstalledApp, service: String, config: EffectiveConfig,
+                                rules: EngineRules = .active,
                                 fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) })
         -> AppEvaluation
     {
         AppEvaluation(
             serviceName: service,
-            serviceGate: serviceGate(service, config: config),
+            serviceGate: serviceGate(service, config: config, rules: rules),
             processGate: processGate(name: app.executableName, path: app.executablePath, config: config),
-            decisions: decisions(service: service, config: config, fileExists: fileExists)
+            decisions: decisions(service: service, bundleID: app.bundleID, config: config, rules: rules,
+                                 fileExists: fileExists)
         )
     }
 }

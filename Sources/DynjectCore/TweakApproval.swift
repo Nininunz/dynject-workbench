@@ -42,12 +42,17 @@ public enum DaemonApprovalMode: String, Sendable {
     case audit, enforce
 
     public static func latest(in logText: String) -> DaemonApprovalMode? {
+        // Only lines the daemon wrote about itself count: "[dynjectd HH:MM:SS] dynjectd: " and then the message.
+        // A launchd label or app name that dynjectd logs can contain the same words further along a line.
         var mode: DaemonApprovalMode?
         for line in logText.split(separator: "\n", omittingEmptySubsequences: true) {
-            if line.hasSuffix("dynjectd: starting") { mode = nil }
-            guard let r = line.range(of: "dynjectd: approval: ") else { continue }
-            let rest = line[r.upperBound...]
-            if rest.hasPrefix("enforce") { mode = .enforce } else if rest.hasPrefix("audit") { mode = .audit }
+            guard line.hasPrefix("[dynjectd "), let close = line.firstIndex(of: "]") else { continue }
+            let rest = line[line.index(after: close)...]
+            guard rest.hasPrefix(" dynjectd: ") else { continue }
+            let message = rest.dropFirst(" dynjectd: ".count)
+            if message == "starting" { mode = nil }
+            else if message.hasPrefix("approval: enforce") { mode = .enforce }
+            else if message.hasPrefix("approval: audit") { mode = .audit }
         }
         return mode
     }

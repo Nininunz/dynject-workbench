@@ -13,6 +13,7 @@ struct DynjectWorkbenchApp: App {
                 .frame(minWidth: 980, minHeight: 640)
                 .task {
                     delegate.model = model
+                    EngineRules.follow(logAt: model.env.logPath)
                     model.start()
                     if let dir = model.env.smokeTestReportDirectory {
                         await SmokeTest(model: model, reportDirectory: dir).run()

@@ -62,9 +62,26 @@ public extension LineKind {
         return token == "allow"
     }
 
-    /// `ui_apps` / `skip_helpers`: enabled unless exactly "no" or "0".
+    /// `ui_apps` / `skip_helpers` in the stock engine: enabled unless exactly "no" or "0".
     static func flagEnabled(_ value: String) -> Bool {
         value != "no" && value != "0"
+    }
+
+    /// The words the revised engine reads as yes or no, in any case. nil: it keeps the value it had.
+    static func flagWord(_ value: String) -> Bool? {
+        switch value.lowercased() {
+        case "yes", "1", "true", "on": return true
+        case "no", "0", "false", "off": return false
+        default: return nil
+        }
+    }
+
+    /// What a `ui_apps` / `skip_helpers` line leaves the setting at.
+    static func flagValue(_ value: String, current: Bool, rules: EngineRules) -> Bool {
+        switch rules {
+        case .stock: return flagEnabled(value)
+        case .revised: return flagWord(value) ?? current
+        }
     }
 }
 
