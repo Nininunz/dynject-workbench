@@ -149,11 +149,14 @@ public enum PolicyEvaluator {
         if let p = systemDaemonPattern(in: service, rules: rules) {
             return .fail("XPC service matches system-daemon pattern \"\(p)\"")
         }
-        if let r = config.allowRules.first(where: { service.contains($0.value) }) {
-            return .pass("service name matches allow:\(r.value) (line \(r.line + 1))")
+        // Stock tries allow rules first here (and deny first in the process gate); revised tries deny first in both.
+        let allow = config.allowRules.first(where: { service.contains($0.value) })
+        let deny = config.denyRules.first(where: { service.contains($0.value) })
+        if let deny, rules == .revised || allow == nil {
+            return .fail("service name matches deny:\(deny.value) (line \(deny.line + 1))")
         }
-        if let r = config.denyRules.first(where: { service.contains($0.value) }) {
-            return .fail("service name matches deny:\(r.value) (line \(r.line + 1))")
+        if let r = allow {
+            return .pass("service name matches allow:\(r.value) (line \(r.line + 1))")
         }
         if let p = uiBundlePatterns.first(where: { service.contains($0) }) {
             return .pass("service name matches built-in UI pattern \"\(p)\"")

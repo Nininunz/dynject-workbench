@@ -153,6 +153,37 @@ final class EngineRulesTests: XCTestCase {
         XCTAssertEqual(Doctor.configComplaints(inLog: "[dynjectd 01:00:00] dynjectd: starting\n"), [])
     }
 
+    func testDenyComesFirstAtTheServiceGateInTheRevisedEngine() {
+        let text = "dylib:/x.dylib\nallow:Safari\ndeny:com.apple.Safari\n"
+        let label = "application.com.apple.Safari.1.2"
+        XCTAssertTrue(PolicyEvaluator.serviceGate(label, config: config(text, .stock), rules: .stock).passed)
+        XCTAssertFalse(PolicyEvaluator.serviceGate(label, config: config(text, .revised), rules: .revised).passed)
+        // Only one of them matches: the same answer from both.
+        let other = "application.com.example.Safari-like.1.2"
+        XCTAssertTrue(PolicyEvaluator.serviceGate(other, config: config(text, .revised), rules: .revised).passed)
+        XCTAssertTrue(PolicyEvaluator.serviceGate(other, config: config(text, .stock), rules: .stock).passed)
+    }
+
+    func testEmptyRulesLongLinesAndUnknownApprovalMode() {
+        let text = "dylib:/x.dylib:deny\ndylib-override:/x.dylib:allow:\nallow:\ndeny:\ndylib-approval:strict\n"
+        let stock = config(text, .stock), revised = config(text, .revised)
+        XCTAssertEqual(stock.dylibs[0].overrides.count, 1)
+        XCTAssertEqual(stock.allowRules.count, 1)
+        XCTAssertFalse(stock.approvalEnforced)
+        XCTAssertTrue(revised.dylibs[0].overrides.isEmpty)
+        XCTAssertTrue(revised.allowRules.isEmpty && revised.denyRules.isEmpty)
+        XCTAssertTrue(revised.approvalEnforced, "a typo doesn't switch the check off")
+        XCTAssertFalse(config("dylib:/x.dylib\ndylib-approval:audit\n", .revised).approvalEnforced)
+
+        let long = "deny:" + String(repeating: "a", count: DynjectLimits.maxLineBytes) + "\ndylib:/y.dylib\n"
+        XCTAssertTrue(config(long, .revised).denyRules.isEmpty)
+        XCTAssertEqual(config(long, .revised).dylibs.map(\.path), ["/y.dylib"])
+        let messages = ConfigValidator.diagnose(ConfigDocument(text: text), rules: .revised, fileExists: { _ in true })
+            .map(\.message)
+        XCTAssertTrue(messages.contains { $0.contains("dynjectd ignores this override") })
+        XCTAssertTrue(messages.contains { $0.contains("as enforce") })
+    }
+
     // MARK: The approval mode in the log
 
     func testApprovalModeCountsOnlyTheDaemonsOwnLines() {

@@ -4,6 +4,14 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
+unreleased
+----------
+
+- the revised engine's rules gained four more cases, for the next engine build: a deny rule wins
+  over an allow rule on the service name too, an empty rule or pattern and an over-long line are
+  ignored, and an unknown `dylib-approval` value enforces.
+
+
 0.1.14 (2026-11-25)
 -------------------
 

@@ -9,6 +9,9 @@ import Foundation
 /// | a dylib's overrides | matched against the label | the label and "application.<bundle id>." must both allow |
 /// | `ui_apps` / `skip_helpers` | on unless "no" or "0" | yes/no/true/false/on/off/1/0; another value changes nothing |
 /// | `dylib-override` above its `dylib:` line | ignored | counts |
+/// | a label that matches an allow and a deny rule | allowed | denied |
+/// | an empty rule or pattern, an over-long line | matches everything / is split | ignored |
+/// | an unknown `dylib-approval` value | audit | enforce |
 ///
 /// `.stock` is the original engine (ut0mt8/dynject up to its pull request 1). `.revised` is the engine with the
 /// hardening and launch/config changes of pull requests 2 and 3.

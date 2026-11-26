@@ -45,6 +45,17 @@ public struct EffectiveConfig: Equatable, Sendable {
         defer { for p in pending { attach(p.path, p.override) } }
 
         for (index, kind) in document.kinds.enumerated() {
+            // The revised engine drops a line that doesn't fit its read buffer, and an empty rule or pattern
+            // (which would match everything).
+            if rules == .revised {
+                if document.lines[index].text.utf8.count >= DynjectLimits.maxLineBytes { continue }
+                switch kind {
+                case let .override(_, _, pattern) where pattern.isEmpty: continue
+                case let .allow(value) where value.isEmpty: continue
+                case let .deny(value) where value.isEmpty: continue
+                default: break
+                }
+            }
             switch kind {
             case let .dylib(path, token):
                 guard dylibs.count < DynjectLimits.maxDylibs else { continue }
@@ -66,7 +77,8 @@ public struct EffectiveConfig: Equatable, Sendable {
             case let .approval(path, sha256):
                 approvals[path] = sha256
             case let .approvalMode(value):
-                approvalEnforced = value == "enforce"
+                // An unknown value: audit in the first approval-aware engine, enforce in the revised one.
+                approvalEnforced = rules == .revised ? value != "audit" : value == "enforce"
             default:
                 continue
             }
@@ -129,8 +141,9 @@ public enum ConfigValidator {
         for (i, line) in document.lines.enumerated() {
             let bytes = (line.text + line.terminator).utf8.count
             if bytes > DynjectLimits.maxLineBytes {
-                out.append(.init(.error, line: i,
-                    "Line is \(bytes) bytes; dynjectd reads at most \(DynjectLimits.maxLineBytes) per line and would split it into separate directives."))
+                out.append(.init(.error, line: i, rules == .revised
+                    ? "Line is \(bytes) bytes; dynjectd reads at most \(DynjectLimits.maxLineBytes) per line and ignores this one."
+                    : "Line is \(bytes) bytes; dynjectd reads at most \(DynjectLimits.maxLineBytes) per line and would split it into separate directives."))
             }
             if line.text.drop(while: { $0 == " " || $0 == "\t" }).contains("\t"), kinds[i].isDirective {
                 out.append(.init(.info, line: i, "Contains a tab. dynjectd only trims leading tabs, so tabs inside a value are matched literally."))
@@ -182,7 +195,8 @@ public enum ConfigValidator {
                     out.append(.init(.warning, line: i, "Override policy \"\(token)\" is treated as deny."))
                 }
                 if pattern.isEmpty {
-                    out.append(.init(.warning, line: i, "Empty pattern matches every bundle."))
+                    out.append(.init(.warning, line: i, rules == .revised
+                        ? "Empty pattern; dynjectd ignores this override." : "Empty pattern matches every bundle."))
                 }
                 if pattern.utf8.count > DynjectLimits.maxPatternBytes {
                     out.append(.init(.warning, line: i, "Pattern is longer than \(DynjectLimits.maxPatternBytes) bytes and will be truncated."))
@@ -190,11 +204,17 @@ public enum ConfigValidator {
             case let .allow(value):
                 allowCount += 1
                 if allowCount > DynjectLimits.maxRules { out.append(.init(.error, line: i, "Too many allow rules; ignored.")) }
-                if value.isEmpty { out.append(.init(.warning, line: i, "Empty allow rule matches every process.")) }
+                if value.isEmpty {
+                    out.append(.init(.warning, line: i, rules == .revised
+                        ? "Empty allow rule; dynjectd ignores it." : "Empty allow rule matches every process."))
+                }
             case let .deny(value):
                 denyCount += 1
                 if denyCount > DynjectLimits.maxRules { out.append(.init(.error, line: i, "Too many deny rules; ignored.")) }
-                if value.isEmpty { out.append(.init(.warning, line: i, "Empty deny rule blocks every process.")) }
+                if value.isEmpty {
+                    out.append(.init(.warning, line: i, rules == .revised
+                        ? "Empty deny rule; dynjectd ignores it." : "Empty deny rule blocks every process."))
+                }
             case .malformedApproval:
                 out.append(.init(.warning, line: i, "dylib-sha256 needs path:<64 hex digits>; dynjectd ignores this line."))
             case let .approval(path, _):
@@ -203,7 +223,7 @@ public enum ConfigValidator {
                 }
             case let .approvalMode(value):
                 if value != "audit", value != "enforce" {
-                    out.append(.init(.warning, line: i, "dylib-approval is \"audit\" or \"enforce\"; dynjectd reads \"\(value)\" as audit."))
+                    out.append(.init(.warning, line: i, "dylib-approval is \"audit\" or \"enforce\"; dynjectd reads \"\(value)\" as \(rules == .revised ? "enforce" : "audit")."))
                 }
             case let .uiApps(value), let .skipHelpers(value):
                 switch rules {
