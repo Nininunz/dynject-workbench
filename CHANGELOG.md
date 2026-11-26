@@ -4,10 +4,10 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
-unreleased
-----------
+0.1.15 (2026-11-25)
+-------------------
 
-- the revised engine's rules gained four more cases, for the next engine build: a deny rule wins
+- the revised engine's rules gained four more cases, matching the current engine build: a deny rule wins
   over an allow rule on the service name too, an empty rule or pattern and an over-long line are
   ignored, and an unknown `dylib-approval` value enforces.
 
