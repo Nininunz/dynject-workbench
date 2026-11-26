@@ -118,6 +118,12 @@ public enum PolicyEvaluator {
     /// From `path_is_ui_app`.
     public static let uiPathPrefixes = ["/Applications/", "/System/Applications/", "/System/Library/CoreServices/"]
 
+    /// Where apps delivered in a cryptex really run from (Safari). The revised engine counts these as app folders
+    /// too; the stock one reports such an app as "no_gui".
+    public static let cryptexUIPathPrefixes = [
+        "/System/Volumes/Preboot/Cryptexes/App/System/Applications/", "/System/Cryptexes/App/System/Applications/",
+    ]
+
     /// The system-daemon pattern a service name matches, if any. Stock: anywhere in the name. Revised: as a whole
     /// word, which starts the name or follows a ".", and isn't followed by a lowercase letter (a pattern that ends
     /// in "." needs nothing after it).
@@ -165,7 +171,8 @@ public enum PolicyEvaluator {
     }
 
     /// Stage 2: `check_match` filters on the executable name and path.
-    public static func processGate(name: String, path: String, config: EffectiveConfig) -> GateOutcome {
+    public static func processGate(name: String, path: String, config: EffectiveConfig,
+                                   rules: EngineRules = .active) -> GateOutcome {
         if config.skipHelpers, name.contains(" Helper") {
             return .fail("skip_helpers is on and the executable name contains \" Helper\"")
         }
@@ -175,7 +182,7 @@ public enum PolicyEvaluator {
         if let r = config.allowRules.first(where: { name.contains($0.value) || path.contains($0.value) }) {
             return .pass("executable matches allow:\(r.value) (line \(r.line + 1))")
         }
-        if config.uiApps, isUIAppPath(path) {
+        if config.uiApps, isUIAppPath(path, rules: rules) {
             return .pass("ui_apps is on and the app is in a standard Applications folder")
         }
         if config.uiApps {
@@ -184,8 +191,9 @@ public enum PolicyEvaluator {
         return .fail("ui_apps is off and no allow rule matches the executable (no_gui)")
     }
 
-    public static func isUIAppPath(_ path: String) -> Bool {
-        for prefix in uiPathPrefixes where path.hasPrefix(prefix) {
+    public static func isUIAppPath(_ path: String, rules: EngineRules = .active) -> Bool {
+        let prefixes = rules == .revised ? uiPathPrefixes + cryptexUIPathPrefixes : uiPathPrefixes
+        for prefix in prefixes where path.hasPrefix(prefix) {
             if path.dropFirst(prefix.count).contains(".app/") { return true }
         }
         return false
@@ -228,7 +236,8 @@ public enum PolicyEvaluator {
         AppEvaluation(
             serviceName: service,
             serviceGate: serviceGate(service, config: config, rules: rules),
-            processGate: processGate(name: app.executableName, path: app.executablePath, config: config),
+            processGate: processGate(name: app.executableName, path: app.executablePath, config: config,
+                                     rules: rules),
             decisions: decisions(service: service, bundleID: app.bundleID, config: config, rules: rules,
                                  fileExists: fileExists)
         )

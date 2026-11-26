@@ -184,6 +184,15 @@ final class EngineRulesTests: XCTestCase {
         XCTAssertTrue(messages.contains { $0.contains("as enforce") })
     }
 
+    func testCryptexAppsAreAppsInTheRevisedEngine() {
+        let safari = "/System/Volumes/Preboot/Cryptexes/App/System/Applications/Safari.app/Contents/MacOS/Safari"
+        let cfg = config("dylib:/x.dylib\n", .revised)
+        XCTAssertFalse(PolicyEvaluator.processGate(name: "Safari", path: safari, config: cfg, rules: .stock).passed)
+        XCTAssertTrue(PolicyEvaluator.processGate(name: "Safari", path: safari, config: cfg, rules: .revised).passed)
+        XCTAssertFalse(PolicyEvaluator.isUIAppPath("/System/Volumes/Preboot/Cryptexes/App/usr/bin/tool", rules: .revised))
+        XCTAssertTrue(PolicyEvaluator.isUIAppPath("/Applications/Foo.app/Contents/MacOS/Foo", rules: .stock))
+    }
+
     // MARK: The approval mode in the log
 
     func testApprovalModeCountsOnlyTheDaemonsOwnLines() {

@@ -4,6 +4,15 @@ changelog
 newest first. for testers; the commit log has the details.
 
 
+unreleased
+----------
+
+- safari: with the revised engine, workbench expects tweaks in apps that run from a cryptex
+  (safari's real location) the way that engine injects them. before, `dw respring` and doctor
+  called the tweaks it loads there "unwanted". safari only takes a tweak where macos library
+  validation is switched off; elsewhere it drops the dylib without a word.
+
+
 0.1.15 (2026-11-25)
 -------------------
 

@@ -12,6 +12,7 @@ import Foundation
 /// | a label that matches an allow and a deny rule | allowed | denied |
 /// | an empty rule or pattern, an over-long line | matches everything / is split | ignored |
 /// | an unknown `dylib-approval` value | audit | enforce |
+/// | an app in a cryptex (Safari) | "no_gui" | an app like any other |
 ///
 /// `.stock` is the original engine (ut0mt8/dynject up to its pull request 1). `.revised` is the engine with the
 /// hardening and launch/config changes of pull requests 2 and 3.
